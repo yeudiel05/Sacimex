@@ -5,10 +5,14 @@ import './Login.css';
 function Login() {
   const [usuario, setUsuario] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    setIsLoading(true);
     
     try {
       const response = await fetch('http://localhost:3001/api/login', {
@@ -22,19 +26,24 @@ function Login() {
       const data = await response.json();
 
       if (data.success) {
-        navigate('/dashboard'); 
+        setTimeout(() => {
+          navigate('/dashboard'); 
+        }, 500);
       } else {
-        alert(data.message);
+        setError(data.message);
+        setIsLoading(false); 
       }
     } catch (error) {
       console.error("Error en la petición:", error);
-      alert("Error al conectar con el servidor.");
+      setError("Error al conectar con el servidor.");
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="login-container">
-      <div className="login-card">
+      {/* Agregamos la clase fade-in-up para que la tarjeta entre flotando */}
+      <div className="login-card fade-in-up">
         
         <div className="login-header">
           <h1>Opciones <br/><span className="brand-name">Sacimex</span></h1>
@@ -43,14 +52,26 @@ function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
+          
+          {/* Aquí se muestra el error si la contraseña está mal */}
+          {error && (
+            <div className="error-message shake-animation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              {error}
+            </div>
+          )}
+
           <div className="input-group">
             <label>Usuario</label>
-            <div className="input-wrapper">
+            <div className={`input-wrapper ${error ? 'input-error' : ''}`}>
               <input 
                 type="text" 
                 placeholder="Ej. admin_yeudi" 
                 value={usuario}
-                onChange={(e) => setUsuario(e.target.value)}
+                onChange={(e) => {
+                  setUsuario(e.target.value);
+                  setError('');
+                }}
                 required
               />
               <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -62,12 +83,15 @@ function Login() {
 
           <div className="input-group">
             <label>Contraseña</label>
-            <div className="input-wrapper">
+            <div className={`input-wrapper ${error ? 'input-error' : ''}`}>
               <input 
                 type="password" 
                 placeholder="••••••••••••" 
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError('');
+                }}
                 required
               />
               <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -77,8 +101,15 @@ function Login() {
             </div>
           </div>
 
-          <button type="submit" className="login-button">
-            Ingresar al Sistema
+          {/* Botón dinámico */}
+          <button type="submit" className="login-button" disabled={isLoading}>
+            {isLoading ? (
+              <span className="loading-content">
+                <span className="spinner"></span> Verificando...
+              </span>
+            ) : (
+              'Ingresar al Sistema'
+            )}
           </button>
         </form>
 

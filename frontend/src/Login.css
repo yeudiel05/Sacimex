@@ -167,3 +167,84 @@ body, html, #root {
 .forgot-password:hover {
   color: #10d440;
 }
+/* --- ANIMACIÓN DE ENTRADA --- */
+@keyframes fadeInUpLogin {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in-up {
+  animation: fadeInUpLogin 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* --- ESTILOS DE ERROR --- */
+.error-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #fef2f2;
+  color: #ef4444;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid #fecaca;
+}
+
+.error-message svg {
+  width: 18px;
+  height: 18px;
+}
+
+.input-error input {
+  border-color: #fca5a5 !important;
+  background-color: #fffbfa !important;
+}
+
+.input-error input:focus {
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15) !important;
+}
+
+.input-error .input-icon {
+  color: #ef4444 !important;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-6px); }
+}
+
+.shake-animation {
+  animation: shake 0.4s ease-in-out;
+}
+
+/* --- ESTADO DE CARGA EN EL BOTÓN --- */
+.login-button:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.loading-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
