@@ -1,0 +1,169 @@
+/* --- RESET GLOBAL --- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body, html, #root {
+  width: 100%;
+  height: 100%;
+}
+/* -------------------- */
+
+/* 1. Contenedor principal con fondo elegante y profundidad */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  width: 100%;
+  background: radial-gradient(circle at center, #142a36 0%, #09141A 100%);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  padding: 20px;
+}
+
+/* 2. Tarjeta de login más amplia y suave */
+.login-card {
+  background-color: #ffffff;
+  width: 100%;
+  max-width: 440px;
+  padding: 48px 40px;
+  border-radius: 24px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* 3. Cabecera y Tipografía */
+.login-header {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.login-header h1 {
+  font-size: 22px;
+  color: #475569;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.brand-name {
+  color: #10d440;
+  font-size: 34px;
+  font-weight: 700;
+  display: block;
+  letter-spacing: -0.5px;
+}
+
+.welcome-text {
+  font-size: 20px;
+  color: #0f172a;
+  font-weight: 700;
+  margin: 24px 0 6px 0;
+}
+
+.subtitle-text {
+  font-size: 14px;
+  color: #64748b;
+}
+
+/* 4. Formulario e Inputs */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.input-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-wrapper input {
+  width: 100%;
+  padding: 14px 44px 14px 16px;
+  font-size: 15px;
+  color: #0f172a;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.input-wrapper input::placeholder {
+  color: #94a3b8;
+}
+
+.input-wrapper input:focus {
+  background-color: #ffffff;
+  border-color: #10d440;
+  box-shadow: 0 0 0 4px rgba(16, 212, 64, 0.15);
+}
+
+.input-icon {
+  position: absolute;
+  right: 16px;
+  width: 20px;
+  height: 20px;
+  color: #94a3b8;
+  transition: color 0.3s ease;
+}
+
+.input-wrapper input:focus + .input-icon {
+  color: #10d440;
+}
+
+/* 5. Botón Premium */
+.login-button {
+  background-color: #10d440;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 16px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 20px rgba(16, 212, 64, 0.35); 
+}
+
+.login-button:hover {
+  background-color: #0ebf39;
+  box-shadow: 0 10px 24px rgba(16, 212, 64, 0.45);
+  transform: translateY(-2px);
+}
+
+.login-button:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 10px rgba(16, 212, 64, 0.3);
+}
+
+/* 6. Footer */
+.login-footer {
+  text-align: center;
+  margin-top: 28px;
+}
+
+.forgot-password {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.forgot-password:hover {
+  color: #10d440;
+}
