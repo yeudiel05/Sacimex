@@ -6,12 +6,13 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
+const PDFDocument = require('pdfkit');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sacimex_super_secreto_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'sacimex';
 
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -56,6 +57,9 @@ const verificarToken = (req, res, next) => {
     });
 };
 
+// =====================================================================
+// RUTAS DE LOGIN
+// =====================================================================
 app.post('/api/login', (req, res) => {
     const { usuario, password } = req.body;
     const query = 'SELECT * FROM USUARIOS WHERE username = ? AND password_hash = ? AND estatus_activo = TRUE';
@@ -73,6 +77,9 @@ app.post('/api/login', (req, res) => {
     });
 });
 
+// =====================================================================
+// SPRINT 1: RUTAS DEL MÓDULO DE CLIENTES
+// =====================================================================
 app.get('/api/clientes', verificarToken, (req, res) => {
     const query = `
     SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
@@ -174,7 +181,6 @@ app.get('/api/expedientes/:id_persona', verificarToken, (req, res) => {
     });
 });
 
-// BORRAR ARCHIVO
 app.delete('/api/expedientes/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     db.query('SELECT ruta_archivo FROM EXPEDIENTES_CLIENTES WHERE id = ?', [id], (err, results) => {
@@ -192,5 +198,312 @@ app.delete('/api/expedientes/:id', verificarToken, (req, res) => {
     });
 });
 
+// =====================================================================
+// SPRINT 2: MÓDULO DE INVERSORES
+// =====================================================================
+
+// 1. Obtener todos los inversores activos
+app.get('/api/inversores', verificarToken, (req, res) => {
+  const query = `
+    SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
+           p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.banco, 
+           i.origen_fondos, i.estatus_activo
+    FROM PERSONAS p
+    INNER JOIN INVERSORES i ON p.id = i.id_persona
+    WHERE p.eliminado = FALSE
+    ORDER BY p.id DESC
+  `;
+  db.query(query, (err, results) => {
+    if (err) return res.status(500).json({ success: false, message: 'Error al obtener inversores' });
+    res.json({ success: true, data: results });
+  });
+});
+
+// 2. Registrar un nuevo inversor
+app.post('/api/inversores', verificarToken, (req, res) => {
+  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, banco, origen_fondos } = req.body;
+
+  if (!telefono || telefono.length !== 10) return res.status(400).json({ success: false, message: 'El teléfono debe tener 10 dígitos.' });
+  if (!clabe_bancaria || clabe_bancaria.length !== 18) return res.status(400).json({ success: false, message: 'La CLABE interbancaria debe tener 18 dígitos.' });
+
+  db.beginTransaction(err => {
+    if (err) return res.status(500).json({ success: false, message: 'Error de servidor' });
+    
+    const queryPersona = 'INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)';
+    db.query(queryPersona, [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
+      if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error: Posible RFC duplicado.' }));
+      
+      const idNuevaPersona = resultPersona.insertId;
+      
+      const queryInversor = 'INSERT INTO INVERSORES (id_persona, clabe_bancaria, banco, origen_fondos, estatus_activo) VALUES (?, ?, ?, ?, 1)';
+      db.query(queryInversor, [idNuevaPersona, clabe_bancaria, banco, origen_fondos], (err) => {
+        if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al registrar los datos bancarios.' }));
+        
+        db.commit(err => {
+          if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al confirmar guardado.' }));
+          
+          registrarBitacora(req.usuario.id, 'CREAR_INVERSOR', `Se registró al inversor ${nombre} con RFC ${rfc}`);
+          res.json({ success: true, message: 'Inversor registrado exitosamente.' });
+        });
+      });
+    });
+  });
+});
+
+// 3. Cambiar estatus de un inversor (1 Activo / 0 Inactivo)
+app.put('/api/inversores/:id_persona/estatus', verificarToken, (req, res) => {
+  const { id_persona } = req.params;
+  const { estatus_activo } = req.body; 
+
+  db.query('UPDATE INVERSORES SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
+    if (err) return res.status(500).json({ success: false, message: 'Error al actualizar estatus' });
+    
+    const estadoTxt = estatus_activo ? 'ACTIVO' : 'INACTIVO';
+    registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS_INVERSOR', `Estatus del inversor ID ${id_persona} cambió a ${estadoTxt}`);
+    res.json({ success: true, message: 'Estatus actualizado' });
+  });
+});
+
+// 3.5 Editar un inversor existente
+app.put('/api/inversores/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, banco, origen_fondos } = req.body;
+
+  db.beginTransaction(err => {
+    if (err) return res.status(500).json({ success: false, message: 'Error de servidor' });
+    
+    db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?',
+      [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
+        if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al actualizar datos personales.' }));
+        
+        db.query('UPDATE INVERSORES SET clabe_bancaria=?, banco=?, origen_fondos=? WHERE id_persona=?',
+          [clabe_bancaria, banco, origen_fondos, id], (err) => {
+            if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al actualizar datos bancarios.' }));
+            
+            db.commit(err => {
+              if (err) return db.rollback(() => res.status(500).json({ success: false }));
+              registrarBitacora(req.usuario.id, 'EDITAR_INVERSOR', `Se actualizaron los datos del inversor ID ${id}`);
+              res.json({ success: true, message: 'Inversor actualizado exitosamente.' });
+            });
+          });
+      });
+  });
+});
+
+// 3.6 Eliminar un inversor (Borrado Lógico)
+app.delete('/api/inversores/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+  db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
+    if (err) return res.status(500).json({ success: false });
+    registrarBitacora(req.usuario.id, 'BORRADO_LOGICO', `Inversor ID ${id} eliminado`);
+    res.json({ success: true, message: 'Inversor eliminado correctamente' });
+  });
+});
+
+// =====================================================================
+// SPRINT 2: RUTAS DE CONTRATOS Y TASAS
+// =====================================================================
+
+// 4. Obtener el catálogo de tasas activas
+app.get('/api/tasas', verificarToken, (req, res) => {
+  db.query('SELECT * FROM CATALOGO_TASAS WHERE estatus_activo = 1', (err, results) => {
+      if (err) return res.status(500).json({ success: false });
+      res.json({ success: true, data: results });
+  });
+});
+
+// 5. Obtener los contratos de un inversor específico
+app.get('/api/contratos/:id_inversor', verificarToken, (req, res) => {
+  const query = `
+      SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada 
+      FROM CONTRATOS_INVERSION c
+      JOIN CATALOGO_TASAS t ON c.id_tasa = t.id
+      WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC
+  `;
+  db.query(query, [req.params.id_inversor], (err, results) => {
+      if (err) return res.status(500).json({ success: false });
+      res.json({ success: true, data: results });
+  });
+});
+
+// 6. Crear un nuevo contrato
+app.post('/api/contratos', verificarToken, (req, res) => {
+  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin } = req.body;
+  const query = 'INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, "ACTIVO")';
+  
+  db.query(query, [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin], (err) => {
+      if (err) return res.status(500).json({ success: false, message: 'Error al crear el contrato.' });
+      registrarBitacora(req.usuario.id, 'CREAR_CONTRATO', `Contrato creado para inversor ID ${id_inversor} por $${monto_inicial}`);
+      res.json({ success: true, message: 'Contrato de inversión activado exitosamente.' });
+  });
+});
+
+// =====================================================================
+// SPRINT 2: RUTAS DE BENEFICIARIOS
+// =====================================================================
+
+// 7. Obtener beneficiarios de un inversor
+app.get('/api/beneficiarios/:id_inversor', verificarToken, (req, res) => {
+  db.query('SELECT * FROM BENEFICIARIOS WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
+      if (err) return res.status(500).json({ success: false });
+      res.json({ success: true, data: results });
+  });
+});
+
+// 8. Registrar un nuevo beneficiario (Con doble validación matemática del 100%)
+app.post('/api/beneficiarios', verificarToken, (req, res) => {
+  const { id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento } = req.body;
+  
+  // Validamos en la BD cuánto porcentaje ya tiene asignado este inversor
+  db.query('SELECT SUM(porcentaje) as total FROM BENEFICIARIOS WHERE id_inversor = ?', [id_inversor], (err, results) => {
+      const totalActual = parseFloat(results[0].total) || 0;
+      const nuevoTotal = totalActual + parseFloat(porcentaje);
+      
+      if (nuevoTotal > 100) {
+          return res.status(400).json({ success: false, message: `No puedes exceder el 100%. Actualmente tienes ${totalActual}% asignado.` });
+      }
+
+      const query = 'INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)';
+      db.query(query, [id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento || null], (err) => {
+          if (err) return res.status(500).json({ success: false, message: 'Error al registrar beneficiario.' });
+          registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Se agregó beneficiario a inversor ID ${id_inversor}`);
+          res.json({ success: true, message: 'Beneficiario registrado exitosamente.' });
+      });
+  });
+});
+
+// 9. Eliminar un beneficiario
+app.delete('/api/beneficiarios/:id', verificarToken, (req, res) => {
+  db.query('DELETE FROM BENEFICIARIOS WHERE id = ?', [req.params.id], (err) => {
+      if (err) return res.status(500).json({ success: false });
+      registrarBitacora(req.usuario.id, 'ELIMINAR_BENEFICIARIO', `Beneficiario ID ${req.params.id} eliminado`);
+      res.json({ success: true });
+  });
+});
+
+// =====================================================================
+// SPRINT 2: RUTAS DE MOVIMIENTOS (ESTADO DE CUENTA)
+// =====================================================================
+
+// 10. Obtener historial de movimientos de un inversor (todos sus contratos)
+app.get('/api/movimientos/:id_inversor', verificarToken, (req, res) => {
+  const query = `
+      SELECT m.*, c.id as contrato_id 
+      FROM MOVIMIENTOS_INVERSION m
+      JOIN CONTRATOS_INVERSION c ON m.id_contrato = c.id
+      WHERE c.id_inversor = ?
+      ORDER BY m.fecha_movimiento DESC
+  `;
+  db.query(query, [req.params.id_inversor], (err, results) => {
+      if (err) return res.status(500).json({ success: false });
+      res.json({ success: true, data: results });
+  });
+});
+
+// 11. Registrar un nuevo movimiento con comprobante
+app.post('/api/movimientos', verificarToken, upload.single('comprobante'), (req, res) => {
+  const { id_contrato, tipo, monto } = req.body;
+  
+  if (!id_contrato || !tipo || !monto) {
+      return res.status(400).json({ success: false, message: 'Faltan datos obligatorios.' });
+  }
+
+  // Si se subió un archivo, guardamos su ruta
+  let recibo_comprobante = null;
+  if (req.file) {
+      recibo_comprobante = `uploads/${req.file.filename}`;
+  }
+
+  const query = 'INSERT INTO MOVIMIENTOS_INVERSION (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")';
+  
+  db.query(query, [id_contrato, tipo, monto, recibo_comprobante], (err) => {
+      if (err) return res.status(500).json({ success: false, message: 'Error al registrar el movimiento.' });
+      
+      registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Se registró un ${tipo} de $${monto} en el contrato #${id_contrato}`);
+      res.json({ success: true, message: 'Movimiento registrado correctamente.' });
+  });
+});
+
+// =====================================================================
+// SPRINT 2: GENERACIÓN DE PDF LEGAL (CONTRATOS)
+// =====================================================================
+
+// 12. Generar PDF de Contrato
+app.get('/api/contratos/:id/pdf', verificarToken, (req, res) => {
+  const idContrato = req.params.id;
+
+  const query = `
+      SELECT c.*, p.nombre_razon_social, p.rfc, p.direccion, i.clabe_bancaria, i.banco, t.nombre_tasa, t.tasa_anual_esperada 
+      FROM CONTRATOS_INVERSION c
+      JOIN INVERSORES i ON c.id_inversor = i.id_persona
+      JOIN PERSONAS p ON i.id_persona = p.id
+      JOIN CATALOGO_TASAS t ON c.id_tasa = t.id
+      WHERE c.id = ?
+  `;
+
+  db.query(query, [idContrato], (err, results) => {
+      if (err || results.length === 0) return res.status(404).send('Contrato no encontrado');
+
+      const contrato = results[0];
+
+      // Creamos el documento PDF
+      const doc = new PDFDocument({ margin: 50 });
+      
+      // Le decimos al navegador que esto es un archivo descargable
+      res.setHeader('Content-disposition', `attachment; filename=Contrato_Inversion_${contrato.id.toString().padStart(4, '0')}.pdf`);
+      res.setHeader('Content-type', 'application/pdf');
+
+      // Enviamos el PDF en tiempo real a la web
+      doc.pipe(res);
+
+      // --- DISEÑO DEL DOCUMENTO LEGAL ---
+      doc.fontSize(18).font('Helvetica-Bold').text('CONTRATO DE INVERSIÓN', { align: 'center' });
+      doc.moveDown();
+      
+      doc.fontSize(10).font('Helvetica').text(`Folio de Contrato: #${contrato.id.toString().padStart(4, '0')}`, { align: 'right' });
+      doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-MX')}`, { align: 'right' });
+      doc.moveDown(2);
+
+      doc.fontSize(12).font('Helvetica-Bold').text('1. PARTES CONTRATANTES');
+      doc.font('Helvetica').text(`Por una parte, OPCIONES SACIMEX (La Institución), y por la otra, el INVERSOR:`);
+      doc.moveDown();
+      doc.text(`Nombre / Razón Social: ${contrato.nombre_razon_social}`);
+      doc.text(`RFC: ${contrato.rfc}`);
+      doc.text(`Dirección: ${contrato.direccion}`);
+      doc.moveDown();
+
+      doc.font('Helvetica-Bold').text('2. CONDICIONES DE LA INVERSIÓN');
+      doc.font('Helvetica').text(`Monto del Capital: $${Number(contrato.monto_inicial).toLocaleString('es-MX')} MXN`);
+      doc.text(`Producto Contratado: ${contrato.nombre_tasa} (${contrato.tasa_anual_esperada}% de rendimiento anual)`);
+      doc.text(`Frecuencia de Pago de Intereses: ${contrato.frecuencia_pagos}`);
+      doc.text(`Fecha de Inicio: ${new Date(contrato.fecha_inicio).toLocaleDateString('es-MX')}`);
+      doc.text(`Fecha de Vencimiento: ${new Date(contrato.fecha_fin).toLocaleDateString('es-MX')}`);
+      doc.moveDown();
+
+      doc.font('Helvetica-Bold').text('3. DATOS BANCARIOS DEL INVERSOR');
+      doc.font('Helvetica').text(`Institución Bancaria: ${contrato.banco}`);
+      doc.text(`CLABE Interbancaria: ${contrato.clabe_bancaria}`);
+      doc.moveDown(4);
+
+      // --- ÁREA DE FIRMAS ---
+      doc.font('Helvetica-Bold').text('FIRMAS DE CONFORMIDAD', { align: 'center' });
+      doc.moveDown(4);
+
+      // Líneas de firma
+      const finalY = doc.y;
+      doc.text('__________________________________', 50, finalY, { width: 200, align: 'center' });
+      doc.text('__________________________________', 350, finalY, { width: 200, align: 'center' });
+      doc.moveDown();
+      doc.font('Helvetica').fontSize(10);
+      doc.text('OPCIONES SACIMEX', 50, doc.y, { width: 200, align: 'center' });
+      doc.text(contrato.nombre_razon_social, 350, doc.y - 12, { width: 200, align: 'center' });
+
+      // Finalizar PDF
+      doc.end();
+      
+      registrarBitacora(req.usuario.id, 'DESCARGAR_CONTRATO', `Se descargó el PDF del contrato #${contrato.id}`);
+  });
+});
+
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => { console.log(`Servidor Backend en puerto ${PORT}`); });
+app.listen(PORT, () => { console.log(`Servidor Backend corriendo en el puerto ${PORT}`); });

@@ -1,0 +1,580 @@
+:root {
+  --brand-green: #10d440;
+  --brand-green-hover: #0ebf39;
+  --brand-green-light: rgba(16, 212, 64, 0.1);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --border-light: #e2e8f0;
+  --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.06);
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}
+
+.inversores-container { width: 100%; }
+
+/* --- DASHBOARD CALCULADORA --- */
+.calc-dashboard {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 32px;
+  margin-top: 20px;
+}
+
+@media (max-width: 1024px) {
+  .calc-dashboard { grid-template-columns: 1fr; }
+}
+
+.calc-panel, .results-panel {
+  background-color: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  padding: 40px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Cabeceras de los paneles */
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 24px;
+}
+
+.icon-wrapper {
+  width: 48px; height: 48px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  display: flex; justify-content: center; align-items: center;
+  color: var(--text-main);
+}
+
+.icon-wrapper svg { width: 24px; height: 24px; }
+
+.glass-icon {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(16, 212, 64, 0.1) 100%);
+  border-color: transparent;
+  color: #2563eb;
+}
+
+.panel-title h3 { margin: 0 0 4px 0; font-size: 20px; color: var(--text-main); font-weight: 800; }
+.panel-title p { margin: 0; font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+/* Controles (Inputs) */
+.calc-controls { display: flex; flex-direction: column; gap: 24px; }
+
+.input-with-prefix, .input-with-suffix {
+  position: relative;
+  display: flex; align-items: center;
+}
+
+.prefix, .suffix {
+  position: absolute;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.prefix { left: 16px; }
+.suffix { right: 16px; }
+
+.input-with-prefix input { padding-left: 36px !important; }
+.input-with-suffix input { padding-right: 36px !important; }
+
+.calc-controls input, .calc-select {
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  border: 2px solid var(--border-light);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  background-color: var(--bg-main);
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.calc-controls input:focus, .calc-select:focus {
+  border-color: var(--brand-green);
+  background-color: var(--bg-card);
+  box-shadow: 0 0 0 4px var(--brand-green-light);
+}
+
+.calc-select {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+
+/* Resultados (Tarjetas de Colores) */
+.results-grid {
+  display: flex; flex-direction: column; gap: 20px; flex-grow: 1; justify-content: center;
+}
+
+.result-card {
+  padding: 32px;
+  border-radius: 20px;
+  display: flex; flex-direction: column; gap: 8px;
+  position: relative; overflow: hidden;
+}
+
+.result-card span { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.result-card h2 { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }
+.result-card p { margin: 0; font-size: 13px; opacity: 0.8; font-weight: 500;}
+
+/* Tarjeta Verde (Ganancia Neta) */
+.green-card {
+  background: linear-gradient(135deg, #10d440 0%, #0ca631 100%);
+  color: white;
+  box-shadow: 0 10px 30px rgba(16, 212, 64, 0.3);
+}
+.green-card span { color: rgba(255,255,255,0.9); }
+
+/* Tarjeta Azul (Ganancia Total) */
+.blue-card {
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  color: white;
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+}
+.blue-card span { color: rgba(255,255,255,0.8); }
+
+.roi-badge {
+  position: absolute; right: 24px; top: 32px;
+  background: rgba(255,255,255,0.2);
+  padding: 6px 12px; border-radius: 20px;
+  font-size: 12px; font-weight: 800; backdrop-filter: blur(4px);
+}
+
+/* --- ESTILOS DEL MODAL DE INVERSORES (Añadir al final de Inversores.css) --- */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(15, 23, 42, 0.5); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+.modal-content { background-color: var(--bg-card); width: 100%; border-radius: var(--radius-xl); box-shadow: var(--shadow-panel); overflow: hidden; }
+.modal-header { padding: 24px 32px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-main); }
+.modal-header h2 { margin: 0; font-size: 20px; font-weight: 800; color: var(--text-main); }
+.btn-close { background: none; border: none; font-size: 28px; color: var(--text-muted); cursor: pointer; transition: color 0.2s; }
+.btn-close:hover { color: #ef4444; transform: rotate(90deg); }
+
+.modal-form::-webkit-scrollbar { width: 8px; }
+.modal-form::-webkit-scrollbar-track { background: transparent; }
+.modal-form::-webkit-scrollbar-thumb { background-color: var(--border-focus); border-radius: 10px; }
+
+.modal-form { padding: 32px; display: flex; flex-direction: column; gap: 20px; }
+
+.section-subtitle { margin: 10px 0 0 0; font-size: 15px; color: var(--brand-green); font-weight: 800; border-bottom: 2px dashed var(--border-light); padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;}
+
+.error-message { background-color: #fef2f2; border: 1px solid #fecaca; color: #ef4444; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.error-message svg { width: 20px; height: 20px; flex-shrink: 0; color: #ef4444; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.form-group { display: flex; flex-direction: column; gap: 8px; }
+.form-group label { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.form-group input, .custom-select { padding: 12px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-focus); font-size: 14px; color: var(--text-main); outline: none; transition: var(--transition-smooth); background-color: var(--bg-main); }
+.form-group input:focus, .custom-select:focus { background-color: var(--bg-card); border-color: var(--brand-green); box-shadow: 0 0 0 4px var(--brand-green-light); }
+
+.custom-select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; background-size: 16px; padding-right: 40px; cursor: pointer; }
+
+.modal-footer { margin-top: 12px; display: flex; justify-content: flex-end; gap: 16px; }
+.btn-cancel { background-color: var(--bg-card); border: 1px solid var(--border-focus); padding: 12px 24px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: var(--transition-smooth); }
+.btn-cancel:hover { background-color: var(--border-light); color: var(--text-main); }
+
+/* ==========================================================================
+   DIRECTORIO DE INVERSORES (LISTA)
+   ========================================================================== */
+.inversores-list-container {
+  margin-top: 48px;
+  background-color: var(--bg-card);
+  padding: 32px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 16px;
+}
+
+.list-header h2 {
+  font-size: 20px;
+  color: var(--text-main);
+  font-weight: 800;
+  margin: 0;
+}
+
+/* Filas de Información Bancaria en la Tarjeta */
+.bank-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border-light);
+}
+
+.bank-info-row:last-child {
+  border-bottom: none;
+}
+
+.bank-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.bank-value {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+/* Botón inferior secundario */
+.btn-secondary-full {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--status-active-bg);
+  color: var(--status-active-text);
+  border: 1px solid var(--status-active-border);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.btn-secondary-full:hover {
+  background-color: #dbeafe;
+  transform: translateY(-2px);
+}
+
+.btn-secondary-full svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ==========================================================================
+   PANEL MAESTRO DEL INVERSOR (CONTRATOS)
+   ========================================================================== */
+.master-panel {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 600px; 
+  background-color: var(--bg-main); box-shadow: var(--shadow-panel); 
+  display: flex; flex-direction: column; border-left: 1px solid var(--border-light); z-index: 50;
+}
+
+/* Pestañas (Tabs) */
+.panel-tabs {
+  display: flex; background: var(--bg-card); border-bottom: 1px solid var(--border-light); padding: 0 32px; gap: 24px;
+}
+
+.tab-btn {
+  background: none; border: none; padding: 16px 0; font-size: 14px; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; border-bottom: 3px solid transparent; transition: var(--transition-smooth);
+}
+
+.tab-btn:hover { color: var(--text-main); }
+.tab-btn.active { color: var(--brand-green); border-bottom-color: var(--brand-green); }
+
+/* Tarjetas de Contratos */
+.contrato-card {
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md);
+  padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); transition: var(--transition-smooth);
+}
+
+.contrato-card:hover { border-color: var(--border-focus); transform: translateY(-2px); }
+
+.c-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-light); padding-bottom: 12px; margin-bottom: 12px; }
+.c-header strong { font-size: 15px; color: var(--text-main); }
+
+.c-body { display: flex; justify-content: space-between; margin-bottom: 16px; }
+.c-body span { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+.c-body h3 { margin: 4px 0 0 0; font-size: 20px; color: var(--brand-green); font-weight: 800; }
+.c-body strong { display: block; margin-top: 4px; font-size: 14px; color: var(--text-main); }
+
+.c-footer { display: flex; justify-content: space-between; align-items: center; background: var(--bg-main); padding: 10px 16px; border-radius: var(--radius-sm); }
+.c-footer span { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+.nuevo-contrato-form {
+  background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-light);
+}
+
+/* ==========================================================================
+   ESTILOS PARA PESTAÑA DE BENEFICIARIOS
+   ========================================================================== */
+
+/* Barra de progreso del porcentaje */
+.progress-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.progress-header strong {
+  font-size: 14px;
+  color: var(--text-main);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.progress-header span {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.progress-bg {
+  width: 100%;
+  height: 12px;
+  background-color: var(--border-light);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 10px;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.progress-fill.full {
+  background: linear-gradient(90deg, #10d440 0%, #0ca631 100%);
+}
+
+.progress-help {
+  margin: 12px 0 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Tarjetas de Familiares / Beneficiarios */
+.beneficiarios-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.beneficiario-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-main);
+  border: 1px solid var(--border-light);
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  transition: var(--transition-smooth);
+}
+
+.beneficiario-card:hover {
+  background: var(--bg-card);
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(4px);
+}
+
+.b-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.b-info strong {
+  font-size: 15px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.b-info span {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.b-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.b-percent {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--brand-green);
+  background: var(--brand-green-light);
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+/* Banner de éxito cuando llegan al 100% */
+.success-banner {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.success-banner svg {
+  width: 32px;
+  height: 32px;
+  color: var(--brand-green);
+  flex-shrink: 0;
+}
+
+.success-banner strong {
+  display: block;
+  font-size: 15px;
+  color: #065f46;
+  margin-bottom: 4px;
+}
+
+.success-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: #047857;
+}
+
+/* ==========================================================================
+   ESTILOS PARA PESTAÑA DE MOVIMIENTOS (ESTADO DE CUENTA)
+   ========================================================================== */
+
+.movimientos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.movimiento-item {
+  display: flex;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  transition: var(--transition-smooth);
+}
+
+.movimiento-item:hover {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(4px);
+}
+
+.mov-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 16px;
+}
+
+.mov-icon svg {
+  width: 20px;
+  height: 20px;
+  padding: 12px;
+  border-radius: 50%;
+  box-sizing: content-box;
+}
+
+.mov-detalles {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 4px;
+}
+
+.mov-detalles strong {
+  font-size: 14px;
+  color: var(--text-main);
+  font-weight: 800;
+}
+
+.mov-detalles span {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.mov-monto-accion {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.mov-monto {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.mov-monto.ingreso {
+  color: #10b981; /* Verde positivo */
+}
+
+.mov-monto.retiro {
+  color: #ef4444; /* Rojo negativo */
+}
+
+/* ==========================================================================
+   MODAL DE CONFIRMACIÓN PERSONALIZADO (BORRADO LÓGICO)
+   ========================================================================== */
+.confirm-modal-content {
+  background-color: var(--bg-card); width: 100%; max-width: 400px;
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); 
+  padding: 32px 24px; text-align: center; display: flex; flex-direction: column; align-items: center;
+}
+.confirm-icon {
+  width: 56px; height: 56px; color: #ef4444; background-color: #fef2f2;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px auto; border: 4px solid white; box-shadow: 0 0 0 4px #fee2e2;
+}
+.confirm-icon svg { width: 28px; height: 28px; }
+.confirm-modal-content h3 { margin: 0 0 12px 0; font-size: 20px; color: var(--text-main); font-weight: 800; }
+.confirm-modal-content p { margin: 0 0 28px 0; font-size: 14px; color: var(--text-muted); line-height: 1.5; font-weight: 500;}
+
+.confirm-actions { display: flex; gap: 12px; width: 100%; }
+
+.btn-confirm-cancel { 
+  background-color: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-focus); 
+  padding: 12px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; 
+  cursor: pointer; transition: var(--transition-smooth); flex: 1; 
+}
+.btn-confirm-cancel:hover { background-color: var(--border-light); transform: translateY(-1px);}
+
+.btn-confirm-delete { 
+  background-color: #ef4444; color: white; border: none; 
+  padding: 12px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; 
+  cursor: pointer; transition: var(--transition-smooth); flex: 1; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+.btn-confirm-delete:hover { background-color: #dc2626; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);}
