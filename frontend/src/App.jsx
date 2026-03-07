@@ -9,6 +9,7 @@ import Usuarios from './pages/Usuarios/Usuarios';
 import Configuracion from './pages/Configuracion/Configuracion';
 import Reportes from './pages/Reportes/Reportes';
 import Auditoria from './pages/Auditoria/Auditoria';
+import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route path="/configuracion" element={<Configuracion />} />
           <Route path="/reportes" element={<Reportes />} />
           <Route path="/auditoria" element={<Auditoria />} />
+          <Route path="/autorizaciones" element={<Autorizaciones />} />
         </Route>
       </Routes>
     </Router>

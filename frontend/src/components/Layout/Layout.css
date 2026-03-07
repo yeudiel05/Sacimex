@@ -1,6 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* ===== ANIMACIONES ===== */
 @keyframes slideInLeft {
   from { opacity: 0; transform: translateX(-30px); }
   to { opacity: 1; transform: translateX(0); }
@@ -38,7 +37,6 @@
 .stagger-3 { animation-delay: 0.3s; }
 .stagger-4 { animation-delay: 0.4s; }
 
-/* ===== LAYOUT GLOBAL ===== */
 :root {
   --primary: #10d440;
   --primary-dark: #0a8f2a;
@@ -61,7 +59,6 @@
   color: var(--text-primary);
 }
 
-/* ===== SIDEBAR ===== */
 .sidebar {
   background-color: var(--dark-bg);
   color: white;
@@ -106,7 +103,6 @@
   font-weight: 500;
 }
 
-/* Navegación */
 .sidebar-nav { flex-grow: 1; }
 
 .nav-title {
@@ -164,7 +160,6 @@
   border-left: 3px solid var(--primary);
 }
 
-/* Footer del sidebar */
 .sidebar-footer {
   display: flex;
   align-items: center;
@@ -199,7 +194,6 @@
   margin: 0;
 }
 
-/* ===== MAIN CONTENT ===== */
 .main-content {
   display: flex;
   flex-direction: column;
@@ -207,7 +201,6 @@
   position: relative;
 }
 
-/* Header */
 .top-header {
   background-color: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(16px);
@@ -222,7 +215,6 @@
   z-index: 10;
 }
 
-/* Búsqueda */
 .header-search {
   display: flex;
   align-items: center;
@@ -256,7 +248,6 @@
   color: var(--text-primary);
 }
 
-/* Acciones del header */
 .header-actions {
   display: flex;
   align-items: center;
@@ -290,7 +281,6 @@
   border: 2px solid white;
 }
 
-/* Perfil y dropdown */
 .header-profile { position: relative; }
 
 .header-profile img {
@@ -359,10 +349,17 @@
 
 .dropdown-item.logout:hover { background-color: #fef2f2; }
 
-/* ===== CONTENIDO PRINCIPAL ===== */
 .content-area {
   padding: 40px;
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }
+
+.notif-item:hover {
+  background-color: var(--bg-main) !important;
+}
+
+.notif-body::-webkit-scrollbar { width: 6px; }
+.notif-body::-webkit-scrollbar-track { background: transparent; }
+.notif-body::-webkit-scrollbar-thumb { background-color: var(--border-focus); border-radius: 10px; }

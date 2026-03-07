@@ -14,6 +14,7 @@ const usuariosRoutes = require('./routes/usuarios.routes');
 const tasasRoutes = require('./routes/tasas.routes');
 const reportesRoutes = require('./routes/reportes.routes');
 const auditoriaRoutes = require('./routes/auditoria.routes');
+const notificacionesRoutes = require('./routes/notificaciones.routes');
 
 const app = express();
 app.use(cors());
@@ -26,7 +27,7 @@ app.use('/uploads', express.static(uploadDir));
 // =====================================================================
 // REGISTRO DE RUTAS PRINCIPALES
 // =====================================================================
-app.use('/api', authRoutes); // /api/login
+app.use('/api', authRoutes);
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/inversores', inversoresRoutes);
 app.use('/api/proveedores', proveedoresRoutes);
@@ -35,6 +36,7 @@ app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/tasas', tasasRoutes);
 app.use('/api/reportes', reportesRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
+app.use('/api/notificaciones', notificacionesRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 
