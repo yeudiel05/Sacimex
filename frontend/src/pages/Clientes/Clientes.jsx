@@ -24,7 +24,6 @@ function Clientes() {
   const [fileToUpload, setFileToUpload] = useState(null);
   const [tipoDocumento, setTipoDocumento] = useState('INE');
 
-  // --- OBTENER TOKEN ---
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -77,7 +76,13 @@ function Clientes() {
 
   const validarFormulario = () => {
     setFormError('');
-    if (!/^\d{10}$/.test(formData.telefono)) { setFormError('El teléfono debe contener 10 números.'); return false; }
+    if (!formData.nombre.trim()) { setFormError('El nombre o razón social es obligatorio.'); return false; }
+    if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { setFormError('El RFC para Persona Física debe tener 13 caracteres.'); return false; }
+    if (formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { setFormError('El RFC para Persona Moral debe tener 12 caracteres.'); return false; }
+    if (!/^\d{10}$/.test(formData.telefono)) { setFormError('El teléfono debe contener exactamente 10 números.'); return false; }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) { setFormError('El formato del correo electrónico no es válido.'); return false; }
+    if (!formData.direccion.trim()) { setFormError('La dirección es obligatoria.'); return false; }
     if (Number(formData.credito) <= 0) { setFormError('El crédito debe ser mayor a $0.'); return false; }
     return true;
   };
@@ -135,7 +140,7 @@ function Clientes() {
     if (!authHeaders) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/expedientes/${id_persona}`, { headers: authHeaders });
+      const response = await fetch(`http://localhost:3001/api/clientes/expedientes/${id_persona}`, { headers: authHeaders });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
       if (data.success) setArchivosCliente(data.data);
@@ -153,11 +158,13 @@ function Clientes() {
     if (!authHeaders) return;
 
     const formDataUpload = new FormData();
-    formDataUpload.append('archivo', fileToUpload); formDataUpload.append('id_persona', clienteActivo.id); formDataUpload.append('tipo_documento', tipoDocumento);
+    formDataUpload.append('id_persona', clienteActivo.id); 
+    formDataUpload.append('tipo_documento', tipoDocumento);
+    formDataUpload.append('archivo', fileToUpload); 
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/expedientes/upload', { method: 'POST', headers: authHeaders, body: formDataUpload });
+      const response = await fetch('http://localhost:3001/api/clientes/expedientes/upload', { method: 'POST', headers: authHeaders, body: formDataUpload });
       if (handleAuthError(response.status)) return;
 
       const data = await response.json();
@@ -166,7 +173,6 @@ function Clientes() {
     } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
 
-  // --- NUEVA FUNCIÓN: ELIMINAR ARCHIVO FÍSICO ---
   const eliminarArchivo = async (id_archivo) => {
     if (!window.confirm("¿Seguro que deseas eliminar este documento del servidor permanentemente?")) return;
 
@@ -174,7 +180,7 @@ function Clientes() {
     if (!authHeaders) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/expedientes/${id_archivo}`, { method: 'DELETE', headers: authHeaders });
+      const response = await fetch(`http://localhost:3001/api/clientes/expedientes/${id_archivo}`, { method: 'DELETE', headers: authHeaders });
       if (handleAuthError(response.status)) return;
 
       const data = await response.json();
@@ -268,7 +274,9 @@ function Clientes() {
               <form onSubmit={handleFileUpload} className="upload-box">
                 <h4>Subir documento</h4>
                 <select value={tipoDocumento} onChange={(e) => setTipoDocumento(e.target.value)} className="doc-select"><option value="INE">INE</option><option value="COMPROBANTE_DOMICILIO">Comprobante</option><option value="CONTRATO">Contrato</option><option value="PAGARE">Pagaré</option><option value="OTRO">Otro</option></select>
-                <input type="file" id="file-upload-input" onChange={(e) => setFileToUpload(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" className="file-input" />
+                <div className="file-input-wrapper">
+                  <input type="file" id="file-upload-input" onChange={(e) => setFileToUpload(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" className="file-input" />
+                </div>
                 <button type="submit" className="btn-primary" disabled={isLoading || !fileToUpload} style={{ width: '100%' }}>{isLoading ? 'Subiendo...' : 'Guardar'}</button>
               </form>
               <div className="documentos-list">

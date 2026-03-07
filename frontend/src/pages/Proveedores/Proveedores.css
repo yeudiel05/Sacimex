@@ -1,6 +1,3 @@
-/* ==========================================================================
-   VARIABLES DE DISEÑO
-   ========================================================================== */
 :root {
   --brand-green: #10d440;
   --brand-green-hover: #0ebf39;
@@ -20,9 +17,6 @@
   --transition-smooth: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ==========================================================================
-   ANIMACIONES GLOBALES
-   ========================================================================== */
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fadeInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25%, 75% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
@@ -33,9 +27,6 @@
 .stagger-1 { animation-delay: 0.1s; }
 .stagger-2 { animation-delay: 0.2s; }
 
-/* ==========================================================================
-   ESTILOS GENERALES Y LAYOUT
-   ========================================================================== */
 .proveedores-container { width: 100%; }
 
 .page-header { 
@@ -79,9 +70,6 @@
 .btn-icon-delete:hover { color: #ef4444 !important; background-color: #fef2f2; }
 .btn-icon-edit svg { width: 18px; height: 18px; }
 
-/* ==========================================================================
-   GRID Y TARJETAS DE PROVEEDORES
-   ========================================================================== */
 .proveedores-grid { 
   display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 24px; 
   opacity: 0;
@@ -118,7 +106,6 @@
 .prov-card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid var(--border-light); }
 .prov-actions { display: flex; gap: 8px; }
 
-/* Estilo Original de Figma para Días de Crédito */
 .credito-tag { 
   background-color: transparent; 
   border: 1px solid var(--border-light); 
@@ -140,9 +127,6 @@
 .no-results h3 { font-size: 18px; color: var(--text-main); margin: 0 0 8px 0; }
 .no-results p { font-size: 14px; color: var(--text-muted); margin: 0; }
 
-/* ==========================================================================
-   MODAL DE FORMULARIO (Centrado con Scroll Interno)
-   ========================================================================== */
 .modal-overlay { 
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
   background-color: rgba(15, 23, 42, 0.5); backdrop-filter: blur(8px); 
@@ -152,16 +136,16 @@
 
 .modal-content { 
   background-color: var(--bg-card); width: 100%; max-width: 700px;
-  max-height: calc(100vh - 40px); /* Limite de altura */
+  max-height: calc(100vh - 40px);
   border-radius: var(--radius-xl); box-shadow: var(--shadow-panel); 
-  display: flex; flex-direction: column; /* Para habilitar scroll solo en el body */
+  display: flex; flex-direction: column;
   overflow: hidden; 
 }
 
 .modal-header { 
   padding: 24px 32px; border-bottom: 1px solid var(--border-light); 
   display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-main); 
-  flex-shrink: 0; /* Header fijo */
+  flex-shrink: 0;
 }
 .modal-header h2 { margin: 0; font-size: 20px; font-weight: 800; color: var(--text-main); }
 
@@ -213,9 +197,6 @@
 }
 .btn-cancel:hover { background-color: var(--border-light); color: var(--text-main); }
 
-/* ==========================================================================
-   MODAL DE CONFIRMACIÓN DE ELIMINADO
-   ========================================================================== */
 .confirm-modal-content {
   background-color: var(--bg-card); width: 100%; max-width: 400px;
   border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); 
@@ -235,9 +216,6 @@
 .btn-confirm-delete { background-color: #ef4444; color: white; border: none; padding: 12px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; cursor: pointer; transition: var(--transition-smooth); flex: 1; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2); }
 .btn-confirm-delete:hover { background-color: #dc2626; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);}
 
-/* ==========================================================================
-   PANEL MAESTRO (SLIDE-IN) PARA PAGOS
-   ========================================================================== */
 .master-panel { 
   position: absolute; right: 0; top: 0; bottom: 0; width: 500px; 
   background-color: var(--bg-main); box-shadow: var(--shadow-panel); 

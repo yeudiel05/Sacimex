@@ -5,10 +5,11 @@ import './Inversores.css';
 function Inversores() {
     const navigate = useNavigate();
     const [monto, setMonto] = useState('');
-    const [tasa, setTasa] = useState('');
+    const [tasa, setTasa] = useState(0); 
     const [plazo, setPlazo] = useState(12);
     const [gananciaNeta, setGananciaNeta] = useState(0);
     const [totalRecibir, setTotalRecibir] = useState(0);
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -18,10 +19,13 @@ function Inversores() {
     const [editId, setEditId] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
     const [formData, setFormData] = useState({ tipo_persona: 'FISICA', nombre: '', rfc: '', direccion: '', telefono: '', email: '', clabe_bancaria: '', banco: '', origen_fondos: 'Ahorros Personales / Salario' });
+    
     const [panelOpen, setPanelOpen] = useState(false);
     const [inversorActivo, setInversorActivo] = useState(null);
     const [activeTab, setActiveTab] = useState('contratos');
-    const [tasas, setTasas] = useState([]);
+    
+    const [tasas, setTasas] = useState([]); 
+    
     const [contratos, setContratos] = useState([]);
     const [showNuevoContrato, setShowNuevoContrato] = useState(false);
     const [formContrato, setFormContrato] = useState({ id_tasa: '', monto_inicial: '', frecuencia_pagos: 'MENSUAL', reinversion_automatica: 0, fecha_inicio: new Date().toISOString().split('T')[0], fecha_fin: '' });
@@ -45,14 +49,14 @@ function Inversores() {
 
     const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
 
-    useEffect(() => {
-        const montoNum = parseFloat(monto) || 0;
-        const tasaNum = parseFloat(tasa) || 0;
-        const plazoNum = parseInt(plazo) || 0;
-        const ganancia = montoNum * (tasaNum / 100) * (plazoNum / 12);
-        setGananciaNeta(ganancia);
-        setTotalRecibir(montoNum + ganancia);
-    }, [monto, tasa, plazo]);
+    const fetchTasasActivas = async () => {
+        const headers = getAuthHeaders(); if (!headers) return;
+        try {
+            const res = await fetch('http://localhost:3001/api/tasas', { headers });
+            const data = await res.json();
+            if (data.success) setTasas(data.data.filter(t => t.estatus_activo === 1));
+        } catch (error) { console.error(error); }
+    };
 
     const fetchInversores = async () => {
         const headers = getAuthHeaders(); if (!headers) return;
@@ -63,7 +67,19 @@ function Inversores() {
         } catch (error) { console.error(error); }
     };
 
-    useEffect(() => { fetchInversores(); }, []);
+    useEffect(() => { 
+        fetchInversores(); 
+        fetchTasasActivas();
+    }, []);
+
+    useEffect(() => {
+        const montoNum = parseFloat(monto) || 0;
+        const tasaNum = parseFloat(tasa) || 0;
+        const plazoNum = parseInt(plazo) || 0;
+        const ganancia = montoNum * (tasaNum / 100) * (plazoNum / 12);
+        setGananciaNeta(ganancia);
+        setTotalRecibir(montoNum + ganancia);
+    }, [monto, tasa, plazo]);
 
     const openNewModal = () => {
         setIsEditing(false); setEditId(null); setFormError('');
@@ -130,39 +146,95 @@ function Inversores() {
 
     const abrirPanel = async (inversor) => {
         setInversorActivo(inversor); setActiveTab('contratos'); setShowNuevoContrato(false); setShowNuevoMovimiento(false); setPanelOpen(true);
-        const headers = getAuthHeaders();
-        const resTasas = await fetch('http://localhost:3001/api/tasas', { headers });
-        const dataTasas = await resTasas.json(); if (dataTasas.success) setTasas(dataTasas.data);
         fetchContratos(inversor.id); fetchBeneficiarios(inversor.id); fetchMovimientos(inversor.id);
     };
 
+    // =====================================================================
+    // RUTAS CORREGIDAS PARA EL PANEL DEL INVERSOR (/api/inversores/...)
+    // =====================================================================
+    
     const fetchContratos = async (id_inversor) => {
-        const headers = getAuthHeaders(); const res = await fetch(`http://localhost:3001/api/contratos/${id_inversor}`, { headers });
-        const data = await res.json(); if (data.success) setContratos(data.data);
+        const headers = getAuthHeaders(); 
+        try {
+            const res = await fetch(`http://localhost:3001/api/inversores/contratos/${id_inversor}`, { headers });
+            const data = await res.json(); if (data.success) setContratos(data.data);
+        } catch(e) { console.error(e); }
     };
 
     const handleGuardarContrato = async (e) => {
-        e.preventDefault(); if (!formContrato.id_tasa || !formContrato.monto_inicial || !formContrato.fecha_fin) return alert("Completa todos los campos.");
+        e.preventDefault(); 
+        if (!formContrato.id_tasa || !formContrato.monto_inicial || !formContrato.fecha_fin) return alert("Completa todos los campos.");
         const headers = getAuthHeaders(); setIsLoading(true);
-        try { const res = await fetch('http://localhost:3001/api/contratos', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formContrato, id_inversor: inversorActivo.id }) }); const data = await res.json(); if (data.success) { setShowNuevoContrato(false); fetchContratos(inversorActivo.id); alert("Contrato Creado."); } else alert(data.message); } catch (error) { console.error(error); } finally { setIsLoading(false); }
+        try { 
+            const res = await fetch('http://localhost:3001/api/inversores/contratos', { 
+                method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ ...formContrato, id_inversor: inversorActivo.id }) 
+            }); 
+            if(!res.ok) throw new Error("Fallo en servidor");
+            const data = await res.json(); 
+            if (data.success) { setShowNuevoContrato(false); fetchContratos(inversorActivo.id); alert("Contrato Creado."); } 
+            else alert(data.message); 
+        } catch (error) { console.error(error); alert("No se pudo guardar el contrato. Revisa la consola."); } finally { setIsLoading(false); }
     };
 
     const generarPDFContrato = async (id_contrato) => {
         const headers = getAuthHeaders(); if (!headers) return; setIsLoading(true);
         try {
-            const response = await fetch(`http://localhost:3001/api/contratos/${id_contrato}/pdf`, { headers });
+            const response = await fetch(`http://localhost:3001/api/inversores/contratos/${id_contrato}/pdf`, { headers });
             if (handleAuthError(response.status)) return;
             const blob = await response.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `Contrato_Sacimex_${id_contrato.toString().padStart(4, '0')}.pdf`; document.body.appendChild(link); link.click(); link.remove(); window.URL.revokeObjectURL(url);
         } catch (error) { alert("Hubo un problema al generar el documento."); } finally { setIsLoading(false); }
     };
 
-    const fetchBeneficiarios = async (id_inversor) => { const headers = getAuthHeaders(); const res = await fetch(`http://localhost:3001/api/beneficiarios/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setBeneficiarios(data.data); };
-    const totalPorcentaje = beneficiarios.reduce((acc, curr) => acc + parseFloat(curr.porcentaje), 0);
-    const handleGuardarBeneficiario = async (e) => { e.preventDefault(); if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Error: Supera el 100%."); const headers = getAuthHeaders(); setIsLoading(true); try { const res = await fetch('http://localhost:3001/api/beneficiarios', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formBeneficiario, id_inversor: inversorActivo.id }) }); if ((await res.json()).success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } } catch (error) { console.error(error); } finally { setIsLoading(false); } };
-    const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Seguro de eliminar este beneficiario?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) { console.error(error); } };
+    const fetchBeneficiarios = async (id_inversor) => { 
+        const headers = getAuthHeaders(); 
+        try {
+            const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id_inversor}`, { headers }); 
+            const data = await res.json(); if (data.success) setBeneficiarios(data.data); 
+        } catch(e) { console.error(e); }
+    };
 
-    const fetchMovimientos = async (id_inversor) => { const headers = getAuthHeaders(); const res = await fetch(`http://localhost:3001/api/movimientos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setMovimientos(data.data); };
-    const handleGuardarMovimiento = async (e) => { e.preventDefault(); if (!formMovimiento.id_contrato || !formMovimiento.monto) return alert("Completa el contrato y el monto."); const headers = getAuthHeaders(); setIsLoading(true); const formDataUpload = new FormData(); formDataUpload.append('id_contrato', formMovimiento.id_contrato); formDataUpload.append('tipo', formMovimiento.tipo); formDataUpload.append('monto', formMovimiento.monto); if (fileComprobante) formDataUpload.append('comprobante', fileComprobante); try { const res = await fetch('http://localhost:3001/api/movimientos', { method: 'POST', headers, body: formDataUpload }); const data = await res.json(); if (data.success) { setShowNuevoMovimiento(false); setFormMovimiento({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' }); setFileComprobante(null); fetchMovimientos(inversorActivo.id); alert("Movimiento registrado con éxito"); } else alert(data.message); } catch (error) { console.error(error); } finally { setIsLoading(false); } };
+    const totalPorcentaje = beneficiarios.reduce((acc, curr) => acc + parseFloat(curr.porcentaje), 0);
+    
+    const handleGuardarBeneficiario = async (e) => { 
+        e.preventDefault(); if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Error: Supera el 100%."); 
+        const headers = getAuthHeaders(); setIsLoading(true); 
+        try { 
+            const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formBeneficiario, id_inversor: inversorActivo.id }) }); 
+            const data = await res.json();
+            if (data.success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } 
+        } catch (error) { console.error(error); } finally { setIsLoading(false); } 
+    };
+    
+    const eliminarBeneficiario = async (id) => { 
+        if (!window.confirm("¿Seguro de eliminar este beneficiario?")) return; 
+        const headers = getAuthHeaders(); 
+        try { 
+            const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); 
+            if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); 
+        } catch (error) { console.error(error); } 
+    };
+
+    const fetchMovimientos = async (id_inversor) => { 
+        const headers = getAuthHeaders(); 
+        try {
+            const res = await fetch(`http://localhost:3001/api/inversores/movimientos/${id_inversor}`, { headers }); 
+            const data = await res.json(); if (data.success) setMovimientos(data.data); 
+        } catch(e){ console.error(e); }
+    };
+    
+    const handleGuardarMovimiento = async (e) => { 
+        e.preventDefault(); if (!formMovimiento.id_contrato || !formMovimiento.monto) return alert("Completa el contrato y el monto."); 
+        const headers = getAuthHeaders(); setIsLoading(true); 
+        const formDataUpload = new FormData(); 
+        formDataUpload.append('id_contrato', formMovimiento.id_contrato); formDataUpload.append('tipo', formMovimiento.tipo); formDataUpload.append('monto', formMovimiento.monto); 
+        if (fileComprobante) formDataUpload.append('comprobante', fileComprobante); 
+        try { 
+            const res = await fetch('http://localhost:3001/api/inversores/movimientos', { method: 'POST', headers, body: formDataUpload }); 
+            const data = await res.json(); 
+            if (data.success) { setShowNuevoMovimiento(false); setFormMovimiento({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' }); setFileComprobante(null); fetchMovimientos(inversorActivo.id); alert("Movimiento registrado con éxito"); } else alert(data.message); 
+        } catch (error) { console.error(error); } finally { setIsLoading(false); } 
+    };
 
     const inversoresFiltrados = inversores.filter(i => i.nombre.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -193,7 +265,13 @@ function Inversores() {
                 <form className="nuevo-contrato-form" onSubmit={handleGuardarContrato}>
                     <h4 className="section-subtitle">Crear Nuevo Contrato</h4>
                     <div className="form-group"><label>Monto a Invertir</label><input type="number" required min="1000" value={formContrato.monto_inicial} onChange={e => setFormContrato({ ...formContrato, monto_inicial: e.target.value })} /></div>
-                    <div className="form-group"><label>Seleccionar Tasa</label><select className="custom-select" required value={formContrato.id_tasa} onChange={e => setFormContrato({ ...formContrato, id_tasa: e.target.value })}><option value="">Seleccione...</option>{tasas.map(t => (<option key={t.id} value={t.id}>{t.nombre_tasa} - {t.tasa_anual_esperada}%</option>))}</select></div>
+                    <div className="form-group">
+                        <label>Seleccionar Producto</label>
+                        <select className="custom-select" required value={formContrato.id_tasa} onChange={e => setFormContrato({ ...formContrato, id_tasa: e.target.value })}>
+                            <option value="">Seleccione...</option>
+                            {tasas.map(t => (<option key={t.id} value={t.id}>{t.nombre_tasa} - {t.tasa_anual_esperada}%</option>))}
+                        </select>
+                    </div>
                     <div className="form-row">
                         <div className="form-group"><label>Fecha Inicio</label><input type="date" required value={formContrato.fecha_inicio} onChange={e => setFormContrato({ ...formContrato, fecha_inicio: e.target.value })} /></div>
                         <div className="form-group"><label>Fecha Vencimiento</label><input type="date" required value={formContrato.fecha_fin} onChange={e => setFormContrato({ ...formContrato, fecha_fin: e.target.value })} /></div>
@@ -314,7 +392,22 @@ function Inversores() {
                             <div className="input-with-prefix"><span className="prefix">$</span><input type="number" placeholder="0" value={monto} onChange={(e) => setMonto(e.target.value)} /></div>
                         </div>
                         <div className="form-row">
-                            <div className="form-group"><label>Tasa Anual (%)</label><div className="input-with-suffix"><input type="number" step="0.1" placeholder="0" value={tasa} onChange={(e) => setTasa(e.target.value)} /><span className="suffix">%</span></div></div>
+                            <div className="form-group">
+                                <label>Producto de Inversión</label>
+                                <select 
+                                    className="calc-select" 
+                                    value={tasa} 
+                                    onChange={(e) => setTasa(e.target.value)}
+                                    style={{ borderColor: 'var(--brand-green)', backgroundColor: 'var(--bg-main)' }}
+                                >
+                                    <option value="0">Seleccione un producto...</option>
+                                    {tasas.map(t => (
+                                        <option key={t.id} value={t.tasa_anual_esperada}>
+                                            {t.nombre_tasa} ({t.tasa_anual_esperada}%)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="form-group"><label>Plazo (Meses)</label><select value={plazo} onChange={(e) => setPlazo(e.target.value)} className="calc-select"><option value="3">3 Meses</option><option value="6">6 Meses</option><option value="9">9 Meses</option><option value="12">12 Meses</option><option value="24">24 Meses</option></select></div>
                         </div>
                     </div>
@@ -366,7 +459,6 @@ function Inversores() {
                 </div>
             </div>
 
-            {/* PANEL MAESTRO */}
             {panelOpen && inversorActivo && (
                 <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
                     <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -422,7 +514,6 @@ function Inversores() {
                 </div>
             )}
 
-            {/* MODAL CONFIRMACIÓN */}
             {confirmModal.isOpen && (
                 <div className="modal-overlay" style={{ zIndex: 2000 }}>
                     <div className="confirm-modal-content fade-in-up">

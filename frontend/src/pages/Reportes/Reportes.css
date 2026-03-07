@@ -1,0 +1,89 @@
+.reportes-container { width: 100%; }
+
+.reportes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 24px;
+}
+
+.report-card {
+  background-color: var(--bg-card);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  transition: var(--transition-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.report-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--brand-green-light);
+}
+
+.report-icon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, rgba(16, 212, 64, 0.15) 0%, rgba(16, 212, 64, 0.05) 100%);
+  color: var(--brand-green);
+  border-radius: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.report-icon svg { width: 28px; height: 28px; }
+
+.report-content { flex-grow: 1; margin-bottom: 32px; }
+
+.report-content h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.5px;
+}
+
+.report-content p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.report-footer { border-top: 1px solid var(--border-light); padding-top: 24px; }
+
+.btn-download {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  background-color: #f1f5f9;
+  color: #1e293b;
+  border: 1px solid var(--border-light);
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.btn-download svg { width: 18px; height: 18px; color: var(--brand-green); }
+
+.btn-download:hover:not(:disabled) {
+  background-color: var(--brand-green);
+  color: white;
+  border-color: var(--brand-green);
+  box-shadow: 0 4px 12px var(--brand-green-light);
+}
+.btn-download:hover:not(:disabled) svg { color: white; }
+
+.btn-download:disabled { opacity: 0.7; cursor: wait; }

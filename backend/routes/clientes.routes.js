@@ -6,7 +6,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Configuración de Multer para archivos de clientes
 const uploadDir = path.join(__dirname, '../uploads');
 const storage = multer.diskStorage({
     destination: function (req, file, cb) { cb(null, uploadDir); },

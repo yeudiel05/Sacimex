@@ -15,7 +15,6 @@
 
 .inversores-container { width: 100%; }
 
-/* --- DASHBOARD CALCULADORA --- */
 .calc-dashboard {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -37,7 +36,6 @@
   flex-direction: column;
 }
 
-/* Cabeceras de los paneles */
 .panel-title {
   display: flex;
   align-items: center;
@@ -67,7 +65,6 @@
 .panel-title h3 { margin: 0 0 4px 0; font-size: 20px; color: var(--text-main); font-weight: 800; }
 .panel-title p { margin: 0; font-size: 13px; color: var(--text-muted); font-weight: 500; }
 
-/* Controles (Inputs) */
 .calc-controls { display: flex; flex-direction: column; gap: 24px; }
 
 .input-with-prefix, .input-with-suffix {
@@ -116,7 +113,6 @@
   cursor: pointer;
 }
 
-/* Resultados (Tarjetas de Colores) */
 .results-grid {
   display: flex; flex-direction: column; gap: 20px; flex-grow: 1; justify-content: center;
 }
@@ -132,7 +128,6 @@
 .result-card h2 { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }
 .result-card p { margin: 0; font-size: 13px; opacity: 0.8; font-weight: 500;}
 
-/* Tarjeta Verde (Ganancia Neta) */
 .green-card {
   background: linear-gradient(135deg, #10d440 0%, #0ca631 100%);
   color: white;
@@ -140,7 +135,6 @@
 }
 .green-card span { color: rgba(255,255,255,0.9); }
 
-/* Tarjeta Azul (Ganancia Total) */
 .blue-card {
   background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
   color: white;
@@ -155,7 +149,6 @@
   font-size: 12px; font-weight: 800; backdrop-filter: blur(4px);
 }
 
-/* --- ESTILOS DEL MODAL DE INVERSORES (Añadir al final de Inversores.css) --- */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(15, 23, 42, 0.5); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
 .modal-content { background-color: var(--bg-card); width: 100%; border-radius: var(--radius-xl); box-shadow: var(--shadow-panel); overflow: hidden; }
 .modal-header { padding: 24px 32px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-main); }
@@ -187,9 +180,6 @@
 .btn-cancel { background-color: var(--bg-card); border: 1px solid var(--border-focus); padding: 12px 24px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; transition: var(--transition-smooth); }
 .btn-cancel:hover { background-color: var(--border-light); color: var(--text-main); }
 
-/* ==========================================================================
-   DIRECTORIO DE INVERSORES (LISTA)
-   ========================================================================== */
 .inversores-list-container {
   margin-top: 48px;
   background-color: var(--bg-card);
@@ -215,7 +205,6 @@
   margin: 0;
 }
 
-/* Filas de Información Bancaria en la Tarjeta */
 .bank-info-row {
   display: flex;
   justify-content: space-between;
@@ -239,7 +228,6 @@
   color: var(--text-main);
 }
 
-/* Botón inferior secundario */
 .btn-secondary-full {
   width: 100%;
   display: flex;
@@ -267,16 +255,12 @@
   height: 18px;
 }
 
-/* ==========================================================================
-   PANEL MAESTRO DEL INVERSOR (CONTRATOS)
-   ========================================================================== */
 .master-panel {
   position: absolute; right: 0; top: 0; bottom: 0; width: 600px; 
   background-color: var(--bg-main); box-shadow: var(--shadow-panel); 
   display: flex; flex-direction: column; border-left: 1px solid var(--border-light); z-index: 50;
 }
 
-/* Pestañas (Tabs) */
 .panel-tabs {
   display: flex; background: var(--bg-card); border-bottom: 1px solid var(--border-light); padding: 0 32px; gap: 24px;
 }
@@ -289,7 +273,6 @@
 .tab-btn:hover { color: var(--text-main); }
 .tab-btn.active { color: var(--brand-green); border-bottom-color: var(--brand-green); }
 
-/* Tarjetas de Contratos */
 .contrato-card {
   background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md);
   padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); transition: var(--transition-smooth);
@@ -312,11 +295,6 @@
   background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-light);
 }
 
-/* ==========================================================================
-   ESTILOS PARA PESTAÑA DE BENEFICIARIOS
-   ========================================================================== */
-
-/* Barra de progreso del porcentaje */
 .progress-container {
   background: var(--bg-card);
   border: 1px solid var(--border-light);
@@ -372,7 +350,6 @@
   font-weight: 500;
 }
 
-/* Tarjetas de Familiares / Beneficiarios */
 .beneficiarios-list {
   display: flex;
   flex-direction: column;
@@ -431,7 +408,6 @@
   border-radius: 20px;
 }
 
-/* Banner de éxito cuando llegan al 100% */
 .success-banner {
   background-color: #ecfdf5;
   border: 1px solid #a7f3d0;
@@ -461,10 +437,6 @@
   font-size: 13px;
   color: #047857;
 }
-
-/* ==========================================================================
-   ESTILOS PARA PESTAÑA DE MOVIMIENTOS (ESTADO DE CUENTA)
-   ========================================================================== */
 
 .movimientos-list {
   display: flex;
@@ -539,16 +511,13 @@
 }
 
 .mov-monto.ingreso {
-  color: #10b981; /* Verde positivo */
+  color: #10b981;
 }
 
 .mov-monto.retiro {
-  color: #ef4444; /* Rojo negativo */
+  color: #ef4444;
 }
 
-/* ==========================================================================
-   MODAL DE CONFIRMACIÓN PERSONALIZADO (BORRADO LÓGICO)
-   ========================================================================== */
 .confirm-modal-content {
   background-color: var(--bg-card); width: 100%; max-width: 400px;
   border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); 

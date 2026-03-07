@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import './Dashboard.css';
 
-// Datos de prueba para la gráfica visual (luego se puede conectar a la BD real)
 const chartData = [
   { name: 'Ene', Inversiones: 400000, Colocacion: 240000 },
   { name: 'Feb', Inversiones: 500000, Colocacion: 390000 },
@@ -58,7 +57,6 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* TARJETAS DE KPI (Indicadores Clave) */}
       <div className="kpi-grid stagger-2">
         <div className="kpi-card">
           <div className="kpi-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
@@ -82,7 +80,7 @@ function Dashboard() {
       </div>
 
       <div className="dashboard-content stagger-2">
-        {/* GRÁFICA DE RENDIMIENTO */}
+
         <div className="chart-panel">
           <div className="panel-header-simple">
             <h3>Crecimiento de Cartera</h3>
@@ -112,7 +110,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* FEED DE ACTIVIDAD RECIENTE */}
         <div className="activity-panel">
           <div className="panel-header-simple">
             <h3>Actividad Reciente</h3>
