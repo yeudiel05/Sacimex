@@ -15,6 +15,7 @@ const tasasRoutes = require('./routes/tasas.routes');
 const reportesRoutes = require('./routes/reportes.routes');
 const auditoriaRoutes = require('./routes/auditoria.routes');
 const notificacionesRoutes = require('./routes/notificaciones.routes');
+const backupRoutes = require('./routes/backup.routes');
 
 const app = express();
 app.use(cors());
@@ -37,6 +38,7 @@ app.use('/api/tasas', tasasRoutes);
 app.use('/api/reportes', reportesRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/notificaciones', notificacionesRoutes);
+app.use('/api/backup', backupRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 

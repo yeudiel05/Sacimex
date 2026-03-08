@@ -14,6 +14,9 @@ function Configuracion() {
   
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
+  // --- NUEVO ESTADO PARA EL RESPALDO ---
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
   const [formData, setFormData] = useState({
     nombre_tasa: '', tasa_anual_esperada: '', porcentaje_penalizacion: '', descripcion: ''
   });
@@ -34,6 +37,33 @@ function Configuracion() {
   };
 
   useEffect(() => { fetchTasas(); }, []);
+
+  // --- NUEVA FUNCIÓN DE RESPALDO ---
+  const handleBackup = async () => {
+    if (!window.confirm('¿Deseas generar una copia de seguridad de toda la base de datos? Esto puede tardar unos segundos.')) return;
+    
+    const headers = getAuthHeaders(); if (!headers) return;
+    setIsBackingUp(true);
+
+    try {
+      const res = await fetch('http://localhost:3001/api/backup', { method: 'GET', headers });
+      if (!res.ok) throw new Error("Error al generar respaldo");
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Sacimex_Backup_BD_${new Date().toISOString().split('T')[0]}.sql`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Error al generar el respaldo. Verifica la consola y asegúrate de que el backend esté corriendo correctamente.');
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
 
   const openNewModal = () => {
     setIsEditing(false); setEditId(null); setFormError('');
@@ -163,6 +193,36 @@ function Configuracion() {
             <p>Crea tu primera tasa de inversión para empezar.</p>
           </div>
         )}
+      </div>
+
+      {/* --- SECCIÓN DE RESPALDO (NUEVO) --- */}
+      <div className="backup-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
+        <h2 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>Seguridad y Respaldo</h2>
+        <p style={{ color: 'var(--text-muted)', marginBottom: '24px', fontSize: '14px' }}>Genera copias locales de la información del sistema.</p>
+        
+        <div className="backup-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-lg)', padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'var(--shadow-sm)' }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '24px', height: '24px' }}>
+                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                   <polyline points="7 10 12 15 17 10"></polyline>
+                   <line x1="12" y1="15" x2="12" y2="3"></line>
+                 </svg>
+              </div>
+              <div>
+                 <h4 style={{ margin: '0 0 4px 0', fontSize: '16px', color: 'var(--text-main)' }}>Respaldo de Base de Datos (.sql)</h4>
+                 <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Descarga clientes, contratos, pagos, expedientes y bitácora de auditoría.</p>
+              </div>
+           </div>
+           
+           <button 
+              onClick={handleBackup} 
+              disabled={isBackingUp}
+              style={{ background: '#1e293b', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: '700', cursor: isBackingUp ? 'wait' : 'pointer', transition: 'all 0.3s' }}
+           >
+              {isBackingUp ? 'Descargando...' : 'Generar Backup'}
+           </button>
+        </div>
       </div>
 
       {isModalOpen && (
