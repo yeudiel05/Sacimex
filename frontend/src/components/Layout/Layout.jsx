@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import './Layout.css';
 
+// --- IMPORTACIÓN DEL LOGO OFICIAL ---
+import logoSacimex from '../../assets/logo.png'; 
+
 function Layout() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
@@ -12,12 +15,11 @@ function Layout() {
   const menuRef = useRef(null);
   const notifRef = useRef(null);
 
-  // --- 1. LEER EL ROL DEL USUARIO LOGUEADO ---
   const userRole = localStorage.getItem('rol') || 'AUXILIAR'; 
   const username = localStorage.getItem('username') || 'Usuario'; 
 
   const fetchNotificaciones = async () => {
-    if (userRole !== 'ADMIN') return; 
+    if (userRole !== 'ADMIN') return;
     
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -55,6 +57,19 @@ function Layout() {
     navigate('/');
   };
 
+  const handleNotifClick = (notif) => {
+    setShowNotifMenu(false);
+
+    if (notif.id === 'auth_pagos') {
+      navigate('/autorizaciones');
+    } else if (notif.id.startsWith('cont_')) {
+      navigate('/inversores');
+    } else if (notif.id.startsWith('cli_')) {
+      navigate('/clientes');
+    }
+  };
+
+  // --- 4. MATRIZ DE PERMISOS POR ROL ---
   const menuItems = [
     {
       path: '/dashboard',
@@ -117,6 +132,17 @@ function Layout() {
       )
     },
     {
+      path: '/autorizaciones',
+      label: 'Autorizar Pagos',
+      rolesPermitidos: ['ADMIN'], // SOLO EL DIRECTOR FIRMA
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <path d="M9 12l2 2 4-4"></path>
+        </svg>
+      )
+    },
+    {
       path: '/configuracion',
       label: 'Configuraciones',
       rolesPermitidos: ['ADMIN'], // SOLO DIRECTOR
@@ -142,17 +168,6 @@ function Layout() {
       )
     },
     {
-   path: '/autorizaciones',
-   label: 'Autorizar Pagos',
-   rolesPermitidos: ['ADMIN'], // SOLO EL DIRECTOR FIRMA
-   icon: (
-     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-       <path d="M9 12l2 2 4-4"></path>
-     </svg>
-   )
- },
-    {
       path: '/auditoria',
       label: 'Auditoría (Log)',
       rolesPermitidos: ['ADMIN'], // SOLO DIRECTOR
@@ -165,6 +180,7 @@ function Layout() {
     }
   ];
 
+  // FILTRAMOS EL ROL ACTUAL
   const menusPermitidos = menuItems.filter(item => item.rolesPermitidos.includes(userRole));
 
   const getPageTitle = () => {
@@ -176,7 +192,9 @@ function Layout() {
     <div className="dashboard-layout">
       <aside className="sidebar fade-in-left">
         <div className="sidebar-brand">
-          <div className="brand-logo">S</div>
+          <div style={{ width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderRadius: '10px', padding: '4px', flexShrink: 0 }}>
+            <img src={logoSacimex} alt="Logo Sacimex" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
           <div className="brand-text">
             <h2>Sacimex</h2>
             <span>Panel de control</span>
@@ -186,6 +204,7 @@ function Layout() {
         <nav className="sidebar-nav">
           <p className="nav-title">Navegación Principal</p>
           <ul>
+            {/* RENDERIZAMOS SOLO LOS MENÚS PERMITIDOS */}
             {menusPermitidos.map((item) => (
               <li
                 key={item.path}
@@ -199,6 +218,7 @@ function Layout() {
           </ul>
         </nav>
 
+        {/* INFO DEL USUARIO EN EL SIDEBAR */}
         <div className="sidebar-footer">
           <div className="user-avatar">{userRole.substring(0, 2)}</div>
           <div className="user-info">
@@ -229,6 +249,7 @@ function Layout() {
 
             <div className="header-actions">
               
+              {/* --- CAMPANA DE NOTIFICACIONES --- */}
               <div className="notification-wrapper" ref={notifRef} style={{ position: 'relative' }}>
                 <button className="icon-button notification-bell" onClick={() => setShowNotifMenu(!showNotifMenu)}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -242,6 +263,7 @@ function Layout() {
                   )}
                 </button>
 
+                {/* DESPLEGABLE DE NOTIFICACIONES */}
                 {showNotifMenu && (
                   <div className="dropdown-menu notif-menu fade-in-down" style={{ position: 'absolute', top: '50px', right: '-60px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', width: '340px', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
                     <div className="dropdown-header" style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -252,7 +274,12 @@ function Layout() {
                     <div className="notif-body" style={{ maxHeight: '350px', overflowY: 'auto' }}>
                       {notificaciones.length > 0 ? (
                         notificaciones.map((notif) => (
-                          <div key={notif.id} className="notif-item" style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => navigate(notif.tipo === 'urgente' ? '/inversores' : '/clientes')}>
+                          <div 
+                            key={notif.id} 
+                            className="notif-item" 
+                            style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} 
+                            onClick={() => handleNotifClick(notif)}
+                          >
                             <strong style={{ display: 'block', fontSize: '13px', color: notif.tipo === 'urgente' ? '#ef4444' : '#d97706', marginBottom: '6px' }}>{notif.titulo}</strong>
                             <p style={{ margin: 0, fontSize: '13px', color: '#475569', lineHeight: '1.5' }}>{notif.mensaje}</p>
                           </div>
