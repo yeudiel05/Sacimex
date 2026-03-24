@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Kanit:ital,wght@1,800&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -81,25 +83,31 @@ body, html, #root {
 }
 
 .login-header h1 {
-  font-size: 22px;
+  font-size: 28px;
   color: var(--text-secondary);
-  font-weight: 600;
-  margin-bottom: 4px;
-  letter-spacing: -0.3px;
+  font-family: 'Kanit', sans-serif; 
+  font-weight: 800;
+  font-style: italic;
+  margin-bottom: 0; 
+  letter-spacing: -0.5px;
+  line-height: 0.9;
 }
 
+/* --- ESTILOS ACTUALIZADOS PARA EL LOGO TEXTUAL --- */
 .brand-name {
   background: var(--primary-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  font-size: 38px;
-  font-weight: 800;
-  display: block;
+  font-size: 46px; 
+  font-family: 'Kanit', sans-serif; 
+  font-weight: 800; 
+  font-style: italic;
+  display: inline-block;
   letter-spacing: -1px;
   margin-bottom: 8px;
   position: relative;
-  display: inline-block;
+  text-transform: capitalize;
 }
 
 .brand-name::after {
@@ -118,7 +126,7 @@ body, html, #root {
   font-size: 24px;
   color: var(--text-primary);
   font-weight: 700;
-  margin: 24px 0 8px 0;
+  margin: 16px 0 8px 0; 
   letter-spacing: -0.5px;
 }
 

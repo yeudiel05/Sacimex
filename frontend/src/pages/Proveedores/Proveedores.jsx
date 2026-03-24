@@ -154,7 +154,6 @@ function Proveedores() {
                 </div>
               </div>
 
-              {/* FOOTER ACTUALIZADO PARA COINCIDIR CON FIGMA */}
               <div className="prov-card-footer">
                 <div className="prov-actions">
                   <button className="btn-icon-edit" onClick={() => abrirPanelPagos(prov)} title="Pagos y CXC">
@@ -253,9 +252,10 @@ function Proveedores() {
                     <input type="file" className="file-input" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg,.xml"/>
                   </div>
 
-                  <div className="modal-footer" style={{marginTop: '24px', padding: '0', border: 'none'}}>
+                  {/* MODIFICADO: Uso de className="btn-save" */}
+                  <div className="modal-footer" style={{marginTop: '24px', padding: '0', border: 'none', backgroundColor: 'transparent'}}>
                     <button type="button" className="btn-cancel" onClick={() => setShowNuevoPago(false)}>Cancelar</button>
-                    <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Registrar Salida de Dinero'}</button>
+                    <button type="submit" className="btn-save" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Registrar Salida de Dinero'}</button>
                   </div>
                 </form>
               )}
@@ -274,7 +274,7 @@ function Proveedores() {
             </div>
             
             <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', overflow: 'hidden', flexGrow: 1}}>
-              <div className="modal-form">
+              <div className="modal-form" style={{padding: '24px 32px', overflowY: 'auto'}}>
                 {formError && ( <div className="error-message shake-animation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>{formError}</span></div> )}
                 
                 <h4 className="section-subtitle">Datos de la Empresa</h4>
@@ -305,9 +305,10 @@ function Proveedores() {
                 </div>
               </div>
 
-              <div className="modal-footer" style={{padding: '20px 32px', borderTop: '1px solid var(--border-light)', backgroundColor: 'var(--bg-card)', flexShrink: 0}}>
+              {/* MODIFICADO: Uso de className="btn-save" y estructura limpia de modal-footer */}
+              <div className="modal-footer">
                 <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Proveedor' : 'Registrar Proveedor'}</button>
+                <button type="submit" className="btn-save" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Proveedor' : 'Guardar Proveedor'}</button>
               </div>
             </form>
           </div>
@@ -327,7 +328,6 @@ function Proveedores() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

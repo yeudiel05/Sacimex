@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
 
+import logoSacimex from '../../assets/logo.png';
+
 function Login() {
   const [formData, setFormData] = useState({
     usuario: '',
@@ -103,6 +105,14 @@ function Login() {
     <div className="login-container">
       <div className="login-card fade-in-up">
         <div className="login-header">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <img 
+              src={logoSacimex} 
+              alt="Logo Opciones Sacimex" 
+              style={{ width: '90px', height: 'auto', objectFit: 'contain' }} 
+            />
+          </div>
+
           <h1>Opciones <br /><span className="brand-name">Sacimex</span></h1>
           <h2 className="welcome-text">Bienvenido</h2>
           <p className="subtitle-text">Inicia Sesión para continuar</p>
