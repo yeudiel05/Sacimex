@@ -16,6 +16,7 @@ const reportesRoutes = require('./routes/reportes.routes');
 const auditoriaRoutes = require('./routes/auditoria.routes');
 const notificacionesRoutes = require('./routes/notificaciones.routes');
 const backupRoutes = require('./routes/backup.routes');
+const rolesRoutes = require('./routes/roles.routes'); // <-- NUEVO: Importación de roles
 
 const app = express();
 app.use(cors());
@@ -25,9 +26,6 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// =====================================================================
-// REGISTRO DE RUTAS PRINCIPALES
-// =====================================================================
 app.use('/api', authRoutes);
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/inversores', inversoresRoutes);
@@ -39,6 +37,7 @@ app.use('/api/reportes', reportesRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/backup', backupRoutes);
+app.use('/api/roles', rolesRoutes); 
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 

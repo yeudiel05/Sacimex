@@ -5,11 +5,16 @@ import './Usuarios.css';
 function Usuarios() {
   const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState([]);
+  const [roles, setRoles] = useState([]); // <-- NUEVO: Estado para roles dinámicos
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
+
+  // <-- NUEVO: Estados para el panel de roles
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [nuevoRol, setNuevoRol] = useState({ nombre_rol: '', descripcion: '' });
 
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState('');
@@ -26,6 +31,11 @@ function Usuarios() {
     return { 'Authorization': `Bearer ${token}` };
   };
 
+  const rolUsuarioActual = localStorage.getItem('rol'); // Para saber si es ADMIN
+
+  // ==========================================
+  // FETCH DE DATOS
+  // ==========================================
   const fetchUsuarios = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
@@ -35,13 +45,28 @@ function Usuarios() {
     } catch (error) { console.error(error); }
   };
 
-  useEffect(() => { fetchUsuarios(); }, []);
+  const fetchRoles = async () => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res = await fetch('http://localhost:3001/api/roles', { headers });
+      const data = await res.json();
+      if (data.success) setRoles(data.data);
+    } catch (error) { console.error(error); }
+  };
 
+  useEffect(() => { 
+    fetchUsuarios(); 
+    fetchRoles(); // <-- NUEVO: Cargamos los roles al iniciar
+  }, []);
+
+  // ==========================================
+  // CRUD USUARIOS Y EMPLEADOS
+  // ==========================================
   const openNewModal = () => {
     setIsEditing(false);
     setEditId(null);
     setFormError('');
-    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null });
+    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: '', username: '', password: '', rol: '', id_persona: null });
     setIsModalOpen(true);
   };
 
@@ -104,17 +129,60 @@ function Usuarios() {
     });
   };
 
+  // ==========================================
+  // CRUD DE ROLES (NUEVO)
+  // ==========================================
+  const handleCrearRol = async (e) => {
+    e.preventDefault();
+    if (!nuevoRol.nombre_rol) return alert("Ingresa un nombre para el rol");
+
+    const headers = getAuthHeaders();
+    setIsLoading(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/roles', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(nuevoRol)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNuevoRol({ nombre_rol: '', descripcion: '' });
+        fetchRoles(); // Recargamos la lista de roles
+      } else {
+        alert(data.message);
+      }
+    } catch (error) { console.error(error); } finally { setIsLoading(false); }
+  };
+
+  const handleEliminarRol = async (id_rol) => {
+    if(!window.confirm("¿Seguro que deseas desactivar este rol? Ningún usuario nuevo podrá asignárselo.")) return;
+    const headers = getAuthHeaders();
+    try {
+      const res = await fetch(`http://localhost:3001/api/roles/${id_rol}`, { method: 'DELETE', headers });
+      const data = await res.json();
+      if (data.success) fetchRoles(); else alert(data.message);
+    } catch (error) { console.error(error); }
+  };
+
   const usuariosFiltrados = usuarios.filter(u => u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || u.rol.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <div className="usuarios-container">
-      {/* Animaciones reubicadas a los elementos internos */}
       <div className="page-header stagger-1 fade-in-up">
         <div>
           <h1>Usuarios y Control de Acceso</h1>
           <p>Gestiona los permisos y roles de tus empleados</p>
         </div>
-        <button className="btn-primary" onClick={openNewModal}>+ Nuevo Usuario</button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {/* BOTÓN PARA ABRIR GESTOR DE ROLES */}
+          {rolUsuarioActual === 'ADMIN' && (
+            <button className="btn-cancel" onClick={() => setIsRoleModalOpen(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', marginRight: '6px', display: 'inline'}}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              Gestionar Roles
+            </button>
+          )}
+          <button className="btn-primary" onClick={openNewModal}>+ Nuevo Usuario</button>
+        </div>
       </div>
 
       <div className="usuarios-toolbar stagger-2 fade-in-up">
@@ -172,6 +240,7 @@ function Usuarios() {
         ))}
       </div>
 
+      {/* --- MODAL REGISTRAR USUARIO --- */}
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content fade-in-down" style={{maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
@@ -201,10 +270,13 @@ function Usuarios() {
                     <div className="form-group">
                       <label>Rol de Acceso en Sistema</label>
                       <select className="custom-select" style={{borderColor: 'var(--brand-green)', backgroundColor: 'var(--brand-green-light)', fontWeight: '700', color: 'var(--brand-green-hover)'}} required value={formData.rol} onChange={(e) => setFormData({...formData, rol: e.target.value})}>
-                        <option value="ADMIN">ADMINISTRADOR (Acceso Total)</option>
-                        <option value="CONTADOR">CONTADOR</option>
-                        <option value="ALMACEN">ALMACÉN</option>
-                        <option value="AUXILIAR">AUXILIAR (Solo lectura)</option>
+                        <option value="">Selecciona un rol...</option>
+                        {/* AQUI SE LLENAN LOS ROLES DINÁMICOS */}
+                        {roles.map(rol => (
+                          <option key={rol.id} value={rol.nombre_rol}>
+                            {rol.nombre_rol} - {rol.descripcion}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -226,6 +298,63 @@ function Usuarios() {
         </div>
       )}
 
+      {/* --- MODAL GESTOR DE ROLES (NUEVO) --- */}
+      {isRoleModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsRoleModalOpen(false)}>
+          <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header">
+              <div>
+                <h2>Catálogo de Roles</h2>
+                <p className="client-badge" style={{backgroundColor: '#e0f2fe', color: '#1e40af'}}>Niveles de Acceso</p>
+              </div>
+              <button className="btn-close" onClick={() => setIsRoleModalOpen(false)}>×</button>
+            </div>
+            
+            <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              
+              <form className="modal-form" style={{ padding: '20px', backgroundColor: 'var(--bg-main)', borderRadius: '12px', border: '1px dashed var(--border-focus)' }} onSubmit={handleCrearRol}>
+                <h4 className="section-subtitle" style={{ marginTop: 0 }}>Crear Nuevo Rol</h4>
+                <div className="form-group">
+                  <label>Nombre del Rol (Ej. GESTOR, AUDITOR)</label>
+                  <input type="text" required style={{textTransform: 'uppercase'}} placeholder="EJ. AUDITOR" value={nuevoRol.nombre_rol} onChange={e => setNuevoRol({...nuevoRol, nombre_rol: e.target.value.toUpperCase()})} />
+                </div>
+                <div className="form-group">
+                  <label>Descripción / Función</label>
+                  <input type="text" placeholder="Ej. Solo lectura de reportes" value={nuevoRol.descripcion} onChange={e => setNuevoRol({...nuevoRol, descripcion: e.target.value})} />
+                </div>
+                <button type="submit" className="btn-primary" style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }} disabled={isLoading}>
+                  {isLoading ? 'Creando...' : '+ Agregar Rol'}
+                </button>
+              </form>
+
+              <div>
+                <h4 className="section-subtitle">Roles Activos</h4>
+                <div className="movimientos-list">
+                  {roles.map(rol => (
+                    <div className="movimiento-item" key={rol.id} style={{ borderLeft: `4px solid var(--brand-green)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div className="mov-detalles">
+                        <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{rol.nombre_rol}</strong>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{rol.descripcion || 'Sin descripción'}</span>
+                      </div>
+                      <div className="mov-monto-accion">
+                        {rol.nombre_rol !== 'ADMIN' ? (
+                          <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444', padding: '4px 8px' }} onClick={() => handleEliminarRol(rol.id)} title="Desactivar Rol">
+                            ✕ Eliminar
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold', padding: '4px 8px', backgroundColor: '#f1f5f9', borderRadius: '4px' }}>Protegido</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmModal.isOpen && (
         <div className="modal-overlay" style={{zIndex: 2000}}>
           <div className="confirm-modal-content fade-in-up">
@@ -238,7 +367,6 @@ function Usuarios() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

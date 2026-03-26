@@ -53,7 +53,7 @@ function numeroALetras(num) {
 }
 
 // ==========================================
-// RUTAS DE AUTORIZACIÓN (ADMIN)
+// RUTAS DE AUTORIZACIÓN (ADMIN) - VISTA GENERAL
 // ==========================================
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
@@ -63,7 +63,7 @@ router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
         JOIN personas p ON pr.id_persona = p.id
         JOIN usuarios u ON pp.id_usuario_solicita = u.id
-        WHERE pp.estatus IN ('PENDIENTE', 'PAGADO')
+        WHERE pp.estatus IN ('PENDIENTE_VALIDACION', 'PENDIENTE_AUTORIZACION', 'AUTORIZADO', 'PENDIENTE', 'PAGADO')
         ORDER BY pp.estatus DESC, pp.fecha_solicitud DESC
     `;
     db.query(query, (err, results) => {
@@ -72,6 +72,8 @@ router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     });
 });
 
+// Mantengo tus rutas originales de aprobar/rechazar por si algún otro panel las usa,
+// pero el nuevo flujo de trabajo utilizará la ruta /pagos/:id_pago/autorizacion
 router.put('/autorizaciones/:id/aprobar', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
     db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
@@ -91,7 +93,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
 });
 
 // =========================================================================
-// PUNTO 3:"SOLICITUD UNIVERSAL DE RECURSOS"
+// PUNTO 3:"SOLICITUD UNIVERSAL DE RECURSOS" (Generación de PDF)
 // =========================================================================
 router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
     const query = `
@@ -201,7 +203,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica-Bold').text('PAGADO POR', 320, sigY2 + 5, { width: 200, align: 'center' });
         doc.font('Helvetica').text('C. BEATRIZ CRUZ CANO', 320, sigY2 + 15, { width: 200, align: 'center' });
 
-        if(pago.estatus === 'PAGADO'){
+        if(pago.estatus === 'PAGADO' || pago.estatus === 'AUTORIZADO'){
             doc.save();
             doc.rotate(-20, { origin: [300, 500] });
             doc.fontSize(45).font('Helvetica-Bold').fillColor('rgba(22, 163, 74, 0.15)').text('AUTORIZADO', 160, 480);
@@ -279,11 +281,15 @@ router.get('/:id/pagos', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
+// RUTA ACTUALIZADA: CREAR SOLICITUD DE PAGO
+// ==========================================
 router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) => {
     const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
     let url = req.file ? `uploads/${req.file.filename}` : null;
     
-    const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE';
+    // Si es ADMIN, lo pasamos directo a PAGADO para agilizar. Si es otro rol, entra a PENDIENTE_VALIDACION.
+    const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
     const id_autoriza = req.usuario.rol === 'ADMIN' ? req.usuario.id : null;
 
     db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
@@ -293,9 +299,58 @@ router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) =
         if(estatus === 'PAGADO'){
             registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo por $${monto_pago}`);
         } else {
-            registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago por $${monto_pago} (Pendiente de Autorizar)`);
+            registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago por $${monto_pago} (Pendiente de Validación)`);
         }
-        res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado' : 'Solicitud enviada a Director para autorización' });
+        res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
+    });
+});
+
+// ==========================================
+// NUEVA RUTA: WORKFLOW DE 3 NIVELES
+// ==========================================
+router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
+    const { id_pago } = req.params;
+    const { accion } = req.body; 
+    const id_usuario = req.usuario.id;
+
+    let nuevoEstatus = '';
+    let queryUpdate = '';
+    let params = [];
+    let accionBitacora = '';
+
+    if (accion === 'VALIDAR') {
+        nuevoEstatus = 'PENDIENTE_AUTORIZACION';
+        // Quitamos el candado estricto del WHERE para forzar el guardado
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_validador = ?, fecha_validacion = NOW() WHERE id = ?';
+        params = [nuevoEstatus, id_usuario, id_pago];
+        accionBitacora = 'VALIDACIÓN_PAGO_PROVEEDOR';
+    } else if (accion === 'AUTORIZAR') {
+        nuevoEstatus = 'PAGADO'; // Pasa directo a PAGADO para tu vista
+        // Quitamos el candado estricto del WHERE para forzar el guardado
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ?';
+        params = [nuevoEstatus, id_usuario, id_pago];
+        accionBitacora = 'AUTORIZACIÓN_FINAL_PAGO';
+    } else if (accion === 'RECHAZAR') {
+        nuevoEstatus = 'RECHAZADO';
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ? WHERE id = ?';
+        params = [nuevoEstatus, id_pago];
+        accionBitacora = 'RECHAZO_PAGO_PROVEEDOR';
+    } else {
+        return res.status(400).json({ success: false, message: 'Acción no válida' });
+    }
+
+    db.query(queryUpdate, params, (err, result) => {
+        if (err) {
+            console.error("Error SQL:", err);
+            return res.status(500).json({ success: false, message: 'Error en el servidor al cambiar estatus' });
+        }
+        
+        if (result.affectedRows === 0) {
+            return res.status(400).json({ success: false, message: 'No se pudo encontrar el pago en la base de datos.' });
+        }
+
+        registrarBitacora(id_usuario, accionBitacora, `Se marcó el pago ID ${id_pago} como ${nuevoEstatus}`);
+        res.json({ success: true, message: `Pago ${nuevoEstatus.replace('_', ' ').toLowerCase()} con éxito.` });
     });
 });
 

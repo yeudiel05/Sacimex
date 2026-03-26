@@ -105,6 +105,34 @@ function Proveedores() {
     } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
 
+  // --- LÓGICA DE WORKFLOW (NUEVO) ---
+  const avanzarWorkflowPago = async (id_pago, accion) => {
+    if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} este pago?`)) return;
+    
+    const headers = getAuthHeaders();
+    setIsLoading(true);
+    
+    try {
+      const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_pago}/autorizacion`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion })
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        fetchPagos(provActivo.id); // Recargamos los pagos
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Error de conexión con el servidor.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const proveedoresFiltrados = proveedores.filter(p => p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || p.categoria.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
@@ -201,24 +229,67 @@ function Proveedores() {
                   
                   {pagos.length > 0 ? (
                     <div className="movimientos-list">
-                      {pagos.map(pago => (
-                        <div className="movimiento-item" key={pago.id}>
-                          <div className="mov-icon" style={{backgroundColor: '#fee2e2', color: '#ef4444'}}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                      {pagos.map(pago => {
+                        // Lógica visual del estatus
+                        let estatusColor = '#64748b'; // Gris default
+                        let estatusBg = '#f1f5f9';
+                        if (pago.estatus === 'PENDIENTE_VALIDACION' || pago.estatus === 'PENDIENTE') { estatusColor = '#d97706'; estatusBg = '#fef3c7'; }
+                        if (pago.estatus === 'PENDIENTE_AUTORIZACION') { estatusColor = '#2563eb'; estatusBg = '#dbeafe'; }
+                        if (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') { estatusColor = '#16a34a'; estatusBg = '#dcfce3'; }
+                        if (pago.estatus === 'RECHAZADO') { estatusColor = '#ef4444'; estatusBg = '#fef2f2'; }
+
+                        const rolUsuario = localStorage.getItem('rol'); // Leemos el rol actual
+
+                        return (
+                          <div className="movimiento-item" key={pago.id} style={{ borderLeft: `4px solid ${estatusColor}` }}>
+                            <div className="mov-icon" style={{backgroundColor: estatusBg, color: estatusColor}}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                            </div>
+                            <div className="mov-detalles">
+                              <strong>{pago.concepto}</strong>
+                              <span>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleDateString()}</span>
+                              <span style={{
+                                fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, 
+                                padding: '2px 8px', borderRadius: '12px', width: 'fit-content', fontWeight: '800', marginTop: '4px'
+                              }}>
+                                {pago.estatus ? pago.estatus.replace(/_/g, ' ') : 'PENDIENTE VALIDACION'}
+                              </span>
+                            </div>
+                            <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                              <span className="mov-monto" style={{color: (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') ? '#ef4444' : '#64748b'}}>
+                                {pago.estatus === 'RECHAZADO' ? '$0.00' : `-${formatMoney(pago.monto_pago)}`}
+                              </span>
+                              
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                {/* Botón Validación (Contador o Admin) */}
+                                {(pago.estatus === 'PENDIENTE_VALIDACION' || pago.estatus === 'PENDIENTE') && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
+                                  <button className="btn-view" style={{ borderColor: '#d97706', color: '#d97706' }} onClick={() => avanzarWorkflowPago(pago.id, 'VALIDAR')} title="Validar Factura">
+                                    Validar
+                                  </button>
+                                )}
+                                
+                                {/* Botón Autorización (Solo Admin) */}
+                                {pago.estatus === 'PENDIENTE_AUTORIZACION' && rolUsuario === 'ADMIN' && (
+                                  <button className="btn-view" style={{ borderColor: '#2563eb', color: '#2563eb' }} onClick={() => avanzarWorkflowPago(pago.id, 'AUTORIZAR')} title="Autorizar Pago">
+                                    Autorizar
+                                  </button>
+                                )}
+
+                                {/* Botón Rechazar */}
+                                {pago.estatus !== 'AUTORIZADO' && pago.estatus !== 'PAGADO' && pago.estatus !== 'RECHAZADO' && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
+                                  <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444' }} onClick={() => avanzarWorkflowPago(pago.id, 'RECHAZAR')} title="Rechazar Pago">
+                                    ✕
+                                  </button>
+                                )}
+
+                                {pago.url_comprobante_pago && ( 
+                                  <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" title="Ver Factura/XML">Doc</a> 
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="mov-detalles">
-                            <strong>{pago.concepto}</strong>
-                            <span>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud).toLocaleDateString()}</span>
-                            <span style={{fontSize: '11px', color: '#1e40af', fontWeight: '800', marginTop: '2px'}}>{pago.estatus}</span>
-                          </div>
-                          <div className="mov-monto-accion">
-                            <span className="mov-monto" style={{color: '#ef4444'}}>-{formatMoney(pago.monto_pago)}</span>
-                            {pago.url_comprobante_pago && ( 
-                              <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" title="Ver Factura/XML">Doc</a> 
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : ( 
                     <div className="empty-state">
@@ -252,7 +323,6 @@ function Proveedores() {
                     <input type="file" className="file-input" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg,.xml"/>
                   </div>
 
-                  {/* MODIFICADO: Uso de className="btn-save" */}
                   <div className="modal-footer" style={{marginTop: '24px', padding: '0', border: 'none', backgroundColor: 'transparent'}}>
                     <button type="button" className="btn-cancel" onClick={() => setShowNuevoPago(false)}>Cancelar</button>
                     <button type="submit" className="btn-save" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Registrar Salida de Dinero'}</button>
@@ -305,7 +375,6 @@ function Proveedores() {
                 </div>
               </div>
 
-              {/* MODIFICADO: Uso de className="btn-save" y estructura limpia de modal-footer */}
               <div className="modal-footer">
                 <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
                 <button type="submit" className="btn-save" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Proveedor' : 'Guardar Proveedor'}</button>
