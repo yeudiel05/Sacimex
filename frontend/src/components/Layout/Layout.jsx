@@ -10,10 +10,19 @@ function Layout() {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [notificaciones, setNotificaciones] = useState([]);
 
+  // --- 1. NUEVOS ESTADOS PARA BUSCADOR Y SIDEBAR COLAPSABLE ---
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
   const menuRef = useRef(null);
   const notifRef = useRef(null);
+  
+  // --- 2. NUEVAS REFERENCIAS PARA EL BUSCADOR ---
+  const searchInputRef = useRef(null);
+  const searchContainerRef = useRef(null);
 
   const userRole = localStorage.getItem('rol') || 'AUXILIAR'; 
   const username = localStorage.getItem('username') || 'Usuario'; 
@@ -39,6 +48,19 @@ function Layout() {
     fetchNotificaciones();
   }, [location.pathname]);
 
+  // --- 3. EFECTO PARA ATAJO DE TECLADO
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // --- 4. CERRAR MENÚS Y BUSCADOR AL HACER CLIC AFUERA ---
   useEffect(() => {
     function handleClickOutside(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -46,6 +68,9 @@ function Layout() {
       }
       if (notifRef.current && !notifRef.current.contains(event.target)) {
         setShowNotifMenu(false);
+      }
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setIsSearchFocused(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -69,53 +94,38 @@ function Layout() {
     }
   };
 
-  // --- 4. MATRIZ DE PERMISOS POR ROL ---
+  // --- MATRIZ DE PERMISOS POR ROL ---
   const menuItems = [
     {
       path: '/dashboard',
       label: 'Dashboard',
       rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR'],
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-          <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-          <rect x="14" y="14" width="7" height="7" rx="1"></rect>
-          <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
       )
     },
     {
       path: '/usuarios',
       label: 'Usuarios y Roles',
-      rolesPermitidos: ['ADMIN'], // SOLO EL DIRECTOR
+      rolesPermitidos: ['ADMIN'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
       )
     },
     {
       path: '/clientes',
       label: 'Clientes',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'AUXILIAR'], // Almacén no necesita ver clientes
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'AUXILIAR'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-          <circle cx="9" cy="7" r="4"></circle>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       )
     },
     {
       path: '/inversores',
       label: 'Inversores',
-      rolesPermitidos: ['ADMIN', 'CONTADOR'], // Información muy sensible
+      rolesPermitidos: ['ADMIN', 'CONTADOR'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-          <polyline points="17 6 23 6 23 12"></polyline>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
       )
     },
     {
@@ -123,34 +133,23 @@ function Layout() {
       label: 'Proveedores',
       rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="1" y="3" width="15" height="13" rx="2"></rect>
-          <polygon points="16 8 20 8 23 11 23 16 16 8"></polygon>
-          <circle cx="5.5" cy="18.5" r="2.5"></circle>
-          <circle cx="18.5" cy="18.5" r="2.5"></circle>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
       )
     },
     {
       path: '/autorizaciones',
       label: 'Autorizar Pagos',
-      rolesPermitidos: ['ADMIN'], // SOLO EL DIRECTOR FIRMA
+      rolesPermitidos: ['ADMIN'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-          <path d="M9 12l2 2 4-4"></path>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
       )
     },
     {
       path: '/configuracion',
       label: 'Configuraciones',
-      rolesPermitidos: ['ADMIN'], // SOLO DIRECTOR
+      rolesPermitidos: ['ADMIN'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
       )
     },
     {
@@ -158,30 +157,25 @@ function Layout() {
       label: 'Reportes y Export.',
       rolesPermitidos: ['ADMIN', 'CONTADOR'],
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
       )
     },
     {
       path: '/auditoria',
       label: 'Auditoría (Log)',
-      rolesPermitidos: ['ADMIN'], // SOLO DIRECTOR
+      rolesPermitidos: ['ADMIN'], 
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 20h9"></path>
-          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
       )
     }
   ];
 
-  // FILTRAMOS EL ROL ACTUAL
   const menusPermitidos = menuItems.filter(item => item.rolesPermitidos.includes(userRole));
+
+  // --- 5. LÓGICA DE FILTRADO PARA EL BUSCADOR ---
+  const searchResults = menusPermitidos.filter(menu => 
+    menu.label.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const getPageTitle = () => {
     const currentItem = menuItems.find(item => item.path === location.pathname);
@@ -189,10 +183,12 @@ function Layout() {
   };
 
   return (
-    <div className="dashboard-layout">
+    // Agregamos la clase "sidebar-collapsed" dinámicamente
+    <div className={`dashboard-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      
       <aside className="sidebar fade-in-left">
         <div className="sidebar-brand">
-          <div style={{ width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderRadius: '10px', padding: '4px', flexShrink: 0 }}>
+          <div className="brand-logo" style={{ width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderRadius: '10px', padding: '4px', flexShrink: 0 }}>
             <img src={logoSacimex} alt="Logo Sacimex" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <div className="brand-text">
@@ -204,21 +200,20 @@ function Layout() {
         <nav className="sidebar-nav">
           <p className="nav-title">Navegación Principal</p>
           <ul>
-            {/* RENDERIZAMOS SOLO LOS MENÚS PERMITIDOS */}
             {menusPermitidos.map((item) => (
               <li
                 key={item.path}
                 className={location.pathname === item.path ? 'active' : ''}
                 onClick={() => navigate(item.path)}
+                title={isSidebarCollapsed ? item.label : ''} // Tooltip al estar colapsado
               >
                 {item.icon}
-                {item.label}
+                <span className="nav-label">{item.label}</span>
               </li>
             ))}
           </ul>
         </nav>
 
-        {/* INFO DEL USUARIO EN EL SIDEBAR */}
         <div className="sidebar-footer">
           <div className="user-avatar">{userRole.substring(0, 2)}</div>
           <div className="user-info">
@@ -232,19 +227,59 @@ function Layout() {
         <header className="top-header fade-in-down">
           
           <div className="header-left">
+            {/* --- BOTÓN PARA OCULTAR/MOSTRAR SIDEBAR --- */}
+            <button className="toggle-sidebar-btn" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
             <h2 className="current-page-title" style={{ margin: 0, fontSize: '22px', fontWeight: '800' }}>
               {getPageTitle()}
             </h2>
           </div>
 
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-            <div className="header-search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-              <input type="text" placeholder="Buscar movimientos, clientes..." />
-              <span className="search-shortcut">/</span>
+            
+            {/* --- BUSCADOR FUNCIONAL (CTRL + K) --- */}
+            <div className="header-search-wrapper" ref={searchContainerRef} style={{ position: 'relative' }}>
+              <div className={`header-search ${isSearchFocused ? 'focused' : ''}`}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input 
+                  ref={searchInputRef}
+                  type="text" 
+                  placeholder="Buscar módulos (Ctrl+K)..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => setIsSearchFocused(true)}
+                />
+                <span className="search-shortcut">Ctrl+K</span>
+              </div>
+
+              {/* DROPDOWN DE RESULTADOS DE BÚSQUEDA */}
+              {isSearchFocused && searchQuery && (
+                <div className="search-dropdown fade-in-down">
+                  <p className="search-title">RESULTADOS</p>
+                  {searchResults.length > 0 ? (
+                    searchResults.map(result => (
+                      <div 
+                        key={result.path} 
+                        className="search-item" 
+                        onClick={() => { navigate(result.path); setSearchQuery(''); setIsSearchFocused(false); }}
+                      >
+                        {result.icon}
+                        <span>Ir a <strong>{result.label}</strong></span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="search-item empty">No se encontraron módulos.</div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="header-actions">
@@ -263,7 +298,6 @@ function Layout() {
                   )}
                 </button>
 
-                {/* DESPLEGABLE DE NOTIFICACIONES */}
                 {showNotifMenu && (
                   <div className="dropdown-menu notif-menu fade-in-down" style={{ position: 'absolute', top: '50px', right: '-60px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', width: '340px', boxShadow: '0 20px 40px rgba(0,0,0,0.1)', zIndex: 100, overflow: 'hidden' }}>
                     <div className="dropdown-header" style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
