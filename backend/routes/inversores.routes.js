@@ -64,13 +64,13 @@ function numeroALetras(num) {
 }
 
 // ==========================================
-// RUTAS CRUD
+// RUTAS CRUD (FONDEADORES)
 // ==========================================
 
 router.get('/', verificarToken, (req, res) => {
   const query = `
     SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
-           p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.banco, 
+           p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
            i.origen_fondos, i.estatus_activo
     FROM PERSONAS p INNER JOIN INVERSORES i ON p.id = i.id_persona
     WHERE p.eliminado = FALSE ORDER BY p.id DESC
@@ -81,22 +81,50 @@ router.get('/', verificarToken, (req, res) => {
   });
 });
 
+// NUEVO POST: Registra Fondeador y Beneficiario en 1 solo paso
 router.post('/', verificarToken, (req, res) => {
-  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, banco, origen_fondos } = req.body;
+  const { 
+      nombre, apellidos, rfc, direccion, telefono, email, 
+      clabe_bancaria, numero_cuenta, banco, origen_fondos,
+      ben_nombre, ben_parentesco, ben_telefono 
+  } = req.body;
+
+  // Unificamos nombre y apellidos para la tabla personas
+  const nombreCompleto = `${nombre} ${apellidos}`.trim();
+  const rfcFinal = rfc ? rfc.toUpperCase() : 'XAXX010101000';
+
   db.beginTransaction(err => {
     if (err) return res.status(500).json({ success: false });
+    
+    // 1. Guardar Persona
     db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
-      [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
+      ['FISICA', nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
         if (err) return db.rollback(() => res.status(500).json({ success: false }));
         const idNuevaPersona = resultPersona.insertId;
-        db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, banco, origen_fondos, estatus_activo) VALUES (?, ?, ?, ?, 1)',
-          [idNuevaPersona, clabe_bancaria, banco, origen_fondos], (err) => {
+        
+        // 2. Guardar Fondeador (Se agrega numero_cuenta)
+        db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)',
+          [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL'], (err) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false }));
-            db.commit(err => {
-              if (err) return db.rollback(() => res.status(500).json({ success: false }));
-              registrarBitacora(req.usuario.id, 'CREAR_INVERSOR', `Se registró al inversor ${nombre}`);
-              res.json({ success: true, message: 'Inversor registrado exitosamente.' });
-            });
+            
+            // 3. Guardar Beneficiario Automático (Si mandaron los datos)
+            if (ben_nombre) {
+                db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
+                [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
+                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    commitFondeador();
+                });
+            } else {
+                commitFondeador();
+            }
+
+            function commitFondeador() {
+                db.commit(err => {
+                  if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                  registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador ${nombreCompleto}`);
+                  res.json({ success: true, message: 'Fondeador registrado exitosamente.' });
+                });
+            }
           });
       });
   });
@@ -111,16 +139,18 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
 
 router.put('/:id', verificarToken, (req, res) => {
   const { id } = req.params;
-  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, banco, origen_fondos } = req.body;
+  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos } = req.body;
   db.beginTransaction(err => {
     if (err) return res.status(500).json({ success: false });
     db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
       if (err) return db.rollback(() => res.status(500).json({ success: false }));
-      db.query('UPDATE INVERSORES SET clabe_bancaria=?, banco=?, origen_fondos=? WHERE id_persona=?', [clabe_bancaria, banco, origen_fondos, id], (err) => {
+      
+      // Actualizamos también el número de cuenta
+      db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=? WHERE id_persona=?', [clabe_bancaria, numero_cuenta, banco, origen_fondos, id], (err) => {
         if (err) return db.rollback(() => res.status(500).json({ success: false }));
         db.commit(err => {
           if (err) return db.rollback(() => res.status(500).json({ success: false }));
-          res.json({ success: true, message: 'Inversor actualizado.' });
+          res.json({ success: true, message: 'Fondeador actualizado.' });
         });
       });
     });
@@ -133,6 +163,10 @@ router.delete('/:id', verificarToken, (req, res) => {
     res.json({ success: true });
   });
 });
+
+// ==========================================
+// TASAS Y CONTRATOS DE INVERSIÓN
+// ==========================================
 
 router.get('/tasas', verificarToken, (req, res) => {
   db.query('SELECT * FROM CATALOGO_TASAS WHERE estatus_activo = 1', (err, results) => {
@@ -148,6 +182,7 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
   });
 });
 
+// RUTA ORIGINAL (Mantenida por compatibilidad)
 router.post('/contratos', verificarToken, (req, res) => {
   const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin } = req.body;
   db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, "ACTIVO")',
@@ -157,6 +192,34 @@ router.post('/contratos', verificarToken, (req, res) => {
     });
 });
 
+// NUEVA RUTA: Creador Dinámico de Inversiones (Calcula la fecha fin sola)
+router.post('/inversion', verificarToken, (req, res) => {
+    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses } = req.body;
+
+    const fechaInicio = new Date();
+    const fechaFin = new Date();
+    fechaFin.setMonth(fechaInicio.getMonth() + parseInt(plazo_meses));
+
+    const query = `
+        INSERT INTO CONTRATOS_INVERSION 
+        (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, fecha_inicio, fecha_fin, estatus) 
+        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO')
+    `;
+
+    db.query(query, [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, fechaInicio, fechaFin], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ success: false, message: 'Error al registrar la inversión' });
+        }
+        registrarBitacora(req.usuario.id, 'NUEVA_INVERSION', `Inversión de $${monto_inicial} registrada para el fondeador ID ${id_inversor}`);
+        res.json({ success: true, message: 'Fondeo registrado correctamente' });
+    });
+});
+
+// ==========================================
+// BENEFICIARIOS Y MOVIMIENTOS
+// ==========================================
+
 router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
   db.query('SELECT * FROM BENEFICIARIOS WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
     if (err) return res.status(500).json({ success: false });
@@ -165,11 +228,14 @@ router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
 });
 
 router.post('/beneficiarios', verificarToken, (req, res) => {
-  const { id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento } = req.body;
+  const { id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento } = req.body;
   db.query('SELECT SUM(porcentaje) as total FROM BENEFICIARIOS WHERE id_inversor = ?', [id_inversor], (err, results) => {
     const nuevoTotal = (parseFloat(results[0].total) || 0) + parseFloat(porcentaje);
     if (nuevoTotal > 100) return res.status(400).json({ success: false, message: `Excede el 100%.` });
-    db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento) VALUES (?, ?, ?, ?, ?)', [id_inversor, nombre_completo, parentesco, porcentaje, fecha_nacimiento || null], (err) => {
+    
+    // Se agregó el campo telefono a la inserción
+    db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento) VALUES (?, ?, ?, ?, ?, ?)', 
+    [id_inversor, nombre_completo, parentesco, telefono || null, porcentaje, fecha_nacimiento || null], (err) => {
       if (err) return res.status(500).json({ success: false });
       res.json({ success: true });
     });

@@ -10,6 +10,7 @@ function Inversores() {
     const [gananciaNeta, setGananciaNeta] = useState(0);
     const [totalRecibir, setTotalRecibir] = useState(0);
     
+    // Estados generales
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -18,8 +19,25 @@ function Inversores() {
     const [isEditing, setIsEditing] = useState(false);
     const [editId, setEditId] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
-    const [formData, setFormData] = useState({ tipo_persona: 'FISICA', nombre: '', rfc: '', direccion: '', telefono: '', email: '', clabe_bancaria: '', banco: '', origen_fondos: 'Ahorros Personales / Salario' });
     
+    // PAGINACIÓN (NUEVO)
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 20;
+
+    // MODAL: Alta de Fondeador
+    const [formData, setFormData] = useState({ 
+        tipo_persona: 'FISICA', nombre: '', apellidos: '', rfc: '', direccion: '', telefono: '', email: '', 
+        clabe_bancaria: '', numero_cuenta: '', banco: '', origen_fondos: 'Ahorros Personales / Salario',
+        ben_nombre: '', ben_parentesco: '', ben_telefono: ''
+    });
+    
+    // MODAL NUEVO: Alta Rápida de Fondeo
+    const [isFondeoModalOpen, setIsFondeoModalOpen] = useState(false);
+    const [filtroFondeador, setFiltroFondeador] = useState(''); 
+    const [dropdownFondeadorOpen, setDropdownFondeadorOpen] = useState(false); 
+    const [formFondeo, setFormFondeo] = useState({ id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL' });
+
+    // Panel Lateral (Fondeador Activo)
     const [panelOpen, setPanelOpen] = useState(false);
     const [inversorActivo, setInversorActivo] = useState(null);
     const [activeTab, setActiveTab] = useState('contratos');
@@ -29,8 +47,10 @@ function Inversores() {
     const [contratos, setContratos] = useState([]);
     const [showNuevoContrato, setShowNuevoContrato] = useState(false);
     const [formContrato, setFormContrato] = useState({ id_tasa: '', monto_inicial: '', frecuencia_pagos: 'MENSUAL', reinversion_automatica: 0, fecha_inicio: new Date().toISOString().split('T')[0], fecha_fin: '' });
+    
     const [beneficiarios, setBeneficiarios] = useState([]);
-    const [formBeneficiario, setFormBeneficiario] = useState({ nombre_completo: '', parentesco: '', porcentaje: '', fecha_nacimiento: '' });
+    const [formBeneficiario, setFormBeneficiario] = useState({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' });
+    
     const [movimientos, setMovimientos] = useState([]);
     const [showNuevoMovimiento, setShowNuevoMovimiento] = useState(false);
     const [formMovimiento, setFormMovimiento] = useState({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' });
@@ -83,18 +103,28 @@ function Inversores() {
 
     const openNewModal = () => {
         setIsEditing(false); setEditId(null); setFormError('');
-        setFormData({ tipo_persona: 'FISICA', nombre: '', rfc: '', direccion: '', telefono: '', email: '', clabe_bancaria: '', banco: '', origen_fondos: 'Ahorros Personales / Salario' });
+        setFormData({ 
+            tipo_persona: 'FISICA', nombre: '', apellidos: '', rfc: '', direccion: '', telefono: '', email: '', 
+            clabe_bancaria: '', numero_cuenta: '', banco: '', origen_fondos: 'Ahorros Personales / Salario',
+            ben_nombre: '', ben_parentesco: '', ben_telefono: ''
+        });
         setIsModalOpen(true);
     };
 
     const openEditModal = (inversor) => {
         setIsEditing(true); setEditId(inversor.id); setFormError('');
-        setFormData({ tipo_persona: inversor.tipo_persona || 'FISICA', nombre: inversor.nombre, rfc: inversor.rfc || '', direccion: inversor.ubicacion, telefono: inversor.telefono, email: inversor.email, clabe_bancaria: inversor.clabe_bancaria, banco: inversor.banco, origen_fondos: inversor.origen_fondos || 'Ahorros Personales / Salario' });
+        setFormData({ 
+            tipo_persona: inversor.tipo_persona || 'FISICA', nombre: inversor.nombre, apellidos: '', rfc: inversor.rfc || '', 
+            direccion: inversor.ubicacion, telefono: inversor.telefono, email: inversor.email, 
+            clabe_bancaria: inversor.clabe_bancaria, numero_cuenta: inversor.numero_cuenta || '', banco: inversor.banco, 
+            origen_fondos: inversor.origen_fondos || 'Ahorros Personales / Salario',
+            ben_nombre: '', ben_parentesco: '', ben_telefono: ''
+        });
         setIsModalOpen(true);
     };
 
     const triggerEliminarInversor = (id, nombre) => {
-        setConfirmModal({ isOpen: true, title: 'Eliminar Inversor', message: `¿Estás seguro de eliminar a ${nombre}? Perderás el acceso a sus contratos.`, onConfirm: () => ejecutarEliminarInversor(id) });
+        setConfirmModal({ isOpen: true, title: 'Eliminar Fondeador', message: `¿Estás seguro de eliminar a ${nombre}? Perderás el acceso a sus contratos.`, onConfirm: () => ejecutarEliminarInversor(id) });
     };
 
     const ejecutarEliminarInversor = async (id) => {
@@ -109,13 +139,18 @@ function Inversores() {
     const validarFormulario = () => {
         setFormError('');
         if (!formData.nombre.trim()) { setFormError('El Nombre es obligatorio.'); return false; }
+        if (!isEditing && !formData.apellidos.trim()) { setFormError('Los Apellidos son obligatorios.'); return false; }
         if (!formData.direccion.trim()) { setFormError('La Dirección es obligatoria.'); return false; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido.'); return false; }
         if (!/^\d{10}$/.test(formData.telefono)) { setFormError('El teléfono debe tener 10 dígitos.'); return false; }
-        if (formData.tipo_persona === 'FISICA') { if (!/^([A-ZÑ&]{4})(\d{6})([A-Z0-9]{3})$/i.test(formData.rfc)) { setFormError('RFC Física inválido.'); return false; } }
-        else { if (!/^([A-ZÑ&]{3})(\d{6})([A-Z0-9]{3})$/i.test(formData.rfc)) { setFormError('RFC Moral inválido.'); return false; } }
         if (!formData.banco) { setFormError('Debe seleccionar un Banco.'); return false; }
-        if (!/^\d{18}$/.test(formData.clabe_bancaria)) { setFormError('La CLABE debe tener 18 números.'); return false; }
+        if (formData.clabe_bancaria && !/^\d{18}$/.test(formData.clabe_bancaria)) { setFormError('La CLABE debe tener 18 números.'); return false; }
+        if (!formData.numero_cuenta) { setFormError('El número de cuenta es obligatorio.'); return false; }
+        
+        if (!isEditing) {
+            if (!formData.ben_nombre.trim()) { setFormError('El nombre del Beneficiario Principal es obligatorio.'); return false; }
+            if (!formData.ben_telefono.trim() || !/^\d{10}$/.test(formData.ben_telefono)) { setFormError('El teléfono del Beneficiario debe tener 10 dígitos.'); return false; }
+        }
         return true;
     };
 
@@ -144,14 +179,40 @@ function Inversores() {
         } catch (error) { console.error(error); }
     };
 
+    const handleCrearFondeo = async (e) => {
+        e.preventDefault();
+        if(!formFondeo.id_inversor || !formFondeo.monto_inicial || !formFondeo.id_tasa) return alert("Completa todos los campos.");
+        
+        const headers = getAuthHeaders();
+        setIsLoading(true);
+        try {
+            const res = await fetch('http://localhost:3001/api/inversores/inversion', {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify(formFondeo)
+            });
+            const data = await res.json();
+            if(data.success) {
+                setIsFondeoModalOpen(false);
+                setDropdownFondeadorOpen(false);
+                setFormFondeo({ id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL' });
+                setFiltroFondeador(''); 
+                alert("Capital Fondeado y Contrato Generado Exitosamente.");
+                if(inversorActivo) fetchContratos(inversorActivo.id);
+            } else {
+                alert(data.message);
+            }
+        } catch(error) {
+            console.error(error); alert("Error al registrar la inversión.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const abrirPanel = async (inversor) => {
         setInversorActivo(inversor); setActiveTab('contratos'); setShowNuevoContrato(false); setShowNuevoMovimiento(false); setPanelOpen(true);
         fetchContratos(inversor.id); fetchBeneficiarios(inversor.id); fetchMovimientos(inversor.id);
     };
-
-    // =====================================================================
-    // RUTAS CORREGIDAS PARA EL PANEL DEL INVERSOR (/api/inversores/...)
-    // =====================================================================
     
     const fetchContratos = async (id_inversor) => {
         const headers = getAuthHeaders(); 
@@ -202,7 +263,7 @@ function Inversores() {
         try { 
             const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formBeneficiario, id_inversor: inversorActivo.id }) }); 
             const data = await res.json();
-            if (data.success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } 
+            if (data.success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } 
         } catch (error) { console.error(error); } finally { setIsLoading(false); } 
     };
     
@@ -236,7 +297,41 @@ function Inversores() {
         } catch (error) { console.error(error); } finally { setIsLoading(false); } 
     };
 
-    const inversoresFiltrados = inversores.filter(i => i.nombre.toLowerCase().includes(searchTerm.toLowerCase()));
+    // =======================================================
+    // FILTROS Y PAGINACIÓN
+    // =======================================================
+    const inversoresFiltrados = inversores.filter(i => 
+        i.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (i.rfc && i.rfc.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    // Resetea a la primera página si el usuario busca algo
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm]);
+
+    // Lógica para cortar el arreglo y mostrar solo los items de la página actual
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentInversores = inversoresFiltrados.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(inversoresFiltrados.length / itemsPerPage);
+
+    const nextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
+    const prevPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
+    
+    // Filtro para el modal de Fondeo
+    const inversoresParaFondeo = inversores.filter(inv => {
+        if (inv.estatus_activo !== 1) return false;
+        if (!filtroFondeador) return true;
+        
+        const term = filtroFondeador.toLowerCase().trim();
+        const nombre = (inv.nombre || '').toLowerCase();
+        const rfc = (inv.rfc || '').toLowerCase();
+        const telefono = (inv.telefono || '').toLowerCase();
+        const idStr = (inv.id || '').toString();
+        
+        return nombre.includes(term) || rfc.includes(term) || telefono.includes(term) || idStr.includes(term);
+    });
 
     // ===== COMPONENTES DE PESTAÑAS =====
     const TabContratos = () => (
@@ -245,13 +340,13 @@ function Inversores() {
                 <>
                     <div className="flex-between" style={{ marginBottom: '20px' }}>
                         <h4 className="section-subtitle" style={{ margin: 0, border: 'none' }}>Contratos Vigentes</h4>
-                        <button className="btn-primary btn-sm" onClick={() => setShowNuevoContrato(true)}>+ Nuevo Contrato</button>
+                        <button className="btn-primary btn-sm" onClick={() => setShowNuevoContrato(true)}>+ Nuevo Contrato Antiguo</button>
                     </div>
                     {contratos.length > 0 ? contratos.map(c => (
                         <div className="contrato-card" key={c.id}>
                             <div className="c-header"><strong>Contrato #{c.id.toString().padStart(4, '0')}</strong><span className="badge-activo">{c.estatus}</span></div>
                             <div className="c-body">
-                                <div><span>Monto Invertido</span><h3>{formatMoney(c.monto_inicial)}</h3></div>
+                                <div><span>Monto Fondeado</span><h3>{formatMoney(c.monto_inicial)}</h3></div>
                                 <div><span>Tasa</span><strong>{c.nombre_tasa} ({c.tasa_anual_esperada}%)</strong></div>
                             </div>
                             <div className="c-footer">
@@ -259,12 +354,12 @@ function Inversores() {
                                 <button className="btn-view" onClick={() => generarPDFContrato(c.id)} disabled={isLoading}>{isLoading ? 'Generando...' : 'Descargar Contrato'}</button>
                             </div>
                         </div>
-                    )) : <div className="empty-state">El inversor aún no tiene capital activo.</div>}
+                    )) : <div className="empty-state">El fondeador aún no tiene capital activo.</div>}
                 </>
             ) : (
                 <form className="nuevo-contrato-form" onSubmit={handleGuardarContrato}>
-                    <h4 className="section-subtitle">Crear Nuevo Contrato</h4>
-                    <div className="form-group"><label>Monto a Invertir</label><input type="number" required min="1000" value={formContrato.monto_inicial} onChange={e => setFormContrato({ ...formContrato, monto_inicial: e.target.value })} /></div>
+                    <h4 className="section-subtitle">Crear Contrato Estático (Antiguo)</h4>
+                    <div className="form-group"><label>Monto Fondeado</label><input type="number" required min="1000" value={formContrato.monto_inicial} onChange={e => setFormContrato({ ...formContrato, monto_inicial: e.target.value })} /></div>
                     <div className="form-group">
                         <label>Seleccionar Producto</label>
                         <select className="custom-select" required value={formContrato.id_tasa} onChange={e => setFormContrato({ ...formContrato, id_tasa: e.target.value })}>
@@ -278,7 +373,7 @@ function Inversores() {
                     </div>
                     <div className="modal-footer" style={{ marginTop: '20px' }}>
                         <button type="button" className="btn-cancel" onClick={() => setShowNuevoContrato(false)}>Cancelar</button>
-                        <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : 'Activar Inversión'}</button>
+                        <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : 'Activar Fondeo'}</button>
                     </div>
                 </form>
             )}
@@ -298,7 +393,10 @@ function Inversores() {
                 <div className="beneficiarios-list">
                     {beneficiarios.map(b => (
                         <div className="beneficiario-card" key={b.id}>
-                            <div className="b-info"><strong>{b.nombre_completo}</strong><span>Parentesco: {b.parentesco}</span></div>
+                            <div className="b-info">
+                                <strong>{b.nombre_completo}</strong>
+                                <span>Parentesco: {b.parentesco} • Tel: {b.telefono || 'N/A'}</span>
+                            </div>
                             <div className="b-actions">
                                 <span className="b-percent">{b.porcentaje}%</span>
                                 <button className="btn-delete-file" onClick={() => eliminarBeneficiario(b.id)}>
@@ -311,9 +409,10 @@ function Inversores() {
             )}
             {totalPorcentaje < 100 && (
                 <form className="nuevo-contrato-form" style={{ marginTop: '24px' }} onSubmit={handleGuardarBeneficiario}>
-                    <h4 className="section-subtitle">Agregar Beneficiario</h4>
+                    <h4 className="section-subtitle">Agregar Beneficiario Extra</h4>
                     <div className="form-group"><label>Nombre Completo</label><input type="text" required value={formBeneficiario.nombre_completo} onChange={e => setFormBeneficiario({ ...formBeneficiario, nombre_completo: e.target.value })} /></div>
                     <div className="form-row">
+                        <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formBeneficiario.telefono} onChange={e => setFormBeneficiario({ ...formBeneficiario, telefono: e.target.value.replace(/[^0-9]/g, '') })} /></div>
                         <div className="form-group"><label>Parentesco</label><select className="custom-select" required value={formBeneficiario.parentesco} onChange={e => setFormBeneficiario({ ...formBeneficiario, parentesco: e.target.value })}><option value="">Selecciona...</option><option value="Esposo/a">Esposo/a</option><option value="Hijo/a">Hijo/a</option><option value="Otro">Otro</option></select></div>
                         <div className="form-group"><label>Porcentaje (%)</label><input type="number" required min="1" max={100 - totalPorcentaje} value={formBeneficiario.porcentaje} onChange={e => setFormBeneficiario({ ...formBeneficiario, porcentaje: e.target.value })} /></div>
                     </div>
@@ -331,7 +430,7 @@ function Inversores() {
                         <h4 className="section-subtitle" style={{ margin: 0, border: 'none' }}>Historial de Movimientos</h4>
                         {contratos.length > 0 && (<button className="btn-primary btn-sm" onClick={() => setShowNuevoMovimiento(true)}>+ Registrar Movimiento</button>)}
                     </div>
-                    {contratos.length === 0 && <div className="empty-state">Debes crear un contrato de inversión primero.</div>}
+                    {contratos.length === 0 && <div className="empty-state">Debes crear un contrato de fondeo primero.</div>}
                     {movimientos.length > 0 ? (
                         <div className="movimientos-list">
                             {movimientos.map(mov => {
@@ -360,7 +459,7 @@ function Inversores() {
                     <h4 className="section-subtitle">Registrar Transacción</h4>
                     <div className="form-group"><label>Contrato Asociado</label><select className="custom-select" required value={formMovimiento.id_contrato} onChange={e => setFormMovimiento({ ...formMovimiento, id_contrato: e.target.value })}><option value="">Selecciona...</option>{contratos.map(c => (<option key={c.id} value={c.id}>Contrato #{c.id.toString().padStart(4, '0')} - {formatMoney(c.monto_inicial)}</option>))}</select></div>
                     <div className="form-row">
-                        <div className="form-group"><label>Tipo</label><select className="custom-select" required value={formMovimiento.tipo} onChange={e => setFormMovimiento({ ...formMovimiento, tipo: e.target.value })}><option value="PAGO_INTERES">Pago de Intereses (Salida)</option><option value="DEPOSITO">Inyección de Capital (Entrada)</option><option value="RETIRO_CAPITAL">Retiro de Capital (Salida)</option></select></div>
+                        <div className="form-group"><label>Tipo</label><select className="custom-select" required value={formMovimiento.tipo} onChange={e => setFormMovimiento({ ...formMovimiento, tipo: e.target.value })}><option value="PAGO_INTERES">Pago de Rendimientos (Salida)</option><option value="DEPOSITO">Inyección de Capital (Entrada)</option><option value="RETIRO_CAPITAL">Retiro de Capital (Salida)</option></select></div>
                         <div className="form-group"><label>Monto</label><input type="number" required min="1" placeholder="Ej. 5000" value={formMovimiento.monto} onChange={e => setFormMovimiento({ ...formMovimiento, monto: e.target.value })} /></div>
                     </div>
                     <div className="form-group"><label>Comprobante</label><input type="file" className="file-input" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" /></div>
@@ -376,36 +475,33 @@ function Inversores() {
     return (
         <div className="inversores-container">
             <div className="page-header stagger-1">
-                <div><h1>Inversores</h1><p>Calculadora de proyecciones y gestión de capital</p></div>
-                <button className="btn-primary" onClick={openNewModal}>+ Registrar Inversor</button>
+                <div><h1>Fondeadores</h1><p>Gestión de fondeadores y contratos de capital</p></div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <button className="btn-primary" style={{ backgroundColor: '#2563eb' }} onClick={() => setIsFondeoModalOpen(true)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px', marginRight: '4px'}}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                        Activar Fondeo
+                    </button>
+                    <button className="btn-primary" onClick={openNewModal}>+ Registrar Fondeador</button>
+                </div>
             </div>
 
-            <div className="calc-dashboard stagger-2">
+           <div className="calc-dashboard stagger-2">
                 <div className="calc-panel">
                     <div className="panel-title">
                         <div className="icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg></div>
-                        <div><h3>Calculadora de Rendimientos</h3><p>Ingrese parámetros para proyectar el ROI</p></div>
+                        <div><h3>Simulador de Pagos</h3><p>Proyección de intereses sobre el capital fondeado</p></div>
                     </div>
                     <div className="calc-controls">
                         <div className="form-group">
-                            <label>Monto de Inversión (MXN)</label>
+                            <label>Monto de Fondeo (MXN)</label>
                             <div className="input-with-prefix"><span className="prefix">$</span><input type="number" placeholder="0" value={monto} onChange={(e) => setMonto(e.target.value)} /></div>
                         </div>
                         <div className="form-row">
                             <div className="form-group">
-                                <label>Producto de Inversión</label>
-                                <select 
-                                    className="calc-select" 
-                                    value={tasa} 
-                                    onChange={(e) => setTasa(e.target.value)}
-                                    style={{ borderColor: 'var(--brand-green)', backgroundColor: 'var(--bg-main)' }}
-                                >
+                                <label>Tasa Pactada / Producto</label>
+                                <select className="calc-select" value={tasa} onChange={(e) => setTasa(e.target.value)} style={{ borderColor: 'var(--brand-green)', backgroundColor: 'var(--bg-main)' }}>
                                     <option value="0">Seleccione un producto...</option>
-                                    {tasas.map(t => (
-                                        <option key={t.id} value={t.tasa_anual_esperada}>
-                                            {t.nombre_tasa} ({t.tasa_anual_esperada}%)
-                                        </option>
-                                    ))}
+                                    {tasas.map(t => (<option key={t.id} value={t.tasa_anual_esperada}>{t.nombre_tasa} ({t.tasa_anual_esperada}%)</option>))}
                                 </select>
                             </div>
                             <div className="form-group"><label>Plazo (Meses)</label><select value={plazo} onChange={(e) => setPlazo(e.target.value)} className="calc-select"><option value="3">3 Meses</option><option value="6">6 Meses</option><option value="9">9 Meses</option><option value="12">12 Meses</option><option value="24">24 Meses</option></select></div>
@@ -416,53 +512,111 @@ function Inversores() {
                 <div className="results-panel">
                     <div className="panel-title">
                         <div className="icon-wrapper glass-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></div>
-                        <div><h3>Resumen Proyectado</h3><p>Basado en tasa fija de interés simple</p></div>
+                        <div><h3>Proyección de Fondeo</h3><p>Basado en tasa fija de interés simple</p></div>
                     </div>
                     <div className="results-grid">
-                        <div className="result-card green-card"><span>Ganancia Neta</span><h2>{formatMoney(gananciaNeta)}</h2>{monto > 0 && <div className="roi-badge">ROI: {((gananciaNeta / (parseFloat(monto) || 1)) * 100).toFixed(2)}%</div>}</div>
-                        <div className="result-card blue-card"><span>Ganancia total a recibir</span><h2>{formatMoney(totalRecibir)}</h2></div>
+                        <div className="result-card green-card">
+                            <span>Intereses Generados</span>
+                            <h2>{formatMoney(gananciaNeta)}</h2>
+                            {monto > 0 && <div className="roi-badge">Tasa Efectiva: {((gananciaNeta / (parseFloat(monto) || 1)) * 100).toFixed(2)}%</div>}
+                        </div>
+                        <div className="result-card blue-card">
+                            <span>Capital + Intereses</span>
+                            <h2>{formatMoney(totalRecibir)}</h2>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div className="inversores-list-container fade-in-up" style={{ animationDelay: '0.2s' }}>
                 <div className="list-header">
-                    <h2>Directorio de Inversores</h2>
+                    <h2>Directorio de Fondeadores</h2>
                     <div className="search-bar" style={{ margin: 0, maxWidth: '350px' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                 </div>
-                <div className="clientes-grid">
-                    {inversoresFiltrados.map((inversor) => (
-                        <div className="cliente-card" key={inversor.id}>
-                            <div className="cliente-card-header">
-                                <div className="cliente-info-top">
-                                    <div className={`avatar ${inversor.estatus_activo ? 'avatar-active' : 'avatar-inactive'}`}>{inversor.nombre.substring(0, 2).toUpperCase()}</div>
-                                    <div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <h4 style={{ margin: 0 }}>{inversor.nombre}</h4>
-                                            <button className="btn-icon-edit" onClick={() => openEditModal(inversor)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-                                            <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminarInversor(inversor.id, inversor.nombre)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                
+                {/* NUEVO: VISTA DE TABLA CON PAGINACIÓN */}
+                <div className="table-responsive">
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th>Fondeador</th>
+                                <th>Contacto</th>
+                                <th>Datos Bancarios</th>
+                                <th>Estatus</th>
+                                <th style={{ textAlign: 'right' }}>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {currentInversores.length > 0 ? currentInversores.map(inversor => (
+                                <tr key={inversor.id}>
+                                    <td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div className={`avatar-sm ${inversor.estatus_activo ? 'avatar-active' : 'avatar-inactive'}`}>
+                                                {inversor.nombre.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <strong style={{ color: 'var(--text-main)' }}>{inversor.nombre}</strong>
+                                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>RFC: {inversor.rfc || 'S/N'}</span>
+                                            </div>
                                         </div>
-                                        <span>RFC: {inversor.rfc}</span>
-                                    </div>
-                                </div>
-                                <button className={`badge-estatus-select ${inversor.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatusInversor(inversor.id, inversor.estatus_activo)}>{inversor.estatus_activo ? 'Activo' : 'Inactivo'}</button>
-                            </div>
-                            <div className="cliente-card-body">
-                                <div className="bank-info-row"><span className="bank-label">Banco:</span><strong className="bank-value">{inversor.banco}</strong></div>
-                                <div className="bank-info-row"><span className="bank-label">CLABE:</span><strong className="bank-value">{inversor.clabe_bancaria}</strong></div>
-                            </div>
-                            <div className="cliente-card-footer">
-                                <button className="btn-secondary-full" onClick={() => abrirPanel(inversor)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg> Ver Contratos </button>
-                            </div>
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}>
+                                            <span>{inversor.telefono}</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>{inversor.email}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}>
+                                            <strong>{inversor.banco}</strong>
+                                            <span style={{ color: 'var(--text-muted)' }}>Cta: {inversor.numero_cuenta || 'N/D'}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <button className={`badge-estatus-select ${inversor.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatusInversor(inversor.id, inversor.estatus_activo)} style={{ padding: '6px 12px' }}>
+                                            {inversor.estatus_activo ? 'Activo' : 'Inactivo'}
+                                        </button>
+                                    </td>
+                                    <td style={{ textAlign: 'right' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                            <button className="btn-icon-edit" onClick={() => abrirPanel(inversor)} title="Ver Contratos y Movimientos">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                                            </button>
+                                            <button className="btn-icon-edit" onClick={() => openEditModal(inversor)} title="Editar Fondeador">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                            </button>
+                                            <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminarInversor(inversor.id, inversor.nombre)} title="Eliminar Fondeador">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )) : (
+                                <tr>
+                                    <td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>
+                                        <div className="empty-state" style={{ border: 'none', background: 'transparent' }}>
+                                            No se encontraron fondeadores registrados en el sistema.
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                    
+                    {totalPages > 1 && (
+                        <div className="pagination-container">
+                            <button className="btn-page" onClick={prevPage} disabled={currentPage === 1}>&laquo; Anterior</button>
+                            <span className="page-info">Página {currentPage} de {totalPages}</span>
+                            <button className="btn-page" onClick={nextPage} disabled={currentPage === totalPages}>Siguiente &raquo;</button>
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
 
             {panelOpen && inversorActivo && (
                 <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
                     <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="panel-header"><div><h2>Panel del Inversor</h2><p className="client-badge">{inversorActivo.nombre}</p></div><button className="btn-close" onClick={() => setPanelOpen(false)}>×</button></div>
+                        <div className="panel-header"><div><h2>Panel del Fondeador</h2><p className="client-badge">{inversorActivo.nombre}</p></div><button className="btn-close" onClick={() => setPanelOpen(false)}>×</button></div>
                         <div className="panel-tabs">
                             {['contratos', 'beneficiarios', 'movimientos'].map(tab => (
                                 <button key={tab} className={`tab-btn ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
@@ -479,36 +633,102 @@ function Inversores() {
                 </div>
             )}
 
-            {/* MODAL INVERSOR */}
+            {/* MODAL 1: ALTA DE FONDEADOR (Y BENEFICIARIO) */}
             {isModalOpen && (
                 <div className="modal-overlay">
-                    <div className="modal-content fade-in-down" style={{ maxWidth: '700px' }}>
-                        <div className="modal-header"><h2>{isEditing ? 'Editar Inversor' : 'Nuevo Inversor'}</h2><button className="btn-close" onClick={() => setIsModalOpen(false)}>×</button></div>
-                        <form onSubmit={handleSubmit} className="modal-form" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-                            {formError && (<div className="error-message shake-animation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>{formError}</span></div>)}
-                            <h4 className="section-subtitle">Datos Personales</h4>
-                            <div className="form-row">
-                                <div className="form-group"><label>Tipo de Persona</label><select className="custom-select" value={formData.tipo_persona} onChange={(e) => { setFormData({ ...formData, tipo_persona: e.target.value, rfc: '' }); setFormError(''); }}><option value="FISICA">Física</option><option value="MORAL">Moral</option></select></div>
-                                <div className="form-group"><label>RFC</label><input type="text" required maxLength={formData.tipo_persona === 'FISICA' ? 13 : 12} placeholder={formData.tipo_persona === 'FISICA' ? 'ABCD800101XYZ' : 'ABC800101XYZ'} value={formData.rfc} onChange={(e) => setFormData({ ...formData, rfc: e.target.value.toUpperCase() })} /></div>
-                            </div>
-                            <div className="form-group"><label>Nombre Completo o Razón Social</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} /></div>
-                            <div className="form-row">
-                                <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" placeholder="10 dígitos" value={formData.telefono} onChange={(e) => setFormData({ ...formData, telefono: e.target.value.replace(/[^0-9]/g, '') })} /></div>
-                                <div className="form-group"><label>Correo</label><input type="email" required placeholder="correo@ejemplo.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
-                            </div>
-                            <div className="form-group"><label>Dirección Completa</label><input type="text" required value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} /></div>
-                            <h4 className="section-subtitle">Datos Financieros</h4>
-                            <div className="form-row">
-                                <div className="form-group"><label>Banco</label><select className="custom-select" required value={formData.banco} onChange={(e) => setFormData({ ...formData, banco: e.target.value })}><option value="">Seleccione...</option><option value="BBVA">BBVA</option><option value="Santander">Santander</option><option value="Banorte">Banorte</option><option value="Citibanamex">Citibanamex</option><option value="HSBC">HSBC</option><option value="Otro">Otro</option></select></div>
-                                <div className="form-group"><label>CLABE (18 dígitos)</label><input type="text" required maxLength="18" placeholder="000000000000000000" value={formData.clabe_bancaria} onChange={(e) => setFormData({ ...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '') })} /></div>
-                            </div>
-                            <div className="form-group"><label>Origen de Fondos</label><select className="custom-select" value={formData.origen_fondos} onChange={(e) => setFormData({ ...formData, origen_fondos: e.target.value })}><option value="Ahorros Personales / Salario">Ahorros</option><option value="Ingresos por Negocio">Negocio</option><option value="Venta de Inmueble">Inmueble</option><option value="Otro">Otro</option></select></div>
-                            <div className="modal-footer" style={{ paddingTop: '20px', borderTop: '1px solid var(--border-light)' }}>
-                                <div style={{ display: 'flex', gap: '16px' }}>
-                                    <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                                    <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar' : 'Registrar'}</button>
+                    <div className="modal-content fade-in-down" style={{ maxWidth: '800px' }}>
+                        <div className="modal-header"><h2>{isEditing ? 'Editar Datos del Fondeador' : 'Registrar Nuevo Fondeador'}</h2><button className="btn-close" onClick={() => setIsModalOpen(false)}>×</button></div>
+                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+                            <div className="modal-form" style={{ overflowY: 'auto', padding: '32px' }}>
+                                {formError && (<div className="error-message shake-animation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>{formError}</span></div>)}
+                                
+                                <h4 className="section-subtitle">Datos Personales</h4>
+                                <div className="form-row">
+                                    <div className="form-group"><label>Nombre(s)</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} /></div>
+                                    {!isEditing && <div className="form-group"><label>Apellidos</label><input type="text" required value={formData.apellidos} onChange={(e) => setFormData({ ...formData, apellidos: e.target.value })} /></div>}
                                 </div>
+                                <div className="form-row">
+                                    <div className="form-group"><label>RFC (Opcional)</label><input type="text" maxLength="13" placeholder="Dejar vacío si no tiene" value={formData.rfc} onChange={(e) => setFormData({ ...formData, rfc: e.target.value.toUpperCase() })} /></div>
+                                    <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formData.telefono} onChange={(e) => setFormData({ ...formData, telefono: e.target.value.replace(/[^0-9]/g, '') })} /></div>
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group"><label>Correo</label><input type="email" required value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
+                                    <div className="form-group"><label>Dirección Completa</label><input type="text" required value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} /></div>
+                                </div>
+
+                                <h4 className="section-subtitle" style={{marginTop: '10px'}}>Datos Bancarios</h4>
+                                <div className="form-row">
+                                    <div className="form-group"><label>Banco</label><select className="custom-select" required value={formData.banco} onChange={(e) => setFormData({ ...formData, banco: e.target.value })}><option value="">Seleccione...</option><option value="BBVA">BBVA</option><option value="Santander">Santander</option><option value="Banorte">Banorte</option><option value="Citibanamex">Citibanamex</option><option value="HSBC">HSBC</option><option value="Otro">Otro</option></select></div>
+                                    <div className="form-group"><label>Número de Cuenta</label><input type="text" required placeholder="Número de cuenta para transferir" value={formData.numero_cuenta} onChange={(e) => setFormData({ ...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '') })} /></div>
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group"><label>CLABE Interbancaria (Opcional)</label><input type="text" maxLength="18" placeholder="000000000000000000" value={formData.clabe_bancaria} onChange={(e) => setFormData({ ...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '') })} /></div>
+                                </div>
+
+                                {!isEditing && (
+                                    <>
+                                        <h4 className="section-subtitle" style={{marginTop: '10px'}}>Beneficiario Principal (100%)</h4>
+                                        <div className="form-group"><label>Nombre Completo del Beneficiario</label><input type="text" required value={formData.ben_nombre} onChange={(e) => setFormData({ ...formData, ben_nombre: e.target.value })} /></div>
+                                        <div className="form-row">
+                                            <div className="form-group"><label>Parentesco</label><select className="custom-select" required value={formData.ben_parentesco} onChange={e => setFormData({ ...formData, ben_parentesco: e.target.value })}><option value="">Selecciona...</option><option value="Esposo/a">Esposo/a</option><option value="Hijo/a">Hijo/a</option><option value="Otro">Otro</option></select></div>
+                                            <div className="form-group"><label>Teléfono Beneficiario</label><input type="text" required maxLength="10" value={formData.ben_telefono} onChange={(e) => setFormData({ ...formData, ben_telefono: e.target.value.replace(/[^0-9]/g, '') })} /></div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
+                            <div className="modal-footer" style={{ padding: '20px 32px', borderTop: '1px solid var(--border-light)' }}>
+                                <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
+                                <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Fondeador' : 'Registrar Fondeador'}</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL 2: ACTIVACIÓN RÁPIDA DE FONDEO */}
+            {isFondeoModalOpen && (
+                <div className="modal-overlay" onClick={() => { setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); }}>
+                    <div className="modal-content fade-in-down" style={{ maxWidth: '500px', overflow: 'visible' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <div><h2 style={{ color: '#1e40af' }}>Activar Nuevo Fondeo</h2><p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Ingreso de Capital</p></div>
+                            <button className="btn-close" onClick={() => { setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); }}>×</button>
+                        </div>
+                        <form onSubmit={handleCrearFondeo} className="modal-form" style={{ padding: '32px', overflow: 'visible' }}>
+                            <div className="form-group" style={{ marginBottom: '16px', position: 'relative' }}>
+                                <label>Buscar y Seleccionar Fondeador</label>
+                                <div className="custom-select" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 'auto', minHeight: '44px', cursor: 'pointer', backgroundColor: 'var(--bg-main)' }} onClick={() => setDropdownFondeadorOpen(!dropdownFondeadorOpen)}>
+                                    <span style={{ color: formFondeo.id_inversor ? 'var(--text-main)' : 'var(--text-muted)', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {formFondeo.id_inversor ? inversores.find(i => i.id == formFondeo.id_inversor)?.nombre : 'Despliegue para buscar un fondeador...'}
+                                    </span>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', color: 'var(--text-muted)', transform: dropdownFondeadorOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s'}}><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                                {dropdownFondeadorOpen && (
+                                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-md)', marginTop: '6px', boxShadow: 'var(--shadow-panel)', overflow: 'hidden' }}>
+                                        <div style={{ padding: '10px', borderBottom: '1px solid var(--border-light)', backgroundColor: 'var(--bg-main)' }}>
+                                            <div className="search-bar" style={{ margin: 0, width: '100%', maxWidth: '100%', padding: '8px 12px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-focus)' }}>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '15px'}}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                                <input type="text" autoFocus placeholder="Buscar por Nombre, RFC o Teléfono..." value={filtroFondeador} onChange={(e) => setFiltroFondeador(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') e.preventDefault(); }} style={{ fontSize: '13px' }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                                            {inversoresParaFondeo.length > 0 ? (
+                                                inversoresParaFondeo.map(inv => (
+                                                    <div key={inv.id} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'background-color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0fdf4'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'} onClick={() => { setFormFondeo({...formFondeo, id_inversor: inv.id}); setDropdownFondeadorOpen(false); setFiltroFondeador(''); }}>
+                                                        <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{inv.nombre}</strong>
+                                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{inv.rfc ? `RFC: ${inv.rfc}` : 'Sin RFC'} • Tel: {inv.telefono || 'N/D'}</span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div style={{ padding: '16px', fontSize: '13px', color: '#ef4444', textAlign: 'center', fontWeight: '600' }}>No se encontraron coincidencias.</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="form-group"><label>Monto a Invertir (MXN)</label><div className="input-with-prefix"><span className="prefix">$</span><input type="number" required min="1000" placeholder="Ej. 50000" value={formFondeo.monto_inicial} onChange={e => setFormFondeo({...formFondeo, monto_inicial: e.target.value})} /></div></div>
+                            <div className="form-group"><label>Tasa / Producto</label><select className="custom-select" required value={formFondeo.id_tasa} onChange={e => setFormFondeo({...formFondeo, id_tasa: e.target.value})}><option value="">Seleccione...</option>{tasas.map(t => (<option key={t.id} value={t.id}>{t.nombre_tasa} ({t.tasa_anual_esperada}%)</option>))}</select></div>
+                            <div className="form-group"><label>Plazo del Contrato</label><select className="custom-select" required value={formFondeo.plazo_meses} onChange={e => setFormFondeo({...formFondeo, plazo_meses: e.target.value})}><option value="3">3 Meses</option><option value="6">6 Meses</option><option value="9">9 Meses</option><option value="12">12 Meses</option><option value="24">24 Meses</option></select></div>
+                            <div style={{ marginTop: '24px' }}><button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center', backgroundColor: '#2563eb' }} disabled={isLoading || !formFondeo.id_inversor}>{isLoading ? 'Procesando...' : 'Activar Fondeo y Generar Contrato'}</button></div>
                         </form>
                     </div>
                 </div>
@@ -518,8 +738,7 @@ function Inversores() {
                 <div className="modal-overlay" style={{ zIndex: 2000 }}>
                     <div className="confirm-modal-content fade-in-up">
                         <div className="confirm-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
-                        <h3>{confirmModal.title}</h3>
-                        <p>{confirmModal.message}</p>
+                        <h3>{confirmModal.title}</h3><p>{confirmModal.message}</p>
                         <div className="confirm-actions">
                             <button className="btn-confirm-cancel" onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}>Cancelar</button>
                             <button className="btn-confirm-delete" onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
