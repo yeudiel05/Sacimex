@@ -58,7 +58,7 @@ function numeroALetras(num) {
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.cuenta_bancaria, u.username as solicitante
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.clabe_bancaria, u.username as solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
         JOIN personas p ON pr.id_persona = p.id
@@ -72,8 +72,6 @@ router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     });
 });
 
-// Mantengo tus rutas originales de aprobar/rechazar por si algún otro panel las usa,
-// pero el nuevo flujo de trabajo utilizará la ruta /pagos/:id_pago/autorizacion
 router.put('/autorizaciones/:id/aprobar', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
     db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
@@ -97,7 +95,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
 // =========================================================================
 router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.cuenta_bancaria, 
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.clabe_bancaria, 
                u.username as solicitante, u.rol as rol_solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
@@ -164,10 +162,10 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica').text('TRANSFERENCIA', 40, 322);
         
         doc.font('Helvetica-Bold').text('CUENTA/CLABE/CIE', 200, 310);
-        doc.font('Helvetica').text(pago.cuenta_bancaria, 200, 322);
+        doc.font('Helvetica').text(pago.clabe_bancaria || pago.numero_cuenta || 'N/D', 200, 322);
         
         doc.font('Helvetica-Bold').text('BANCO', 360, 310);
-        doc.font('Helvetica').text(pago.banco, 360, 322);
+        doc.font('Helvetica').text(pago.banco || 'N/D', 360, 322);
         
         doc.font('Helvetica-Bold').text('RFC PROVEEDOR', 40, 350);
         doc.font('Helvetica').text(pago.rfc || 'N/A', 40, 362);
@@ -218,23 +216,24 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 // CRUD NORMAL DE PROVEEDORES
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
-    db.query(`SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, pr.categoria, pr.cuenta_bancaria, pr.banco, pr.dias_credito, pr.estatus_activo FROM PERSONAS p INNER JOIN PROVEEDORES pr ON p.id = pr.id_persona WHERE p.eliminado = FALSE ORDER BY p.id DESC`, (err, results) => {
+    db.query(`SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, pr.categoria_servicio, pr.numero_cuenta, pr.clabe_bancaria, pr.banco, pr.dias_credito, pr.estatus_activo FROM personas p INNER JOIN proveedores pr ON p.id = pr.id_persona WHERE p.eliminado = FALSE ORDER BY p.id DESC`, (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
     });
 });
 
 router.post('/', verificarToken, (req, res) => {
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, cuenta_bancaria, banco, dias_credito } = req.body;
+    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria_servicio, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false });
-        db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
+        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false }));
             const idNuevaPersona = resultPersona.insertId;
-            db.query('INSERT INTO PROVEEDORES (id_persona, categoria, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)', [idNuevaPersona, categoria, cuenta_bancaria, banco, dias_credito || 0], (err) => {
+            db.query('INSERT INTO proveedores (id_persona, categoria_servicio, numero_cuenta, clabe_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', [idNuevaPersona, categoria_servicio || 'General', numero_cuenta, clabe_bancaria, banco, dias_credito || 0], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor ${nombre}`);
                     res.json({ success: true });
                 });
             });
@@ -244,15 +243,16 @@ router.post('/', verificarToken, (req, res) => {
 
 router.put('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, cuenta_bancaria, banco, dias_credito } = req.body;
+    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria_servicio, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false });
-        db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
+        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false }));
-            db.query('UPDATE PROVEEDORES SET categoria=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', [categoria, cuenta_bancaria, banco, dias_credito, id], (err) => {
+            db.query('UPDATE proveedores SET categoria_servicio=?, numero_cuenta=?, clabe_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', [categoria_servicio, numero_cuenta, clabe_bancaria, banco, dias_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó al proveedor ID ${id}`);
                     res.json({ success: true });
                 });
             });
@@ -261,14 +261,14 @@ router.put('/:id', verificarToken, (req, res) => {
 });
 
 router.put('/:id/estatus', verificarToken, (req, res) => {
-    db.query('UPDATE PROVEEDORES SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
+    db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true });
     });
 });
 
 router.delete('/:id', verificarToken, (req, res) => {
-    db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
+    db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true });
     });
