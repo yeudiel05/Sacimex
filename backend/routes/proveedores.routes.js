@@ -74,19 +74,30 @@ router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
 
 router.put('/autorizaciones/:id/aprobar', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
-    db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'PAGO_AUTORIZADO', `Autorizó la salida de dinero para el pago ID ${req.params.id}`);
-        res.json({ success: true });
+    
+    // Consulta para sacar el nombre del proveedor para la bitácora
+    db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
+        const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
+        
+        db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'PAGO_AUTORIZADO', `Autorizó la salida de dinero a favor de: ${proveedor}`);
+            res.json({ success: true });
+        });
     });
 });
 
 router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
-    db.query("UPDATE pagos_a_proveedores SET estatus = 'RECHAZADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'PAGO_RECHAZADO', `Rechazó el pago ID ${req.params.id}`);
-        res.json({ success: true });
+
+    db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
+        const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
+        
+        db.query("UPDATE pagos_a_proveedores SET estatus = 'RECHAZADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'PAGO_RECHAZADO', `Rechazó el pago solicitado para: ${proveedor}`);
+            res.json({ success: true });
+        });
     });
 });
 
@@ -113,47 +124,39 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
         res.setHeader('Content-type', 'application/pdf');
         doc.pipe(res);
 
-        // --- 1. LOGO ---
         const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
         if (fs.existsSync(logoPath)) {
             doc.image(logoPath, 40, 40, { width: 70 });
         }
 
-        // --- 2. CABECERA DERECHA (VERDE Y AMARILLO) ---
         doc.fontSize(10).font('Helvetica-Bold').fillColor('#16a34a')
            .text('SOLICITUD UNIVERSAL DE RECURSOS 2026', 0, 40, { align: 'right' });
         doc.text('SAC-TSR-RCS-2026', 0, 52, { align: 'right' });
         
-        // Fecha con fondo amarillo (Caja y luego texto)
         doc.rect(480, 68, 90, 13).fill('#fef08a');
         doc.fillColor('black').fontSize(9).font('Helvetica')
            .text('Oaxaca de Juárez, Oax., a', 350, 71, { align: 'left' });
         doc.font('Helvetica-Bold').text(new Date(pago.fecha_solicitud).toLocaleDateString('es-MX'), 485, 71);
 
-        // --- 3. DATOS EMISOR (IZQUIERDA) ---
         doc.font('Helvetica-Bold').text('C. BEATRIZ CRUZ CANO', 40, 95);
         doc.font('Helvetica').text('TESORERÍA', 40, 107);
         doc.text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 40, 119);
 
-        // --- 4. TEXTO DE SOLICITUD ---
         doc.text('Por medio del presente solicito recurso para: ', 40, 150, { continued: true })
            .font('Helvetica-Bold').text(pago.concepto.toUpperCase());
         
-        // Caja amarilla para la unidad de negocio
         doc.font('Helvetica').text('correspondiente a la unidad de negocio: ', 40, 165);
         doc.rect(230, 163, 110, 12).fill('#fef08a');
         doc.fillColor('black').font('Helvetica-Bold').text('01.CRP - Corporativo', 235, 165);
 
-        // FRANJA AMARILLA COMPLETA DEL MONTO
         doc.rect(40, 185, 530, 15).fill('#fef08a');
         doc.fillColor('black').font('Helvetica').text('Por la cantidad de: ', 45, 188, { continued: true })
            .font('Helvetica-Bold').text(`$${Number(pago.monto_pago).toLocaleString('es-MX', {minimumFractionDigits:2})}    ( ${numeroALetras(pago.monto_pago)} )`);
 
         doc.font('Helvetica').text('Lo cual será destinado para lo descrito en el apartado siguiente. Sin más por el momento quedo a sus órdenes.', 40, 215);
 
-        // --- 5. TABLA DE DATOS DEL PROVEEDOR ---
         doc.font('Helvetica-Bold').text('DATOS DEL PROVEEDOR O BENEFICIARIO', 40, 250);
-        doc.moveTo(40, 260).lineTo(570, 260).stroke('#cbd5e1'); // Línea separadora
+        doc.moveTo(40, 260).lineTo(570, 260).stroke('#cbd5e1'); 
         
         doc.fontSize(8).text('DESCRIPCIÓN ESPECÍFICA DE LA FINALIDAD DEL RECURSO: Ayuda: (El despacho, honorarios, colegiaturas, etc.)', 40, 270);
         doc.font('Helvetica').text(pago.concepto.toUpperCase(), 40, 282);
@@ -180,7 +183,6 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 
         doc.font('Helvetica-Oblique').fillColor('#64748b').text('Ayuda: Recuerda solicitar la factura con uso de G03 Gastos en general.', 40, 420);
 
-        // --- 6. LAS 4 FIRMAS
         doc.fillColor('black');
         const sigY1 = 480;
         
@@ -209,6 +211,9 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
         }
 
         doc.end();
+        
+        // Bitácora del PDF
+        registrarBitacora(req.usuario.id, 'DESCARGA_PDF', `Descargó Solicitud Universal de Pago para: ${pago.proveedor}`);
     });
 });
 
@@ -233,7 +238,7 @@ router.post('/', verificarToken, (req, res) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor ${nombre}`);
+                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
                     res.json({ success: true });
                 });
             });
@@ -252,7 +257,7 @@ router.put('/:id', verificarToken, (req, res) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó al proveedor ID ${id}`);
+                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`);
                     res.json({ success: true });
                 });
             });
@@ -261,16 +266,28 @@ router.put('/:id', verificarToken, (req, res) => {
 });
 
 router.put('/:id/estatus', verificarToken, (req, res) => {
-    db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true });
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false });
+        const nombreProveedor = results[0].nombre_razon_social;
+
+        db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`);
+            res.json({ success: true });
+        });
     });
 });
 
 router.delete('/:id', verificarToken, (req, res) => {
-    db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true });
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false });
+        const nombreProveedor = results[0].nombre_razon_social;
+        
+        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
+            res.json({ success: true });
+        });
     });
 });
 
@@ -288,20 +305,23 @@ router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) =
     const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
     let url = req.file ? `uploads/${req.file.filename}` : null;
     
-    // Si es ADMIN, lo pasamos directo a PAGADO para agilizar. Si es otro rol, entra a PENDIENTE_VALIDACION.
     const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
     const id_autoriza = req.usuario.rol === 'ADMIN' ? req.usuario.id : null;
 
-    db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
-    [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        
-        if(estatus === 'PAGADO'){
-            registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo por $${monto_pago}`);
-        } else {
-            registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago por $${monto_pago} (Pendiente de Validación)`);
-        }
-        res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_proveedor], (err, results) => {
+        const nombreProveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
+
+        db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
+        [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            
+            if(estatus === 'PAGADO'){
+                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo de $${monto_pago} a favor de: ${nombreProveedor}`);
+            } else {
+                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago de $${monto_pago} para validación, a favor de: ${nombreProveedor}`);
+            }
+            res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
+        });
     });
 });
 
@@ -320,37 +340,34 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
 
     if (accion === 'VALIDAR') {
         nuevoEstatus = 'PENDIENTE_AUTORIZACION';
-        // Quitamos el candado estricto del WHERE para forzar el guardado
         queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_validador = ?, fecha_validacion = NOW() WHERE id = ?';
         params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'VALIDACIÓN_PAGO_PROVEEDOR';
+        accionBitacora = 'VALIDACIÓN_PAGO';
     } else if (accion === 'AUTORIZAR') {
-        nuevoEstatus = 'PAGADO'; // Pasa directo a PAGADO para tu vista
-        // Quitamos el candado estricto del WHERE para forzar el guardado
+        nuevoEstatus = 'PAGADO'; 
         queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ?';
         params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'AUTORIZACIÓN_FINAL_PAGO';
+        accionBitacora = 'AUTORIZACIÓN_FINAL';
     } else if (accion === 'RECHAZAR') {
         nuevoEstatus = 'RECHAZADO';
         queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ? WHERE id = ?';
         params = [nuevoEstatus, id_pago];
-        accionBitacora = 'RECHAZO_PAGO_PROVEEDOR';
+        accionBitacora = 'RECHAZO_PAGO';
     } else {
         return res.status(400).json({ success: false, message: 'Acción no válida' });
     }
 
     db.query(queryUpdate, params, (err, result) => {
-        if (err) {
-            console.error("Error SQL:", err);
-            return res.status(500).json({ success: false, message: 'Error en el servidor al cambiar estatus' });
-        }
-        
-        if (result.affectedRows === 0) {
-            return res.status(400).json({ success: false, message: 'No se pudo encontrar el pago en la base de datos.' });
-        }
+        if (err) return res.status(500).json({ success: false, message: 'Error en el servidor al cambiar estatus' });
+        if (result.affectedRows === 0) return res.status(400).json({ success: false, message: 'No se pudo encontrar el pago en la base de datos.' });
 
-        registrarBitacora(id_usuario, accionBitacora, `Se marcó el pago ID ${id_pago} como ${nuevoEstatus}`);
-        res.json({ success: true, message: `Pago ${nuevoEstatus.replace('_', ' ').toLowerCase()} con éxito.` });
+        db.query('SELECT pp.concepto, pp.monto_pago, p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [id_pago], (err, row) => {
+            if (!err && row.length > 0) {
+                const estatusLegible = nuevoEstatus.replace('_', ' ');
+                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
+            }
+            res.json({ success: true, message: `Pago ${nuevoEstatus.replace('_', ' ').toLowerCase()} con éxito.` });
+        });
     });
 });
 
