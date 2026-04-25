@@ -10,6 +10,7 @@ import Configuracion from './pages/Configuracion/Configuracion';
 import Reportes from './pages/Reportes/Reportes';
 import Auditoria from './pages/Auditoria/Auditoria';
 import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
+import Viaticos from './pages/Viaticos/Viaticos';
 
 function App() {
   return (
@@ -27,6 +28,8 @@ function App() {
           <Route path="/reportes" element={<Reportes />} />
           <Route path="/auditoria" element={<Auditoria />} />
           <Route path="/autorizaciones" element={<Autorizaciones />} />
+          <Route path="/viaticos" element={<Viaticos />} />
+
         </Route>
       </Routes>
     </Router>

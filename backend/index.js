@@ -16,7 +16,9 @@ const reportesRoutes = require('./routes/reportes.routes');
 const auditoriaRoutes = require('./routes/auditoria.routes');
 const notificacionesRoutes = require('./routes/notificaciones.routes');
 const backupRoutes = require('./routes/backup.routes');
-const rolesRoutes = require('./routes/roles.routes'); // <-- NUEVO: Importación de roles
+const rolesRoutes = require('./routes/roles.routes');
+const viaticosroutes = require('./routes/viaticos.routes');
+
 
 const app = express();
 app.use(cors());
@@ -37,7 +39,8 @@ app.use('/api/reportes', reportesRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/backup', backupRoutes);
-app.use('/api/roles', rolesRoutes); 
+app.use('/api/roles', rolesRoutes);
+app.use('/api/viaticos', viaticosroutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 

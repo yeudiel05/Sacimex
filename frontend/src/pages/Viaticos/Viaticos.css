@@ -1,0 +1,334 @@
+/* CONTENEDOR PRINCIPAL */
+.viaticos-premium-wrapper {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding-bottom: 50px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ENCABEZADO */
+.viaticos-header-block {
+  margin-bottom: 32px;
+}
+
+.viaticos-header-block h1 {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.viaticos-header-block p {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* LAYOUT DE DOS COLUMNAS */
+.viaticos-grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .viaticos-grid-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* COLUMNA IZQUIERDA: TARJETAS */
+.viaticos-form-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.premium-card {
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  border: 1px solid #f1f5f9;
+}
+
+.card-title-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.step-number {
+  width: 32px;
+  height: 32px;
+  background-color: #e0e7ff;
+  color: #4f46e5;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.card-title-box h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+/* GRID DE INPUTS */
+.input-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.input-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.mt-16 {
+  margin-top: 16px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* ESTILOS DE INPUTS Y SELECTS (DISEÑO SAAS) */
+.form-field input,
+.form-field textarea,
+.select-wrapper select {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.select-wrapper {
+  position: relative;
+}
+
+/* Ícono personalizado para los select */
+.select-wrapper::after {
+  content: "▼";
+  font-size: 10px;
+  color: #94a3b8;
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.select-wrapper select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 40px;
+}
+
+.form-field input:focus,
+.form-field textarea:focus,
+.select-wrapper select:focus {
+  background-color: #ffffff;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  outline: none;
+}
+
+/* GRID ESPECÍFICO PARA GASTOS */
+.gastos-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.gasto-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gasto-item label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.money-box {
+  position: relative;
+}
+
+.money-box i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-style: normal;
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.money-box input {
+  width: 100%;
+  padding: 12px 12px 12px 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.money-box input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  outline: none;
+}
+
+/* --- COLUMNA DERECHA: RESUMEN (TICKET) --- */
+.viaticos-summary-column {
+  position: sticky;
+  top: 24px;
+}
+
+.summary-sticky-card {
+  background: linear-gradient(145deg, #0f172a, #1e293b);
+  border-radius: 20px;
+  color: white;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.summary-header {
+  padding: 24px 24px 16px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.summary-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.summary-body {
+  padding: 24px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.summary-row span {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.summary-row strong {
+  font-size: 14px;
+  color: #f8fafc;
+  background: rgba(255,255,255,0.1);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.summary-divider {
+  height: 1px;
+  background-color: rgba(255,255,255,0.1);
+  margin: 20px 0;
+  border-style: dashed;
+}
+
+.total-display p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.total-display h2 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 900;
+  color: #cbd5e1;
+  letter-spacing: -1px;
+  transition: color 0.3s ease;
+}
+
+.total-display h2.has-value {
+  color: #10b981; /* Verde esmeralda brillante cuando el total sube */
+}
+
+.summary-footer {
+  padding: 0 24px 24px 24px;
+}
+
+.btn-send-request {
+  width: 100%;
+  padding: 16px;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.2s;
+}
+
+.btn-send-request svg {
+  width: 20px;
+  height: 20px;
+}
+
+.btn-send-request:hover:not(:disabled) {
+  background-color: #059669;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.3);
+}
+
+.btn-send-request:disabled {
+  background-color: rgba(255,255,255,0.1);
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.help-text {
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+  margin: 16px 0 0 0;
+}
