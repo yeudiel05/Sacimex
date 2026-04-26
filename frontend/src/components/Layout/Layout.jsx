@@ -10,7 +10,7 @@ function Layout() {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [notificaciones, setNotificaciones] = useState([]);
 
-  // --- 1. NUEVOS ESTADOS PARA BUSCADOR Y SIDEBAR COLAPSABLE ---
+  // --- NUEVOS ESTADOS PARA BUSCADOR Y SIDEBAR COLAPSABLE ---
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -20,7 +20,7 @@ function Layout() {
   const menuRef = useRef(null);
   const notifRef = useRef(null);
 
-  // --- 2. NUEVAS REFERENCIAS PARA EL BUSCADOR ---
+  // --- REFERENCIAS PARA EL BUSCADOR ---
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
@@ -28,7 +28,8 @@ function Layout() {
   const username = localStorage.getItem('username') || 'Usuario';
 
   const fetchNotificaciones = async () => {
-    if (userRole !== 'ADMIN') return;
+    // AHORA PERMITIMOS QUE ADMIN Y D.H.O CONSULTEN NOTIFICACIONES
+    if (userRole !== 'ADMIN' && userRole !== 'D.H.O') return;
 
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -48,7 +49,7 @@ function Layout() {
     fetchNotificaciones();
   }, [location.pathname]);
 
-  // --- 3. EFECTO PARA ATAJO DE TECLADO
+  // --- EFECTO PARA ATAJO DE TECLADO (CTRL + K)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -60,7 +61,7 @@ function Layout() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // --- 4. CERRAR MENÚS Y BUSCADOR AL HACER CLIC AFUERA ---
+  // --- CERRAR MENÚS Y BUSCADOR AL HACER CLIC AFUERA ---
   useEffect(() => {
     function handleClickOutside(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -87,6 +88,8 @@ function Layout() {
 
     if (notif.id === 'auth_pagos') {
       navigate('/autorizaciones');
+    } else if (notif.id === 'viaticos_pendientes') {
+      navigate('/revision-viaticos'); // <--- RUTA A LA BANDEJA DHO
     } else if (notif.id.startsWith('cont_')) {
       navigate('/inversores');
     } else if (notif.id.startsWith('cli_')) {
@@ -99,7 +102,7 @@ function Layout() {
     {
       path: '/dashboard',
       label: 'Dashboard',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR'],
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], // Agregado DHO
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
       )
@@ -139,12 +142,20 @@ function Layout() {
     {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR'],
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], // Agregado DHO
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
           <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
         </svg>
+      )
+    },
+    {
+      path: '/revision-viaticos',
+      label: 'Bandeja D.H.O.',
+      rolesPermitidos: ['D.H.O'], // Solo Admin y DHO
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
       )
     },
     {
@@ -160,7 +171,7 @@ function Layout() {
       label: 'Configuraciones',
       rolesPermitidos: ['ADMIN'],
       icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
       )
     },
     {
@@ -183,7 +194,7 @@ function Layout() {
 
   const menusPermitidos = menuItems.filter(item => item.rolesPermitidos.includes(userRole));
 
-  // --- 5. LÓGICA DE FILTRADO PARA EL BUSCADOR ---
+  // --- LÓGICA DE FILTRADO PARA EL BUSCADOR ---
   const searchResults = menusPermitidos.filter(menu =>
     menu.label.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -302,7 +313,8 @@ function Layout() {
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                   </svg>
-                  {userRole === 'ADMIN' && notificaciones.length > 0 && (
+                  {/* Se muestra la placa de alerta si es ADMIN o D.H.O y hay notificaciones */}
+                  {(userRole === 'ADMIN' || userRole === 'D.H.O') && notificaciones.length > 0 && (
                     <span className="badge pulse-animation" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '9px', width: '14px', height: '14px', top: '-4px', right: '-4px' }}>
                       {notificaciones.length}
                     </span>

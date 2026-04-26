@@ -11,6 +11,7 @@ import Reportes from './pages/Reportes/Reportes';
 import Auditoria from './pages/Auditoria/Auditoria';
 import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
 import Viaticos from './pages/Viaticos/Viaticos';
+import RevisionViaticos from './pages/Viaticos/RevisionViaticos';
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
           <Route path="/auditoria" element={<Auditoria />} />
           <Route path="/autorizaciones" element={<Autorizaciones />} />
           <Route path="/viaticos" element={<Viaticos />} />
+          <Route path="/revision-viaticos" element={<RevisionViaticos />} />
 
         </Route>
       </Routes>

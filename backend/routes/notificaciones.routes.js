@@ -5,6 +5,7 @@ const { verificarToken } = require('../middlewares/auth');
 
 router.get('/', verificarToken, (req, res) => {
     const notificaciones = [];
+    const rolUsuario = req.usuario.rol; // Sacamos el rol del usuario logueado
 
     const queryContratos = `
         SELECT c.id as contrato_id, c.fecha_fin, p.nombre_razon_social as inversor, c.monto_inicial
@@ -61,7 +62,25 @@ router.get('/', verificarToken, (req, res) => {
                     });
                 }
 
-                res.json({ success: true, data: notificaciones });
+                // --- NUEVA CONSULTA: VIÁTICOS PENDIENTES (SOLO ADMIN Y D.H.O) ---
+                if (rolUsuario === 'ADMIN' || rolUsuario === 'D.H.O') {
+                    const queryViaticos = `SELECT COUNT(*) as total FROM solicitudes_viaticos WHERE estatus = 'PENDIENTE'`;
+                    db.query(queryViaticos, (err, resViaticos) => {
+                        if (!err && resViaticos[0].total > 0) {
+                            notificaciones.push({
+                                id: `viaticos_pendientes`,
+                                tipo: 'urgente',
+                                titulo: 'Solicitudes de Viáticos',
+                                mensaje: `Tienes ${resViaticos[0].total} solicitud(es) de viáticos esperando autorización.`,
+                                fecha: new Date().toISOString()
+                            });
+                        }
+                        res.json({ success: true, data: notificaciones });
+                    });
+                } else {
+                    // Si no es ADMIN ni DHO, terminamos aquí y mandamos lo que haya.
+                    res.json({ success: true, data: notificaciones });
+                }
             });
         });
     });
