@@ -14,16 +14,15 @@ function Proveedores() {
   const [formError, setFormError] = useState('');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // PAGINACIÓN (NUEVO)
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
+  // CORRECCIÓN: 'categoria' en lugar de 'categoria_servicio'
   const [formData, setFormData] = useState({
     tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', 
-    email: '', categoria_servicio: 'INSUMOS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0
+    email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0
   });
 
-  // --- ESTADOS DEL PANEL MAESTRO Y PAGOS ---
   const [panelOpen, setPanelOpen] = useState(false);
   const [provActivo, setProvActivo] = useState(null);
   const [pagos, setPagos] = useState([]);
@@ -59,7 +58,7 @@ function Proveedores() {
   // --- CRUD DE PROVEEDORES ---
   const openNewModal = () => { 
     setIsEditing(false); setEditId(null); setFormError(''); 
-    setFormData({ tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', email: '', categoria_servicio: 'INSUMOS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0 }); 
+    setFormData({ tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0 }); 
     setIsModalOpen(true); 
   };
   
@@ -67,7 +66,7 @@ function Proveedores() {
     setIsEditing(true); setEditId(prov.id); setFormError(''); 
     setFormData({ 
       tipo_persona: prov.tipo_persona || 'MORAL', nombre: prov.nombre || '', rfc: prov.rfc || '', direccion: prov.ubicacion || '', 
-      telefono: prov.telefono || '', email: prov.email || '', categoria_servicio: prov.categoria_servicio || 'INSUMOS', 
+      telefono: prov.telefono || '', email: prov.email || '', categoria: prov.categoria || 'OTROS', 
       clabe_bancaria: prov.clabe_bancaria || '', numero_cuenta: prov.numero_cuenta || '', banco: prov.banco || '', dias_credito: prov.dias_credito || 0 
     }); 
     setIsModalOpen(true); 
@@ -79,10 +78,19 @@ function Proveedores() {
   const validarFormulario = () => { 
     setFormError(''); 
     if (!formData.nombre.trim()) { setFormError('La Razón Social / Nombre es obligatorio.'); return false; } 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido.'); return false; } 
-    if (!/^\d{10}$/.test(formData.telefono)) { setFormError('El teléfono debe tener 10 dígitos exactos.'); return false; } 
-    if (formData.tipo_persona === 'FISICA' && formData.rfc && !/^([A-ZÑ&]{4})(\d{6})([A-Z0-9]{3})$/i.test(formData.rfc)) { setFormError('RFC Física inválido.'); return false; } 
-    if (formData.tipo_persona === 'MORAL' && formData.rfc && !/^([A-ZÑ&]{3})(\d{6})([A-Z0-9]{3})$/i.test(formData.rfc)) { setFormError('RFC Moral inválido.'); return false; } 
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido.'); return false; } 
+    if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener 10 dígitos exactos.'); return false; } 
+    
+    if (formData.rfc) {
+      if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { 
+        setFormError('Has seleccionado Persona Física, el RFC debe tener 13 caracteres.'); 
+        return false; 
+      }
+      if (formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { 
+        setFormError('Has seleccionado Persona Moral, el RFC debe tener 12 caracteres.'); 
+        return false; 
+      }
+    }
     return true; 
   };
   
@@ -144,7 +152,6 @@ function Proveedores() {
     } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
 
-  // --- LÓGICA DE WORKFLOW ---
   const avanzarWorkflowPago = async (id_pago, accion) => {
     if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} este pago?`)) return;
     
@@ -172,14 +179,12 @@ function Proveedores() {
     }
   };
 
-  // --- FILTROS Y PAGINACIÓN ---
   const proveedoresFiltrados = proveedores.filter(p => 
     (p.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (p.categoria_servicio || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.categoria || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (p.rfc || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Resetea la paginación al buscar
   useEffect(() => { setCurrentPage(1); }, [searchTerm]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -194,7 +199,9 @@ function Proveedores() {
           <h1>Proveedores</h1>
           <p>Directorio de proveedores y servicios contratados</p>
         </div>
-        <button className="btn-primary" onClick={openNewModal}>+ Agregar Proveedor</button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-primary" onClick={openNewModal}>+ Agregar Proveedor</button>
+        </div>
       </div>
 
       <div className="inversores-list-container fade-in-up" style={{ marginTop: '20px' }}>
@@ -233,7 +240,7 @@ function Proveedores() {
                             </td>
                             <td>
                                 <div style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}>
-                                    <strong style={{ color: 'var(--brand-green)' }}>{p.categoria_servicio || 'General'}</strong>
+                                    <strong style={{ color: 'var(--brand-green)' }}>{p.categoria || 'General'}</strong>
                                     <span style={{ color: 'var(--text-muted)' }}>{p.telefono || 'Sin teléfono'}</span>
                                 </div>
                             </td>
@@ -418,22 +425,54 @@ function Proveedores() {
             </div>
             
             <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
+              
               <div className="modal-form" style={{padding: '24px 32px', overflowY: 'auto'}}>
-                {formError && ( <div className="error-message shake-animation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>{formError}</span></div> )}
-                
                 <h4 className="section-subtitle">Datos Empresariales</h4>
                 <div className="form-group"><label>Razón Social / Nombre Completo</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} /></div>
+                
                 <div className="form-row">
-                  <div className="form-group"><label>Tipo de Entidad</label><select className="custom-select" value={formData.tipo_persona} onChange={(e) => { setFormData({...formData, tipo_persona: e.target.value, rfc: ''}); setFormError(''); }}><option value="MORAL">Persona Moral (Empresa)</option><option value="FISICA">Persona Física</option></select></div>
-                  <div className="form-group"><label>RFC</label><input type="text" maxLength={formData.tipo_persona === 'FISICA' ? 13 : 12} placeholder="Opcional" value={formData.rfc} onChange={(e) => setFormData({...formData, rfc: e.target.value.toUpperCase()})} /></div>
+                  <div className="form-group">
+                    <label>Tipo de Entidad</label>
+                    <select className="custom-select" value={formData.tipo_persona} onChange={(e) => { setFormData({...formData, tipo_persona: e.target.value, rfc: ''}); setFormError(''); }}>
+                      <option value="MORAL">Persona Moral (Empresa)</option>
+                      <option value="FISICA">Persona Física</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>RFC</label>
+                    <input 
+                      type="text" 
+                      maxLength="13" 
+                      placeholder="Opcional" 
+                      value={formData.rfc} 
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase().trim();
+                        let tipo = formData.tipo_persona;
+                        if (val.length === 12) tipo = 'MORAL';
+                        if (val.length === 13) tipo = 'FISICA';
+                        setFormData({...formData, rfc: val, tipo_persona: tipo});
+                        setFormError('');
+                      }} 
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Categoría de Servicio</label>
+                    <select className="custom-select" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})}>
+                        <option value="AGRICOLA">Agrícola</option>
+                        <option value="INSUMOS">Insumos y Papelería</option>
+                        <option value="MAQUINARIA">Maquinaria y Equipo</option>
+                        <option value="SERVICIOS">Servicios Profesionales</option>
+                        <option value="OTROS">Otro General</option>
+                    </select>
+                  </div>
+                  <div className="form-group"><label>Teléfono de Contacto</label><input type="text" maxLength="10" placeholder="Opcional" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
                 </div>
                 <div className="form-row">
-                  <div className="form-group"><label>Categoría de Servicio</label><select className="custom-select" value={formData.categoria_servicio} onChange={(e) => setFormData({...formData, categoria_servicio: e.target.value})}><option value="INSUMOS">Insumos y Papelería</option><option value="MANTENIMIENTO">Mantenimiento y Limpieza</option><option value="TECNOLOGIA">Tecnología / Software</option><option value="HONORARIOS">Honorarios Profesionales</option><option value="ARRENDAMIENTO">Arrendamiento (Rentas)</option><option value="PUBLICIDAD">Publicidad y Marketing</option><option value="OTROS">Otro General</option></select></div>
-                  <div className="form-group"><label>Teléfono de Contacto</label><input type="text" required maxLength="10" placeholder="10 dígitos" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group"><label>Correo Electrónico</label><input type="email" required placeholder="correo@empresa.com" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
-                  <div className="form-group"><label>Dirección Fiscal</label><input type="text" required value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} /></div>
+                  <div className="form-group"><label>Correo Electrónico</label><input type="email" placeholder="Opcional" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+                  <div className="form-group"><label>Dirección Fiscal</label><input type="text" value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} /></div>
                 </div>
                 
                 <h4 className="section-subtitle" style={{marginTop: '20px'}}>Cuentas y Pagos</h4>
@@ -447,16 +486,24 @@ function Proveedores() {
                 </div>
               </div>
 
-              <div className="modal-footer" style={{ padding: '20px 32px', borderTop: '1px solid var(--border-light)' }}>
-                <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Proveedor' : 'Guardar Proveedor'}</button>
+              <div className="modal-footer" style={{ padding: '20px 32px', borderTop: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {formError && ( 
+                  <div className="error-message shake-animation" style={{ width: '100%', margin: 0, justifyContent: 'center', backgroundColor: '#fef2f2', border: '1px solid #f87171', color: '#b91c1c', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 'bold' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '20px' }}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    <span>{formError}</span>
+                  </div> 
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', width: '100%' }}>
+                  <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
+                  <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Guardando...' : isEditing ? 'Actualizar Proveedor' : 'Guardar Proveedor'}</button>
+                </div>
               </div>
+
             </form>
           </div>
         </div>
       )}
 
-      {/* --- MODAL CONFIRMACIÓN DE ELIMINAR --- */}
       {confirmModal.isOpen && (
         <div className="modal-overlay" style={{zIndex: 2000}}>
           <div className="confirm-modal-content fade-in-up">
