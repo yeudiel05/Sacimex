@@ -57,7 +57,7 @@ function numeroALetras(num) {
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.cuenta_bancaria as numero_cuenta, u.username as solicitante
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, u.username as solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
         JOIN personas p ON pr.id_persona = p.id
@@ -97,7 +97,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
 
 router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.cuenta_bancaria as numero_cuenta, 
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
                u.username as solicitante, u.rol as rol_solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
@@ -147,7 +147,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica').text('TRANSFERENCIA', 40, 322);
         
         doc.font('Helvetica-Bold').text('CUENTA/CLABE/CIE', 200, 310);
-        doc.font('Helvetica').text(pago.numero_cuenta || 'N/D', 200, 322);
+        doc.font('Helvetica').text(pago.numero_cuenta || pago.clabe_bancaria || 'N/D', 200, 322);
         
         doc.font('Helvetica-Bold').text('BANCO', 360, 310);
         doc.font('Helvetica').text(pago.banco || 'N/D', 360, 322);
@@ -188,13 +188,28 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 // CRUD NORMAL DE PROVEEDORES
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
-    db.query(`SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, pr.categoria, pr.cuenta_bancaria as numero_cuenta, pr.banco, pr.dias_credito, pr.estatus_activo FROM personas p INNER JOIN proveedores pr ON p.id = pr.id_persona WHERE p.eliminado = FALSE ORDER BY p.id DESC`, (err, results) => {
-        if (err) return res.status(500).json({ success: false });
+    const query = `
+        SELECT 
+            p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
+            p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, 
+            pr.categoria, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
+            pr.banco, pr.dias_credito, pr.estatus_activo 
+        FROM personas p 
+        INNER JOIN proveedores pr ON p.id = pr.id_persona 
+        WHERE p.eliminado = FALSE 
+        ORDER BY p.id DESC
+    `;
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error("ERROR EN CONSULTA GET:", err);
+            return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
+        }
         res.json({ success: true, data: results });
     });
 });
 
 router.post('/', verificarToken, (req, res) => {
+    // Tomamos "clabe_bancaria" del frontend, pero la guardaremos en "cuenta_bancaria" de la BD
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     
     db.beginTransaction(err => {
@@ -204,18 +219,18 @@ router.post('/', verificarToken, (req, res) => {
         [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
             if (err) {
                 console.error("ERROR MYSQL PERSONAS:", err);
-                return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: El RFC ya existe o formato inválido.` }));
+                return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
             }
             
             const idNuevaPersona = resultPersona.insertId;
             const catLimpia = categoria || 'OTROS';
-            const cuentaFinal = clabe_bancaria || numero_cuenta || '';
             
-            db.query('INSERT INTO proveedores (id_persona, categoria, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)', 
-            [idNuevaPersona, catLimpia, cuentaFinal, banco, dias_credito || 0], (err) => {
+            // ATENCIÓN AQUÍ: Se inserta `numero_cuenta` en su lugar, y `clabe_bancaria` en `cuenta_bancaria`.
+            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
+            [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
                 if (err) {
                     console.error("ERROR MYSQL PROVEEDORES:", err);
-                    return db.rollback(() => res.status(500).json({ success: false, message: `Error Financiero: ${err.message}` }));
+                    return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
                 }
                 
                 db.commit(err => {
@@ -240,10 +255,10 @@ router.put('/:id', verificarToken, (req, res) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
             
             const catLimpia = categoria || 'OTROS';
-            const cuentaFinal = clabe_bancaria || numero_cuenta || '';
 
-            db.query('UPDATE proveedores SET categoria=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
-            [catLimpia, cuentaFinal, banco, dias_credito, id], (err) => {
+            // ATENCIÓN AQUÍ: Se actualiza `numero_cuenta` en su lugar, y `clabe_bancaria` en `cuenta_bancaria`.
+            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
+            [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
