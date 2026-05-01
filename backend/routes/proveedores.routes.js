@@ -6,6 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const xlsx = require('xlsx'); // Importamos la nueva librería
 
 const uploadDir = path.join(__dirname, '../uploads');
 const storage = multer.diskStorage({
@@ -16,6 +17,9 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage: storage });
+
+// Configuramos un multer en memoria para el Excel (no se guarda en disco)
+const uploadExcel = multer({ storage: multer.memoryStorage() });
 
 function numeroALetras(num) {
     const unidades = ['Cero', 'Un', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve'];
@@ -209,7 +213,6 @@ router.get('/', verificarToken, (req, res) => {
 });
 
 router.post('/', verificarToken, (req, res) => {
-    // Tomamos "clabe_bancaria" del frontend, pero la guardaremos en "cuenta_bancaria" de la BD
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     
     db.beginTransaction(err => {
@@ -225,7 +228,6 @@ router.post('/', verificarToken, (req, res) => {
             const idNuevaPersona = resultPersona.insertId;
             const catLimpia = categoria || 'OTROS';
             
-            // ATENCIÓN AQUÍ: Se inserta `numero_cuenta` en su lugar, y `clabe_bancaria` en `cuenta_bancaria`.
             db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
             [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
                 if (err) {
@@ -256,7 +258,6 @@ router.put('/:id', verificarToken, (req, res) => {
             
             const catLimpia = categoria || 'OTROS';
 
-            // ATENCIÓN AQUÍ: Se actualiza `numero_cuenta` en su lugar, y `clabe_bancaria` en `cuenta_bancaria`.
             db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
             [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
@@ -363,6 +364,92 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
             res.json({ success: true });
         });
     });
+});
+
+
+// ==========================================
+// RUTA PARA IMPORTAR PROVEEDORES DESDE EXCEL
+// ==========================================
+router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
+    }
+
+    try {
+        // Leer el archivo de Excel cargado en memoria
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0]; // Usar la primera hoja
+        const sheet = workbook.Sheets[sheetName];
+        
+        // Convertir la hoja a formato JSON
+        const data = xlsx.utils.sheet_to_json(sheet);
+        
+        if (data.length === 0) {
+            return res.status(400).json({ success: false, message: 'El archivo Excel está vacío' });
+        }
+
+        let procesados = 0;
+        let errores = 0;
+
+        // Recorrer cada fila del Excel
+        for (const row of data) {
+            // Validar que las columnas existan en el excel tal y como me las diste
+            const rfc_original = row['RFC'] ? row['RFC'].toString().trim().toUpperCase() : null;
+            const nombre = row['NOMBRE'] ? row['NOMBRE'].toString().trim() : null;
+
+            if (!rfc_original || !nombre) {
+                errores++;
+                continue; // Saltar si falta algún dato crítico
+            }
+
+            // Calcular Tipo de Persona: Moral (12 caracteres) Física (13 caracteres)
+            let tipo_persona = 'MORAL';
+            if (rfc_original.length === 13) {
+                tipo_persona = 'FISICA';
+            }
+
+            // Intentar guardarlo (Si falla porque el RFC ya existe, lo contamos como error pero seguimos)
+            try {
+                await new Promise((resolve, reject) => {
+                    db.beginTransaction(err => {
+                        if (err) return reject(err);
+
+                        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
+                        [tipo_persona, nombre, rfc_original, '', '', ''], (err, resultPersona) => {
+                            if (err) return db.rollback(() => reject(err));
+                            
+                            const idNuevaPersona = resultPersona.insertId;
+                            
+                            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
+                            [idNuevaPersona, 'OTROS', '', '', '', 0], (err) => {
+                                if (err) return db.rollback(() => reject(err));
+                                
+                                db.commit(err => {
+                                    if (err) return db.rollback(() => reject(err));
+                                    resolve();
+                                });
+                            });
+                        });
+                    });
+                });
+                procesados++;
+            } catch (err) {
+                // Posiblemente RFC duplicado
+                errores++;
+            }
+        }
+
+        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} con errores o duplicados.`);
+        
+        res.json({ 
+            success: true, 
+            message: `Proceso completado. Proveedores importados: ${procesados}. Errores/Duplicados omitidos: ${errores}.` 
+        });
+
+    } catch (error) {
+        console.error("Error al procesar Excel:", error);
+        res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' });
+    }
 });
 
 module.exports = router;

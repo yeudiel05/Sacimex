@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Proveedores.css';
 
 function Proveedores() {
   const navigate = useNavigate();
+  const fileInputRef = useRef(null); 
+  
   const [proveedores, setProveedores] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -17,7 +19,6 @@ function Proveedores() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // CORRECCIÓN: 'categoria' en lugar de 'categoria_servicio'
   const [formData, setFormData] = useState({
     tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', 
     email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0
@@ -49,13 +50,59 @@ function Proveedores() {
       const response = await fetch('http://localhost:3001/api/proveedores', { headers });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
-      if (data.success) setProveedores(data.data);
-    } catch (error) { console.error(error); }
+      if (data.success) {
+        setProveedores(data.data);
+      }
+    } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
   useEffect(() => { fetchProveedores(); }, []);
 
-  // --- CRUD DE PROVEEDORES ---
+  const handleImportExcel = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx')) {
+        alert("Por favor, selecciona un archivo con extensión .xlsx");
+        return;
+    }
+
+    if (!window.confirm(`¿Deseas intentar importar los proveedores del archivo "${file.name}"?`)) {
+        e.target.value = null;
+        return;
+    }
+
+    const headers = getAuthHeaders();
+    if (!headers) return;
+    const { Authorization } = headers;
+    
+    setIsLoading(true);
+    const formDataUpload = new FormData();
+    formDataUpload.append('archivo_excel', file);
+
+    try {
+        const response = await fetch('http://localhost:3001/api/proveedores/importar', {
+            method: 'POST',
+            headers: { Authorization },
+            body: formDataUpload
+        });
+
+        if (handleAuthError(response.status)) return;
+        
+        const data = await response.json();
+        alert(data.message); 
+        
+        if (data.success) {
+            fetchProveedores(); 
+        }
+    } catch (error) {
+        alert("Hubo un problema de conexión al importar.");
+    } finally {
+        setIsLoading(false);
+        e.target.value = null; 
+    }
+  };
+
   const openNewModal = () => { 
     setIsEditing(false); setEditId(null); setFormError(''); 
     setFormData({ tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0 }); 
@@ -73,14 +120,32 @@ function Proveedores() {
   };
   
   const triggerEliminar = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Proveedor', message: `¿Estás seguro de eliminar a ${nombre || 'este proveedor'}? Se ocultará del directorio permanentemente.`, onConfirm: () => ejecutarEliminar(id) }); };
-  const ejecutarEliminar = async (id) => { const headers = getAuthHeaders(); if (!headers) return; try { const res = await fetch(`http://localhost:3001/api/proveedores/${id}`, { method: 'DELETE', headers }); if (handleAuthError(res.status)) return; if ((await res.json()).success) fetchProveedores(); } catch (error) { console.error(error); } };
   
+  const ejecutarEliminar = async (id) => { 
+    const headers = getAuthHeaders(); if (!headers) return; 
+    try { 
+        const res = await fetch(`http://localhost:3001/api/proveedores/${id}`, { method: 'DELETE', headers }); 
+        if (handleAuthError(res.status)) return; 
+        if ((await res.json()).success) fetchProveedores(); 
+    } catch (error) { console.error(error); } 
+  };
+  
+  // ==========================================
+  // VALIDACIONES
+  // ==========================================
   const validarFormulario = () => { 
     setFormError(''); 
-    if (!formData.nombre.trim()) { setFormError('La Razón Social / Nombre es obligatorio.'); return false; } 
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido.'); return false; } 
-    if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener 10 dígitos exactos.'); return false; } 
     
+    // Validar Razón Social
+    if (!formData.nombre.trim()) { setFormError('La Razón Social / Nombre es obligatorio.'); return false; } 
+    
+    // Validar Correo Electrónico
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido. Verifica el formato.'); return false; } 
+    
+    // Validar Teléfono (10 dígitos exactos si se ingresó algo)
+    if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener exactamente 10 dígitos.'); return false; } 
+    
+    // Validar RFC
     if (formData.rfc) {
       if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { 
         setFormError('Has seleccionado Persona Física, el RFC debe tener 13 caracteres.'); 
@@ -91,6 +156,25 @@ function Proveedores() {
         return false; 
       }
     }
+
+    // Validar Número de Cuenta
+    if (formData.numero_cuenta && formData.numero_cuenta.length !== 10) {
+      setFormError('El Número de Cuenta debe tener exactamente 10 dígitos.');
+      return false;
+    }
+
+    // Validar CLABE Interbancaria
+    if (formData.clabe_bancaria && formData.clabe_bancaria.length !== 18) {
+      setFormError('La CLABE Interbancaria debe tener exactamente 18 dígitos.');
+      return false;
+    }
+
+    // Si ingresan Número de Cuenta o CLABE, deben elegir un Banco
+    if ((formData.numero_cuenta || formData.clabe_bancaria) && !formData.banco) {
+      setFormError('Debes seleccionar un Banco Destino si ingresas una cuenta o CLABE.');
+      return false;
+    }
+
     return true; 
   };
   
@@ -101,17 +185,42 @@ function Proveedores() {
     setIsLoading(true); 
     const url = isEditing ? `http://localhost:3001/api/proveedores/${editId}` : 'http://localhost:3001/api/proveedores'; 
     const method = isEditing ? 'PUT' : 'POST'; 
+    
     try { 
       const res = await fetch(url, { method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) }); 
       if (handleAuthError(res.status)) return; 
-      const data = await res.json(); 
-      if (data.success) { setIsModalOpen(false); fetchProveedores(); } else setFormError(data.message); 
-    } catch (error) { setFormError("Error de servidor."); } finally { setIsLoading(false); } 
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch(parseErr) {
+        setFormError(`El backend no respondió de forma correcta. Revisa tu terminal de Node.`);
+        setIsLoading(false);
+        return;
+      }
+      
+      if (data.success) { 
+        setIsModalOpen(false); 
+        fetchProveedores(); 
+      } else { 
+        setFormError(data.message || "Error al intentar guardar en la base de datos."); 
+      } 
+    } catch (error) { 
+      setFormError(`Falla de Red. Asegúrate de que el backend en el puerto 3001 esté encendido.`); 
+    } finally { 
+      setIsLoading(false); 
+    } 
   };
   
-  const cambiarEstatus = async (id_persona, estatus_actual) => { const nuevoEstatus = estatus_actual === 1 ? 0 : 1; const headers = getAuthHeaders(); if (!headers) return; try { const res = await fetch(`http://localhost:3001/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); if ((await res.json()).success) fetchProveedores(); } catch (error) { console.error(error); } };
+  const cambiarEstatus = async (id_persona, estatus_actual) => { 
+    const nuevoEstatus = estatus_actual === 1 ? 0 : 1; 
+    const headers = getAuthHeaders(); if (!headers) return; 
+    try { 
+        const res = await fetch(`http://localhost:3001/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); 
+        if ((await res.json()).success) fetchProveedores(); 
+    } catch (error) { console.error(error); } 
+  };
 
-  // --- LÓGICA DEL PANEL DE PAGOS ---
   const abrirPanelPagos = (prov) => {
     setProvActivo(prov);
     setShowNuevoPago(false);
@@ -154,10 +263,8 @@ function Proveedores() {
 
   const avanzarWorkflowPago = async (id_pago, accion) => {
     if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} este pago?`)) return;
-    
     const headers = getAuthHeaders();
     setIsLoading(true);
-    
     try {
       const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_pago}/autorizacion`, {
         method: 'PUT',
@@ -165,14 +272,9 @@ function Proveedores() {
         body: JSON.stringify({ accion })
       });
       const data = await res.json();
-      
-      if (data.success) {
-        fetchPagos(provActivo.id); 
-      } else {
-        alert(data.message);
-      }
+      if (data.success) fetchPagos(provActivo.id); 
+      else alert(data.message);
     } catch (error) {
-      console.error(error);
       alert('Error de conexión con el servidor.');
     } finally {
       setIsLoading(false);
@@ -200,6 +302,22 @@ function Proveedores() {
           <p>Directorio de proveedores y servicios contratados</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <input 
+            type="file" 
+            accept=".xlsx" 
+            ref={fileInputRef} 
+            style={{ display: 'none' }} 
+            onChange={handleImportExcel} 
+          />
+          <button 
+             className="btn-view" 
+             style={{ borderColor: 'var(--brand-green)', color: 'var(--brand-green)', fontWeight: 'bold' }}
+             onClick={() => fileInputRef.current.click()}
+             disabled={isLoading}
+          >
+             {isLoading ? 'Cargando...' : 'Importar Excel'}
+          </button>
+          
           <button className="btn-primary" onClick={openNewModal}>+ Agregar Proveedor</button>
         </div>
       </div>
@@ -246,8 +364,9 @@ function Proveedores() {
                             </td>
                             <td>
                                 <div style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}>
-                                    <strong>{p.banco || 'Banco no reg.'}</strong>
-                                    <span style={{ color: 'var(--text-muted)' }}>Cta: {p.numero_cuenta || 'N/D'}</span>
+                                    <strong style={{ color: 'var(--text-main)' }}>{p.banco || 'BANCO NO REG.'}</strong>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Cuenta: {p.numero_cuenta || 'N/D'}</span>
+                                    <span style={{ color: 'var(--brand-green)', fontSize: '11px', fontWeight: 'bold' }}>CLABE: {p.clabe_bancaria || 'N/D'}</span>
                                 </div>
                             </td>
                             <td>
@@ -292,7 +411,6 @@ function Proveedores() {
         </div>
       </div>
 
-      {/* --- PANEL MAESTRO DE PAGOS A PROVEEDOR --- */}
       {panelOpen && provActivo && (
         <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -468,7 +586,11 @@ function Proveedores() {
                         <option value="OTROS">Otro General</option>
                     </select>
                   </div>
-                  <div className="form-group"><label>Teléfono de Contacto</label><input type="text" maxLength="10" placeholder="Opcional" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
+                  <div className="form-group">
+                    <label>Teléfono de Contacto</label>
+                    {/* MODIFICACIÓN: Limita a 10 dígitos y solo acepta números */}
+                    <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} />
+                  </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group"><label>Correo Electrónico</label><input type="email" placeholder="Opcional" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
@@ -477,12 +599,40 @@ function Proveedores() {
                 
                 <h4 className="section-subtitle" style={{marginTop: '20px'}}>Cuentas y Pagos</h4>
                 <div className="form-row">
-                  <div className="form-group"><label>Banco Destino</label><input type="text" placeholder="Ej. Banorte, BBVA..." value={formData.banco} onChange={(e) => setFormData({...formData, banco: e.target.value})} /></div>
-                  <div className="form-group"><label>Número de Cuenta</label><input type="text" placeholder="Cuenta para transferencia" value={formData.numero_cuenta} onChange={(e) => setFormData({...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '')})} /></div>
+                  <div className="form-group">
+                    <label>Banco Destino</label>
+                    {/* MODIFICACIÓN: Pasa de ser un input libre a un select con opciones definidas */}
+                    <select className="custom-select" value={formData.banco} onChange={(e) => setFormData({...formData, banco: e.target.value})}>
+                      <option value="">Selecciona un banco...</option>
+                      <option value="BBVA">BBVA</option>
+                      <option value="Santander">Santander</option>
+                      <option value="Banamex">Citibanamex</option>
+                      <option value="Banorte">Banorte</option>
+                      <option value="HSBC">HSBC</option>
+                      <option value="Scotiabank">Scotiabank</option>
+                      <option value="Inbursa">Inbursa</option>
+                      <option value="Banco Azteca">Banco Azteca</option>
+                      <option value="Bancoppel">Bancoppel</option>
+                      <option value="Afirme">Afirme</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Número de Cuenta</label>
+                    {/* MODIFICACIÓN: Limita a 10 dígitos y bloquea caracteres que no sean números */}
+                    <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.numero_cuenta} onChange={(e) => setFormData({...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '')})} />
+                  </div>
                 </div>
                 <div className="form-row">
-                  <div className="form-group"><label>CLABE Interbancaria (Opcional)</label><input type="text" maxLength="18" placeholder="18 dígitos" value={formData.clabe_bancaria} onChange={(e) => setFormData({...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '')})} /></div>
-                  <div className="form-group"><label>Días de Crédito Otorgados</label><input type="number" required min="0" placeholder="Ej. 15, 30, 0 para contado" value={formData.dias_credito} onChange={(e) => setFormData({...formData, dias_credito: e.target.value})} /></div>
+                  <div className="form-group">
+                    <label>CLABE Interbancaria (Opcional)</label>
+                    {/* MODIFICACIÓN: Limita a 18 dígitos y bloquea caracteres que no sean números */}
+                    <input type="text" maxLength="18" placeholder="18 dígitos" value={formData.clabe_bancaria} onChange={(e) => setFormData({...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '')})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Días de Crédito Otorgados</label>
+                    <input type="number" required min="0" placeholder="Ej. 15, 30, 0 para contado" value={formData.dias_credito} onChange={(e) => setFormData({...formData, dias_credito: e.target.value})} />
+                  </div>
                 </div>
               </div>
 
