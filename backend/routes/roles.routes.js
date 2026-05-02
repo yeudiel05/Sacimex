@@ -7,7 +7,7 @@ const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 // OBTENER TODOS LOS ROLES ACTIVOS
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
-    // Todos los usuarios logueados pueden ver la lista de roles (necesario para los selects)
+    // Al usar SELECT *, ya incluimos las nuevas columnas de permisos (perm_usuarios, etc.)
     db.query('SELECT * FROM catalogo_roles WHERE estatus_activo = 1 ORDER BY id ASC', (err, results) => {
         if (err) {
             console.error("Error obteniendo roles:", err);
@@ -25,20 +25,48 @@ router.post('/', verificarToken, (req, res) => {
         return res.status(403).json({ success: false, message: 'No tienes permisos para crear roles' });
     }
     
-    const { nombre_rol, descripcion } = req.body;
+    // Recibimos el nombre, descripción y las palomitas de la Matriz de Permisos
+    const { 
+        nombre_rol, 
+        descripcion, 
+        perm_usuarios, 
+        perm_proveedores, 
+        perm_viaticos, 
+        perm_pagos, 
+        perm_reportes 
+    } = req.body;
     
-    // Limpiamos el texto: Lo pasamos a mayúsculas y cambiamos espacios por guiones bajos
+    // Limpiamos el texto: Mayúsculas y guiones bajos para el nombre técnico
     const rolFormateado = nombre_rol.toUpperCase().trim().replace(/\s+/g, '_'); 
 
-    db.query('INSERT INTO catalogo_roles (nombre_rol, descripcion) VALUES (?, ?)', [rolFormateado, descripcion], (err, result) => {
+    // Consulta incluyendo los 5 campos de la matriz
+    const query = `
+        INSERT INTO catalogo_roles 
+        (nombre_rol, descripcion, perm_usuarios, perm_proveedores, perm_viaticos, perm_pagos, perm_reportes, estatus_activo) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `;
+
+    // Convertimos los booleanos de React (true/false) a enteros (1/0) para MySQL
+    const values = [
+        rolFormateado, 
+        descripcion, 
+        perm_usuarios ? 1 : 0, 
+        perm_proveedores ? 1 : 0, 
+        perm_viaticos ? 1 : 0, 
+        perm_pagos ? 1 : 0, 
+        perm_reportes ? 1 : 0
+    ];
+
+    db.query(query, values, (err, result) => {
         if (err) {
             if (err.code === 'ER_DUP_ENTRY') {
                 return res.status(400).json({ success: false, message: 'Este rol ya existe en el sistema.' });
             }
+            console.error("Error al crear rol:", err);
             return res.status(500).json({ success: false, message: 'Error interno al crear el rol.' });
         }
         
-        registrarBitacora(req.usuario.id, 'CREAR_ROL', `Se creó el nuevo rol: ${rolFormateado}`);
+        registrarBitacora(req.usuario.id, 'CREAR_ROL', `Se creó el rol: ${rolFormateado} con su matriz de permisos.`);
         res.json({ success: true, message: 'Rol creado con éxito.' });
     });
 });
@@ -51,19 +79,54 @@ router.put('/:id', verificarToken, (req, res) => {
         return res.status(403).json({ success: false, message: 'No tienes permisos para editar roles' });
     }
 
-    const { nombre_rol, descripcion } = req.body;
+    const { 
+        nombre_rol, 
+        descripcion, 
+        perm_usuarios, 
+        perm_proveedores, 
+        perm_viaticos, 
+        perm_pagos, 
+        perm_reportes 
+    } = req.body;
+    
     const rolFormateado = nombre_rol.toUpperCase().trim().replace(/\s+/g, '_');
 
-    // Evitamos que editen el rol de ADMIN por seguridad (ID 1)
-    if (req.params.id == 1 && rolFormateado !== 'ADMIN') {
-        return res.status(400).json({ success: false, message: 'No puedes cambiar el nombre del rol Administrador Principal.' });
+    // Seguridad: El rol ADMIN (ID 1) debe conservar siempre todos los permisos
+    if (req.params.id == 1) {
+        return res.status(400).json({ success: false, message: 'Por seguridad, el rol Administrador no puede ser modificado.' });
     }
 
-    db.query('UPDATE catalogo_roles SET nombre_rol = ?, descripcion = ? WHERE id = ?', [rolFormateado, descripcion, req.params.id], (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al actualizar el rol.' });
+    const query = `
+        UPDATE catalogo_roles 
+        SET nombre_rol = ?, 
+            descripcion = ?, 
+            perm_usuarios = ?, 
+            perm_proveedores = ?, 
+            perm_viaticos = ?, 
+            perm_pagos = ?, 
+            perm_reportes = ? 
+        WHERE id = ?
+    `;
+
+    const values = [
+        rolFormateado, 
+        descripcion, 
+        perm_usuarios ? 1 : 0, 
+        perm_proveedores ? 1 : 0, 
+        perm_viaticos ? 1 : 0, 
+        perm_pagos ? 1 : 0, 
+        perm_reportes ? 1 : 0,
+        req.params.id
+    ];
+
+    db.query(query, values, (err, result) => {
+        if (err) {
+            console.error("Error al actualizar rol:", err);
+            return res.status(500).json({ success: false, message: 'Error al actualizar el rol.' });
+        }
         
-        registrarBitacora(req.usuario.id, 'EDITAR_ROL', `Se actualizaron los datos del rol ID ${req.params.id}`);
-        res.json({ success: true, message: 'Rol actualizado correctamente.' });
+        registrarBitacora(req.usuario.id, 'EDITAR_ROL', `Se actualizaron los permisos y datos del rol ID ${req.params.id}`);
+        res.json({ success: true, message: 'Rol y matriz de permisos actualizados correctamente.' });
     });
 });
 
@@ -75,12 +138,11 @@ router.delete('/:id', verificarToken, (req, res) => {
         return res.status(403).json({ success: false, message: 'No tienes permisos para eliminar roles' });
     }
 
-    // Candado de seguridad vital: Nadie puede borrar el rol ADMIN (ID 1)
     if (req.params.id == 1) {
         return res.status(400).json({ success: false, message: 'Seguridad: No se puede eliminar el rol Administrador.' });
     }
 
-    // Borrado lógico (lo desactivamos en lugar de borrarlo por completo)
+    // Borrado lógico
     db.query('UPDATE catalogo_roles SET estatus_activo = 0 WHERE id = ?', [req.params.id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al intentar eliminar el rol.' });
         
