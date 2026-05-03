@@ -2,29 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Usuarios.css';
 
-// ==========================================
-// CONFIGURACIÓN DE PUESTOS Y DEPARTAMENTOS
-// ==========================================
-const MAPA_PUESTOS = {
-  "DIRECTOR GENERAL": "Director",
-  "COORDINADOR DE CRÉDITO": "Operaciones",
-  "COORDINADOR DE SUCURSAL": "Sucursales",
-  "CAJERO": "Sucursales",
-  "CAPACITADOR": "Desarrollo Humano y Organizacional",
-  "ENCARGADO DE TI": "TECNOLOGÍA, INFORMÁTICA Y COMUNICACIONES (TIC)",
-  "AUXILIAR DE SISTEMAS": "TECNOLOGÍA, INFORMÁTICA Y COMUNICACIONES (TIC)",
-  "ASISTENTE DE SISTEMAS": "TECNOLOGÍA, INFORMÁTICA Y COMUNICACIONES (TIC)",
-  "CONTADOR GENERAL": "Contabilidad y Finanzas",
-  "ENCARGADO DE SUCURSAL": "Sucursales",
-  "ASESOR DE CRÉDITO": "Sucursales",
-  "AUXILIAR CONTABLE": "Contabilidad y Finanzas",
-  "GESTOR DE COBRANZA": "Operaciones",
-  "ENCARGADO DE ALMACEN": "Operaciones",
-  "ENCARGADO DE NORMATIVIDAD": "Normativo",
-  "COORDINADOR DE D.H.O.": "Desarrollo Humano y Organizacional",
-  "ASISTENTE DE D.H.O.": "Desarrollo Humano y Organizacional",
-};
-
 function Usuarios() {
   const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState([]);
@@ -37,14 +14,11 @@ function Usuarios() {
   const [editId, setEditId] = useState(null);
 
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  
+  // Estado limpio solo para nombre y descripción
   const [nuevoRol, setNuevoRol] = useState({ 
     nombre_rol: '', 
-    descripcion: '',
-    perm_usuarios: false,
-    perm_proveedores: false,
-    perm_viaticos: false,
-    perm_pagos: false,
-    perm_reportes: false
+    descripcion: ''
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -53,7 +27,7 @@ function Usuarios() {
 
   const [formData, setFormData] = useState({
     nombre: '', rfc: '', telefono: '', email: '', 
-    puesto: '', departamento: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null
+    puesto: '', departamento: '', unidad_negocio: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null
   });
 
   const getAuthHeaders = () => {
@@ -91,7 +65,7 @@ function Usuarios() {
     setIsEditing(false);
     setEditId(null);
     setFormError('');
-    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: departamentoSeleccionado || '', username: '', password: '', rol: '', id_persona: null });
+    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: departamentoSeleccionado || '', unidad_negocio: '', username: '', password: '', rol: '', id_persona: null });
     setIsModalOpen(true);
   };
 
@@ -101,8 +75,8 @@ function Usuarios() {
     setFormError('');
     setFormData({ 
       nombre: user.nombre, rfc: user.rfc || '', telefono: user.telefono || '', email: user.email || '', 
-      puesto: user.puesto, departamento: user.departamento, username: user.username, 
-      password: '',
+      puesto: user.puesto, departamento: user.departamento, unidad_negocio: user.unidad_negocio || '',
+      username: user.username, password: '',
       rol: user.rol, id_persona: user.id_persona
     });
     setIsModalOpen(true);
@@ -111,6 +85,12 @@ function Usuarios() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
+    
+    if(!formData.unidad_negocio) {
+        setFormError('Por favor selecciona una Unidad de Negocio.');
+        return;
+    }
+
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
 
@@ -167,7 +147,7 @@ function Usuarios() {
       });
       const data = await res.json();
       if (data.success) {
-        setNuevoRol({ nombre_rol: '', descripcion: '', perm_usuarios: false, perm_proveedores: false, perm_viaticos: false, perm_pagos: false, perm_reportes: false });
+        setNuevoRol({ nombre_rol: '', descripcion: '' });
         fetchRoles(); 
       } else {
         alert(data.message);
@@ -199,6 +179,21 @@ function Usuarios() {
     const depUsuario = (u.departamento || 'Sin Departamento').toUpperCase().trim();
     return depUsuario === departamentoSeleccionado;
   });
+
+  const manejarCambioPuesto = (e) => {
+    const puestoElegido = e.target.value;
+    let deptoAuto = '';
+
+    if (puestoElegido === 'CONTADOR GENERAL' || puestoElegido === 'AUXILIAR CONTABLE') { deptoAuto = 'Contabilidad y Finanzas'; }
+    else if (puestoElegido === 'COORDINADOR DE CRÉDITO' || puestoElegido === 'GESTOR DE COBRANZA' || puestoElegido === 'ENCARGADO DE ALMACEN') { deptoAuto = 'Operaciones'; }
+    else if (puestoElegido === 'COORDINADOR DE SUCURSAL' || puestoElegido === 'CAJERO' || puestoElegido === 'ENCARGADO DE SUCURSAL' || puestoElegido === 'ASESOR DE CRÉDITO') { deptoAuto = 'Sucursales'; }
+    else if (puestoElegido === 'CAPACITADOR' || puestoElegido === 'COORDINADOR DE D.H.O.' || puestoElegido === 'ASISTENTE DE D.H.O.') { deptoAuto = 'Desarrollo Humano y Organizacional'; }
+    else if (puestoElegido === 'DIRECTOR GENERAL') { deptoAuto = 'Director'; }
+    else if (puestoElegido === 'ENCARGADO DE NORMATIVIDAD') { deptoAuto = 'Normativo'; }
+    else if (puestoElegido === 'ENCARGADO DE TI' || puestoElegido === 'AUXILIAR DE SISTEMAS' || puestoElegido === 'ASISTENTE DE SISTEMAS') { deptoAuto = 'TECNOLOGÍA, INFORMÁTICA Y COMUNICACIONES (TIC)'; }
+    
+    setFormData({...formData, puesto: puestoElegido, departamento: deptoAuto});
+  };
 
   return (
     <div className="usuarios-container">
@@ -272,7 +267,7 @@ function Usuarios() {
                 
                 <div className="user-card-body">
                     <h3>{user.nombre}</h3>
-                    <p className="user-role-text">{user.puesto}</p>
+                    <p className="user-role-text">{user.puesto} <br/> <span style={{fontSize:'12px', color: 'var(--brand-green)'}}>📍 {user.unidad_negocio || 'Sin Unidad'}</span></p>
                     <div className="user-credentials">
                     <div className="cred-box">
                         <span>Usuario</span>
@@ -305,10 +300,10 @@ function Usuarios() {
         </>
       )}
 
-      {/* --- MODAL ALTA/EDICIÓN --- */}
+      {/* --- MODAL ALTA/EDICIÓN DE USUARIO --- */}
       {isModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content fade-in-down" style={{maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
+          <div className="modal-content fade-in-down" style={{maxWidth: '850px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
             <div className="modal-header">
               <h2>{isEditing ? 'Editar Empleado y Accesos' : 'Alta de Personal y Accesos'}</h2>
               <button className="btn-close" onClick={() => setIsModalOpen(false)}>×</button>
@@ -325,40 +320,54 @@ function Usuarios() {
                     <div className="form-group"><label>RFC</label><input type="text" required maxLength="13" value={formData.rfc} onChange={(e) => setFormData({...formData, rfc: e.target.value.toUpperCase()})} /></div>
                     <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
                     <div className="form-group"><label>Correo Institucional</label><input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+                    
+                    {/* AQUI ESTÁN TUS DATOS CORRECTOS DE UNIDAD DE NEGOCIO */}
+                    <div className="form-group" style={{marginTop: '20px'}}>
+                      <label style={{color: 'var(--brand-green)'}}>Unidad de Negocio (Asignación)</label>
+                      <select className="custom-select" required value={formData.unidad_negocio} onChange={(e) => setFormData({...formData, unidad_negocio: e.target.value})}>
+                        <option value="">Selecciona una unidad...</option>
+                        <option value="Corporativo">Corporativo</option>
+                        <option value="Centro">Centro</option>
+                        <option value="Cuicatlan">Cuicatlán</option>
+                        <option value="Etla">Etla</option>
+                        <option value="Huatulco">Huatulco</option>
+                        <option value="Huauchinango">Huauchinango</option>
+                        <option value="Salina Cruz">Salina Cruz</option>
+                        <option value="San Antonio">San Antonio</option>
+                        <option value="Tecamachalco">Tecamachalco</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div>
                     <h4 className="section-subtitle">Puesto y Accesos</h4>
-                    
-                    {/* MODIFICACIÓN: SELECT DE PUESTOS AUTOMÁTICO */}
                     <div className="form-group">
                       <label>Puesto</label>
-                      <select 
-                        className="custom-select" 
-                        required 
-                        value={formData.puesto} 
-                        onChange={(e) => {
-                          const puestoSelected = e.target.value;
-                          const deptoAuto = MAPA_PUESTOS[puestoSelected] || '';
-                          setFormData({...formData, puesto: puestoSelected, departamento: deptoAuto});
-                        }}
-                      >
+                      <select className="custom-select" required value={formData.puesto} onChange={manejarCambioPuesto}>
                         <option value="">Selecciona un puesto...</option>
-                        {Object.keys(MAPA_PUESTOS).map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
+                        <option value="DIRECTOR GENERAL">Director General</option>
+                        <option value="CONTADOR GENERAL">Contador General</option>
+                        <option value="AUXILIAR CONTABLE">Auxiliar Contable</option>
+                        <option value="COORDINADOR DE CRÉDITO">Coordinador de Crédito</option>
+                        <option value="GESTOR DE COBRANZA">Gestor de Cobranza</option>
+                        <option value="ENCARGADO DE ALMACEN">Encargado de Almacén</option>
+                        <option value="COORDINADOR DE SUCURSAL">Coordinador de Sucursal</option>
+                        <option value="ENCARGADO DE SUCURSAL">Encargado de Sucursal</option>
+                        <option value="ASESOR DE CRÉDITO">Asesor de Crédito</option>
+                        <option value="CAJERO">Cajero</option>
+                        <option value="CAPACITADOR">Capacitador</option>
+                        <option value="COORDINADOR DE D.H.O.">Coordinador de D.H.O.</option>
+                        <option value="ASISTENTE DE D.H.O.">Asistente de D.H.O.</option>
+                        <option value="ENCARGADO DE TI">Encargado de TI</option>
+                        <option value="AUXILIAR DE SISTEMAS">Auxiliar de Sistemas</option>
+                        <option value="ASISTENTE DE SISTEMAS">Asistente de Sistemas</option>
+                        <option value="ENCARGADO DE NORMATIVIDAD">Encargado de Normatividad</option>
                       </select>
                     </div>
                     
                     <div className="form-group">
                       <label>Departamento</label>
-                      <input 
-                        type="text" 
-                        readOnly 
-                        style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 'bold', color: 'var(--brand-green)' }} 
-                        value={formData.departamento} 
-                        placeholder="Se llenará solo al elegir puesto" 
-                      />
+                      <input type="text" readOnly style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 'bold', color: 'var(--brand-green)' }} value={formData.departamento} placeholder="Se llenará solo al elegir puesto" />
                     </div>
                     
                     <div className="form-group">
@@ -389,14 +398,14 @@ function Usuarios() {
         </div>
       )}
 
-      {/* --- MODAL ROLES --- */}
+      {/* --- MODAL ROLES (Limpio y original) --- */}
       {isRoleModalOpen && (
         <div className="modal-overlay" onClick={() => setIsRoleModalOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
             <div className="panel-header">
               <div>
                 <h2>Catálogo de Roles</h2>
-                <p className="client-badge" style={{backgroundColor: '#e0f2fe', color: '#1e40af'}}>Matriz de Permisos</p>
+                <p className="client-badge" style={{backgroundColor: '#e0f2fe', color: '#1e40af'}}>Niveles de Acceso</p>
               </div>
               <button className="btn-close" onClick={() => setIsRoleModalOpen(false)}>×</button>
             </div>
@@ -411,24 +420,6 @@ function Usuarios() {
                 <div className="form-group">
                   <label>Descripción / Función</label>
                   <input type="text" placeholder="Ej. Solo lectura de reportes" value={nuevoRol.descripcion} onChange={e => setNuevoRol({...nuevoRol, descripcion: e.target.value})} />
-                </div>
-
-                <div className="form-group" style={{ marginTop: '16px' }}>
-                  <label>Módulos Permitidos</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '8px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                      <input type="checkbox" checked={nuevoRol.perm_usuarios} onChange={e => setNuevoRol({...nuevoRol, perm_usuarios: e.target.checked})} /> Usuarios
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                      <input type="checkbox" checked={nuevoRol.perm_proveedores} onChange={e => setNuevoRol({...nuevoRol, perm_proveedores: e.target.checked})} /> Proveedores
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                      <input type="checkbox" checked={nuevoRol.perm_viaticos} onChange={e => setNuevoRol({...nuevoRol, perm_viaticos: e.target.checked})} /> Viáticos
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                      <input type="checkbox" checked={nuevoRol.perm_pagos} onChange={e => setNuevoRol({...nuevoRol, perm_pagos: e.target.checked})} /> Pagos
-                    </label>
-                  </div>
                 </div>
 
                 <button type="submit" className="btn-primary" style={{ marginTop: '16px', width: '100%', justifyContent: 'center' }} disabled={isLoading}>

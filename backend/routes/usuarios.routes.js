@@ -7,7 +7,7 @@ const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 router.get('/', verificarToken, (req, res) => {
     const query = `
         SELECT u.id as id_usuario, u.username, u.rol, u.estatus_activo, 
-               e.puesto, e.departamento, 
+               e.puesto, e.departamento, e.unidad_negocio, 
                p.id as id_persona, p.nombre_razon_social AS nombre, p.email_contacto AS email, p.telefono, p.rfc
         FROM usuarios u
         INNER JOIN empleados e ON u.id_empleado = e.id_persona
@@ -22,7 +22,7 @@ router.get('/', verificarToken, (req, res) => {
 });
 
 router.post('/', verificarToken, async (req, res) => {
-    const { nombre, rfc, telefono, email, puesto, departamento, username, password, rol } = req.body;
+    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol } = req.body;
 
     try {
         const salt = await bcrypt.genSalt(10);
@@ -37,8 +37,8 @@ router.post('/', verificarToken, async (req, res) => {
 
                     const idPersona = resultPersona.insertId;
 
-                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, fecha_ingreso) VALUES (?, ?, ?, CURDATE())',
-                        [idPersona, puesto, departamento], (err) => {
+                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, unidad_negocio, fecha_ingreso) VALUES (?, ?, ?, ?, CURDATE())',
+                        [idPersona, puesto, departamento, unidad_negocio], (err) => {
                             if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al registrar empleado.' }));
 
                             db.query('INSERT INTO usuarios (id_empleado, username, password_hash, rol) VALUES (?, ?, ?, ?)',
@@ -62,7 +62,7 @@ router.post('/', verificarToken, async (req, res) => {
 
 router.put('/:id_usuario', verificarToken, async (req, res) => {
     const { id_usuario } = req.params;
-    const { nombre, rfc, telefono, email, puesto, departamento, username, password, rol, id_persona } = req.body;
+    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona } = req.body;
 
     try {
         let hashedPassword = null;
@@ -77,8 +77,8 @@ router.put('/:id_usuario', verificarToken, async (req, res) => {
                 [nombre, rfc, telefono, email, id_persona], (err) => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'RFC duplicado.' }));
 
-                    db.query('UPDATE empleados SET puesto=?, departamento=? WHERE id_persona=?',
-                        [puesto, departamento, id_persona], (err) => {
+                    db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=? WHERE id_persona=?',
+                        [puesto, departamento, unidad_negocio, id_persona], (err) => {
                             if (err) return db.rollback(() => res.status(500).json({ success: false }));
                             
                             let queryUser = 'UPDATE usuarios SET username=?, rol=? WHERE id=?';
