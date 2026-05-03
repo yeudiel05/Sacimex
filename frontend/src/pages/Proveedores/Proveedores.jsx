@@ -31,6 +31,10 @@ function Proveedores() {
   const [formPago, setFormPago] = useState({ concepto: '', monto_pago: '', num_factura_ref: '' });
   const [fileComprobante, setFileComprobante] = useState(null);
 
+  // --- NUEVOS ESTADOS PARA PAGOS POR VENCER ---
+  const [panelVencimientosOpen, setPanelVencimientosOpen] = useState(false);
+  const [pagosPorVencer, setPagosPorVencer] = useState([]);
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/'); return null; }
@@ -54,6 +58,19 @@ function Proveedores() {
         setProveedores(data.data);
       }
     } catch (error) { console.error("Error al cargar datos:", error); }
+  };
+
+  // --- NUEVA FUNCIÓN PARA TRAER PAGOS POR VENCER ---
+  const fetchPagosPorVencer = async () => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+        const response = await fetch('http://localhost:3001/api/proveedores/reportes/pagos-por-vencer', { headers });
+        const data = await response.json();
+        if (data.success) {
+            setPagosPorVencer(data.data);
+            setPanelVencimientosOpen(true);
+        }
+    } catch (error) { console.error("Error al cargar vencimientos:", error); }
   };
 
   useEffect(() => { fetchProveedores(); }, []);
@@ -130,22 +147,12 @@ function Proveedores() {
     } catch (error) { console.error(error); } 
   };
   
-  // ==========================================
-  // VALIDACIONES
-  // ==========================================
   const validarFormulario = () => { 
     setFormError(''); 
-    
-    // Validar Razón Social
     if (!formData.nombre.trim()) { setFormError('La Razón Social / Nombre es obligatorio.'); return false; } 
-    
-    // Validar Correo Electrónico
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido. Verifica el formato.'); return false; } 
-    
-    // Validar Teléfono (10 dígitos exactos si se ingresó algo)
     if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener exactamente 10 dígitos.'); return false; } 
     
-    // Validar RFC
     if (formData.rfc) {
       if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { 
         setFormError('Has seleccionado Persona Física, el RFC debe tener 13 caracteres.'); 
@@ -157,19 +164,16 @@ function Proveedores() {
       }
     }
 
-    // Validar Número de Cuenta
     if (formData.numero_cuenta && formData.numero_cuenta.length !== 10) {
       setFormError('El Número de Cuenta debe tener exactamente 10 dígitos.');
       return false;
     }
 
-    // Validar CLABE Interbancaria
     if (formData.clabe_bancaria && formData.clabe_bancaria.length !== 18) {
       setFormError('La CLABE Interbancaria debe tener exactamente 18 dígitos.');
       return false;
     }
 
-    // Si ingresan Número de Cuenta o CLABE, deben elegir un Banco
     if ((formData.numero_cuenta || formData.clabe_bancaria) && !formData.banco) {
       setFormError('Debes seleccionar un Banco Destino si ingresas una cuenta o CLABE.');
       return false;
@@ -302,6 +306,16 @@ function Proveedores() {
           <p>Directorio de proveedores y servicios contratados</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          
+          {/* NUEVO BOTÓN: Pagos por Vencer */}
+          <button 
+             className="btn-view" 
+             style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 'bold' }}
+             onClick={fetchPagosPorVencer}
+          >
+             Pagos por Vencer
+          </button>
+
           <input 
             type="file" 
             accept=".xlsx" 
@@ -411,6 +425,73 @@ function Proveedores() {
         </div>
       </div>
 
+      {/* --- PANEL LATERAL DE PAGOS POR VENCER (EL NUEVO SEMÁFORO) --- */}
+      {panelVencimientosOpen && (
+        <div className="modal-overlay" onClick={() => setPanelVencimientosOpen(false)}>
+          <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header" style={{backgroundColor: '#fffbeb', borderBottom: '1px solid #fde68a'}}>
+              <div>
+                <h2 style={{color: '#d97706'}}> Pagos por Vencer</h2>
+                <p className="client-badge" style={{backgroundColor: '#fef3c7', color: '#b45309'}}>Cuentas pendientes organizadas por urgencia</p>
+              </div>
+              <button className="btn-close" onClick={() => setPanelVencimientosOpen(false)}>×</button>
+            </div>
+            
+            <div className="panel-body">
+                {pagosPorVencer.length > 0 ? (
+                    <div className="movimientos-list">
+                        {pagosPorVencer.map(pago => {
+                            // LOGICA DEL SEMÁFORO
+                            let cardStyle = { borderLeft: '4px solid #10b981', background: '#ecfdf5', iconColor: '#059669', badgeBg: '#d1fae5', text: 'En tiempo' }; // Verde (A tiempo > 5 días)
+                            
+                            if(pago.dias_restantes <= 5 && pago.dias_restantes > 0) {
+                                cardStyle = { borderLeft: '4px solid #f59e0b', background: '#fffbeb', iconColor: '#d97706', badgeBg: '#fef3c7', text: 'Próximo a vencer' }; // Naranja
+                            } else if (pago.dias_restantes <= 0) {
+                                cardStyle = { borderLeft: '4px solid #ef4444', background: '#fef2f2', iconColor: '#dc2626', badgeBg: '#fee2e2', text: 'VENCIDO' }; // Rojo (Vencido)
+                            }
+
+                            return (
+                                <div className="movimiento-item" key={pago.id_pago} style={{ borderLeft: cardStyle.borderLeft, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+                                    
+                                    <div style={{display: 'flex', justifyContent: 'space-between', width: '100%'}}>
+                                        <div>
+                                            <strong style={{fontSize: '15px'}}>{pago.proveedor}</strong>
+                                            <p style={{margin: '4px 0', fontSize: '13px', color: 'var(--text-muted)'}}>{pago.concepto}</p>
+                                        </div>
+                                        <div style={{textAlign: 'right'}}>
+                                            <strong style={{color: '#ef4444', fontSize: '16px'}}>{formatMoney(pago.monto_pago)}</strong>
+                                        </div>
+                                    </div>
+
+                                    <div style={{display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '8px', borderTop: '1px dashed var(--border-light)', paddingTop: '8px'}}>
+                                        <div style={{fontSize: '12px', color: 'var(--text-muted)'}}>
+                                            Solicitado: {new Date(pago.fecha_solicitud).toLocaleDateString()} <br/>
+                                            <strong style={{color: 'var(--text-main)'}}>Límite: {new Date(pago.fecha_vencimiento).toLocaleDateString()}</strong>
+                                        </div>
+                                        <div style={{
+                                            backgroundColor: cardStyle.badgeBg, color: cardStyle.iconColor, 
+                                            padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold'
+                                        }}>
+                                            {pago.dias_restantes > 0 ? `Faltan ${pago.dias_restantes} días` : `Tiene ${Math.abs(pago.dias_restantes)} días de retraso`}
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <div className="empty-state">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '32px', marginBottom: '10px', color: '#10b981'}}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                      <p>¡Todo al día! No hay cuentas pendientes por vencer.</p>
+                    </div> 
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- PANEL DE HISTORIAL DEL PROVEEDOR (Existente) --- */}
       {panelOpen && provActivo && (
         <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -588,7 +669,6 @@ function Proveedores() {
                   </div>
                   <div className="form-group">
                     <label>Teléfono de Contacto</label>
-                    {/* MODIFICACIÓN: Limita a 10 dígitos y solo acepta números */}
                     <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                 </div>
@@ -601,7 +681,6 @@ function Proveedores() {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Banco Destino</label>
-                    {/* MODIFICACIÓN: Pasa de ser un input libre a un select con opciones definidas */}
                     <select className="custom-select" value={formData.banco} onChange={(e) => setFormData({...formData, banco: e.target.value})}>
                       <option value="">Selecciona un banco...</option>
                       <option value="BBVA">BBVA</option>
@@ -619,14 +698,12 @@ function Proveedores() {
                   </div>
                   <div className="form-group">
                     <label>Número de Cuenta</label>
-                    {/* MODIFICACIÓN: Limita a 10 dígitos y bloquea caracteres que no sean números */}
                     <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.numero_cuenta} onChange={(e) => setFormData({...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label>CLABE Interbancaria (Opcional)</label>
-                    {/* MODIFICACIÓN: Limita a 18 dígitos y bloquea caracteres que no sean números */}
                     <input type="text" maxLength="18" placeholder="18 dígitos" value={formData.clabe_bancaria} onChange={(e) => setFormData({...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                   <div className="form-group">

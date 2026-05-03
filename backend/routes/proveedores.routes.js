@@ -189,6 +189,38 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
+// NUEVA RUTA: REPORTES DE PAGOS POR VENCER
+// ==========================================
+router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
+    // Calculamos el vencimiento: Fecha de Solicitud + Días de Crédito del proveedor
+    const query = `
+        SELECT 
+            pp.id AS id_pago,
+            p.nombre_razon_social AS proveedor,
+            pp.concepto,
+            pp.monto_pago,
+            pp.estatus,
+            DATE(pp.fecha_solicitud) as fecha_solicitud,
+            pr.dias_credito,
+            DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY) AS fecha_vencimiento,
+            DATEDIFF(DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY), CURDATE()) AS dias_restantes
+        FROM pagos_a_proveedores pp
+        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
+        JOIN personas p ON pr.id_persona = p.id
+        WHERE pp.estatus NOT IN ('PAGADO', 'RECHAZADO')
+        ORDER BY fecha_vencimiento ASC
+    `;
+    
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error("Error al obtener pagos por vencer:", err);
+            return res.status(500).json({ success: false, message: 'Error de base de datos' });
+        }
+        res.json({ success: true, data: results });
+    });
+});
+
+// ==========================================
 // CRUD NORMAL DE PROVEEDORES
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
