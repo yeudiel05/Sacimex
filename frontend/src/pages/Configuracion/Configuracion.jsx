@@ -14,11 +14,16 @@ function Configuracion() {
   
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // --- NUEVO ESTADO PARA EL RESPALDO ---
   const [isBackingUp, setIsBackingUp] = useState(false);
 
+  // --- ESTADO ACTUALIZADO CON LOS NUEVOS CAMPOS ---
   const [formData, setFormData] = useState({
-    nombre_tasa: '', tasa_anual_esperada: '', porcentaje_penalizacion: '', descripcion: ''
+    nombre_tasa: '', 
+    tipo_producto: 'FONDEO', 
+    tasa_anual_esperada: '', 
+    porcentaje_penalizacion: '', 
+    cobra_iva: true, 
+    descripcion: ''
   });
 
   const getAuthHeaders = () => {
@@ -38,7 +43,6 @@ function Configuracion() {
 
   useEffect(() => { fetchTasas(); }, []);
 
-  // --- NUEVA FUNCIÓN DE RESPALDO ---
   const handleBackup = async () => {
     if (!window.confirm('¿Deseas generar una copia de seguridad de toda la base de datos? Esto puede tardar unos segundos.')) return;
     
@@ -67,7 +71,14 @@ function Configuracion() {
 
   const openNewModal = () => {
     setIsEditing(false); setEditId(null); setFormError('');
-    setFormData({ nombre_tasa: '', tasa_anual_esperada: '', porcentaje_penalizacion: '', descripcion: '' });
+    setFormData({ 
+      nombre_tasa: '', 
+      tipo_producto: 'FONDEO', 
+      tasa_anual_esperada: '', 
+      porcentaje_penalizacion: '', 
+      cobra_iva: true, 
+      descripcion: '' 
+    });
     setIsModalOpen(true);
   };
 
@@ -75,8 +86,10 @@ function Configuracion() {
     setIsEditing(true); setEditId(tasa.id); setFormError('');
     setFormData({ 
       nombre_tasa: tasa.nombre_tasa, 
+      tipo_producto: tasa.tipo_producto || 'FONDEO',
       tasa_anual_esperada: tasa.tasa_anual_esperada, 
       porcentaje_penalizacion: tasa.porcentaje_penalizacion || '', 
+      cobra_iva: tasa.cobra_iva === 1 || tasa.cobra_iva === true,
       descripcion: tasa.descripcion || '' 
     });
     setIsModalOpen(true);
@@ -96,9 +109,15 @@ function Configuracion() {
     const url = isEditing ? `http://localhost:3001/api/tasas/${editId}` : 'http://localhost:3001/api/tasas';
     const method = isEditing ? 'PUT' : 'POST';
 
+    // Aseguramos de que el IVA se envíe como 1 o 0 para MySQL
+    const payload = {
+      ...formData,
+      cobra_iva: formData.cobra_iva ? 1 : 0
+    };
+
     try {
       const res = await fetch(url, { 
-        method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) 
+        method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
       });
       const data = await res.json();
       if (data.success) {
@@ -155,7 +174,13 @@ function Configuracion() {
           tasas.map((tasa, index) => (
             <div className={`tasa-card ${!tasa.estatus_activo ? 'tasa-inactiva' : ''}`} key={tasa.id} style={{ animationDelay: `${(index + 1) * 0.1}s` }}>
               <div className="tasa-card-header">
-                <h3 className="tasa-titulo">{tasa.nombre_tasa}</h3>
+                <div>
+                  <h3 className="tasa-titulo">{tasa.nombre_tasa}</h3>
+                  {/* ETIQUETA VISUAL DEL TIPO DE PRODUCTO */}
+                  <span style={{ display: 'inline-block', marginTop: '6px', fontSize: '11px', fontWeight: 'bold', padding: '4px 10px', borderRadius: '10px', backgroundColor: tasa.tipo_producto === 'FONDEO' ? '#ecfdf5' : '#eff6ff', color: tasa.tipo_producto === 'FONDEO' ? '#059669' : '#2563eb' }}>
+                      {tasa.tipo_producto === 'FONDEO' ? 'Producto de Fondeo' : 'Producto de Crédito'}
+                  </span>
+                </div>
                 <button className={`badge-estatus ${tasa.estatus_activo ? 'badge-activo-dark' : 'badge-inactivo'}`} onClick={() => cambiarEstatus(tasa.id, tasa.estatus_activo)}>
                   {tasa.estatus_activo ? 'Activo (Público)' : 'Desactivado'}
                 </button>
@@ -170,12 +195,19 @@ function Configuracion() {
               </div>
 
               <div className="tasa-card-footer">
-                <div className="penalizacion-info">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                  <span>Penalización por retiro: <strong>{tasa.porcentaje_penalizacion || '0'}%</strong></span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div className="penalizacion-info">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    <span>Penalización por retiro: <strong>{tasa.porcentaje_penalizacion || '0'}%</strong></span>
+                  </div>
+                  {/* MOSTRAR ESTADO DEL IVA */}
+                  <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'14px'}}><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    <span>{tasa.cobra_iva === 1 ? 'Aplica 16% de IVA sobre interés' : 'Tasa exenta de IVA'}</span>
+                  </div>
                 </div>
                 
-                <div style={{display: 'flex', gap: '8px'}}>
+                <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
                   <button className="btn-icon-edit" onClick={() => openEditModal(tasa)} title="Editar Producto">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
@@ -195,7 +227,7 @@ function Configuracion() {
         )}
       </div>
 
-      {/* --- SECCIÓN DE RESPALDO (NUEVO) --- */}
+      {/* --- SECCIÓN DE RESPALDO --- */}
       <div className="backup-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
         <h2 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>Seguridad y Respaldo</h2>
         <p style={{ color: 'var(--text-muted)', marginBottom: '24px', fontSize: '14px' }}>Genera copias locales de la información del sistema.</p>
@@ -227,7 +259,7 @@ function Configuracion() {
 
       {isModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content fade-in-down" style={{maxWidth: '500px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
+          <div className="modal-content fade-in-down" style={{maxWidth: '600px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
             <div className="modal-header">
               <h2>{isEditing ? 'Editar Producto' : 'Crear Producto Financiero'}</h2>
               <button className="btn-close" onClick={() => setIsModalOpen(false)}>×</button>
@@ -237,9 +269,23 @@ function Configuracion() {
               <div className="modal-form" style={{overflowY: 'auto', padding: '24px'}}>
                 {formError && ( <div className="error-message shake-animation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>{formError}</span></div> )}
                 
-                <div className="form-group">
-                  <label>Nombre del Producto Comercial</label>
-                  <input type="text" required placeholder="Ej. Inversión Clásica 12 Meses" value={formData.nombre_tasa} onChange={(e) => setFormData({...formData, nombre_tasa: e.target.value})} />
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Nombre del Producto Comercial</label>
+                    <input type="text" required placeholder="Ej. Inversión Clásica 12 Meses" value={formData.nombre_tasa} onChange={(e) => setFormData({...formData, nombre_tasa: e.target.value})} />
+                  </div>
+                  {/* NUEVO CAMPO: TIPO DE PRODUCTO */}
+                  <div className="form-group">
+                    <label>Tipo de Operación</label>
+                    <select 
+                      style={{ width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-focus)', fontSize: '14px', outline: 'none', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                      value={formData.tipo_producto} 
+                      onChange={(e) => setFormData({...formData, tipo_producto: e.target.value})}
+                    >
+                      <option value="FONDEO">Pasivo (Para Fondeadores)</option>
+                      <option value="CREDITO">Activo (Para Acreditados)</option>
+                    </select>
+                  </div>
                 </div>
                 
                 <div className="form-row">
@@ -251,6 +297,19 @@ function Configuracion() {
                     <label>Penalización por retiro (%)</label>
                     <input type="number" step="0.01" placeholder="Ej. 2.0" value={formData.porcentaje_penalizacion} onChange={(e) => setFormData({...formData, porcentaje_penalizacion: e.target.value})} />
                   </div>
+                </div>
+
+                {/* NUEVO CAMPO: COBRO DE IVA */}
+                <div className="form-group" style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', margin: 0, color: '#0f172a', textTransform: 'none', letterSpacing: 'normal', fontWeight: '600' }}>
+                    <input 
+                      type="checkbox" 
+                      style={{ width: '20px', height: '20px', accentColor: '#10d440', cursor: 'pointer' }}
+                      checked={formData.cobra_iva}
+                      onChange={(e) => setFormData({...formData, cobra_iva: e.target.checked})}
+                    />
+                    Calcular 16% de IVA sobre el interés en la amortización.
+                  </label>
                 </div>
 
                 <div className="form-group">
@@ -277,12 +336,15 @@ function Configuracion() {
 
       {confirmModal.isOpen && (
         <div className="modal-overlay" style={{zIndex: 2000}}>
-          <div className="confirm-modal-content fade-in-up">
-            <div className="confirm-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
-            <h3>{confirmModal.title}</h3><p>{confirmModal.message}</p>
-            <div className="confirm-actions">
-              <button className="btn-confirm-cancel" onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}>Cancelar</button>
-              <button className="btn-confirm-delete" onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
+          <div className="confirm-modal-content fade-in-up" style={{ backgroundColor: 'var(--bg-card)', padding: '32px', borderRadius: '16px', textAlign: 'center', maxWidth: '400px' }}>
+            <div className="confirm-icon" style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fef2f2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px' }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </div>
+            <h3 style={{ margin: '0 0 12px 0' }}>{confirmModal.title}</h3>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>{confirmModal.message}</p>
+            <div className="confirm-actions" style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn-cancel" style={{ flex: 1 }} onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}>Cancelar</button>
+              <button className="btn-primary" style={{ flex: 1, backgroundColor: '#ef4444' }} onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
             </div>
           </div>
         </div>

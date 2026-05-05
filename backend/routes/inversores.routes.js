@@ -17,6 +17,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// ==========================================
+// UTILERÍAS
+// ==========================================
+
 function numeroALetras(num) {
     const unidades = ['Cero', 'Un', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve'];
     const decenas = ['Diez', 'Once', 'Doce', 'Trece', 'Catorce', 'Quince', 'Dieciseis', 'Diecisiete', 'Dieciocho', 'Diecinueve'];
@@ -63,6 +67,10 @@ function numeroALetras(num) {
     return `${textoFinal.toUpperCase()} PESOS ${centavosTexto}/100 M.N.`;
 }
 
+function formatMoney(n) { 
+    return '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); 
+}
+
 // ==========================================
 // RUTAS CRUD (FONDEADORES)
 // ==========================================
@@ -71,7 +79,7 @@ router.get('/', verificarToken, (req, res) => {
   const query = `
     SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
            p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
-           i.origen_fondos, i.estatus_activo
+           i.origen_fondos, i.estatus_activo, i.limite_credito
     FROM PERSONAS p INNER JOIN INVERSORES i ON p.id = i.id_persona
     WHERE p.eliminado = FALSE ORDER BY p.id DESC
   `;
@@ -84,7 +92,7 @@ router.get('/', verificarToken, (req, res) => {
 router.post('/', verificarToken, (req, res) => {
   const { 
       nombre, apellidos, rfc, direccion, telefono, email, 
-      clabe_bancaria, numero_cuenta, banco, origen_fondos,
+      clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito,
       ben_nombre, ben_parentesco, ben_telefono 
   } = req.body;
 
@@ -92,21 +100,34 @@ router.post('/', verificarToken, (req, res) => {
   const rfcFinal = rfc ? rfc.toUpperCase() : 'XAXX010101000';
 
   db.beginTransaction(err => {
-    if (err) return res.status(500).json({ success: false });
+    if (err) {
+        console.error("❌ Error al iniciar transacción:", err);
+        return res.status(500).json({ success: false, message: "Error interno del servidor." });
+    }
     
     db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
       ['FISICA', nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
-        if (err) return db.rollback(() => res.status(500).json({ success: false }));
+        if (err) {
+            console.error("❌ Error en INSERT PERSONAS:", err.sqlMessage || err);
+            return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: ${err.sqlMessage}` }));
+        }
+        
         const idNuevaPersona = resultPersona.insertId;
         
-        db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)',
-          [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL'], (err) => {
-            if (err) return db.rollback(() => res.status(500).json({ success: false }));
+        db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
+          [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL', limite_credito || 0], (err) => {
+            if (err) {
+                console.error("❌ Error en INSERT INVERSORES:", err.sqlMessage || err);
+                return db.rollback(() => res.status(500).json({ success: false, message: `Error en Inversores: ${err.sqlMessage}` }));
+            }
             
             if (ben_nombre) {
                 db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
                 [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    if (err) {
+                        console.error("❌ Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
+                        return db.rollback(() => res.status(500).json({ success: false, message: `Error en Beneficiarios: ${err.sqlMessage}` }));
+                    }
                     commitFondeador();
                 });
             } else {
@@ -115,8 +136,17 @@ router.post('/', verificarToken, (req, res) => {
 
             function commitFondeador() {
                 db.commit(err => {
-                  if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                  registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador: ${nombreCompleto}`);
+                  if (err) {
+                      console.error("❌ Error en COMMIT:", err.sqlMessage || err);
+                      return db.rollback(() => res.status(500).json({ success: false, message: "Error al guardar todo." }));
+                  }
+                  
+                  try {
+                      registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador: ${nombreCompleto} con límite de ${formatMoney(limite_credito)}`);
+                  } catch (bitErr) {
+                      console.error("⚠️ Aviso: Fondeador guardado, pero falló la bitácora:", bitErr);
+                  }
+                  
                   res.json({ success: true, message: 'Fondeador registrado exitosamente.' });
                 });
             }
@@ -143,18 +173,18 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
 
 router.put('/:id', verificarToken, (req, res) => {
   const { id } = req.params;
-  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos } = req.body;
+  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito } = req.body;
   
   db.beginTransaction(err => {
     if (err) return res.status(500).json({ success: false });
     db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
       if (err) return db.rollback(() => res.status(500).json({ success: false }));
       
-      db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=? WHERE id_persona=?', [clabe_bancaria, numero_cuenta, banco, origen_fondos, id], (err) => {
+      db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=?, limite_credito=? WHERE id_persona=?', [clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito, id], (err) => {
         if (err) return db.rollback(() => res.status(500).json({ success: false }));
         db.commit(err => {
           if (err) return db.rollback(() => res.status(500).json({ success: false }));
-          registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizó los datos del fondeador: ${nombre}`);
+          registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizó los datos del fondeador: ${nombre}. Nuevo límite: ${formatMoney(limite_credito)}`);
           res.json({ success: true, message: 'Fondeador actualizado.' });
         });
       });
@@ -195,32 +225,44 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
 });
 
 router.post('/contratos', verificarToken, (req, res) => {
-  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin } = req.body;
-  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, "ACTIVO")',
-    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, reinversion_automatica, fecha_inicio, fecha_fin], (err) => {
-      if (err) return res.status(500).json({ success: false });
+  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json } = req.body;
+  
+  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO")',
+    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin], (err) => {
+      if (err) {
+          console.error("Error al guardar contrato estático:", err);
+          return res.status(500).json({ success: false, message: 'Error de servidor' });
+      }
       res.json({ success: true });
     });
 });
 
 router.post('/inversion', verificarToken, (req, res) => {
-    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses } = req.body;
+    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses, tipo_amortizacion, plan_json, fecha_inicio } = req.body;
 
-    const fechaInicio = new Date();
-    const fechaFin = new Date();
-    fechaFin.setMonth(fechaInicio.getMonth() + parseInt(plazo_meses));
+    const fInicio = fecha_inicio ? new Date(fecha_inicio + 'T12:00:00') : new Date();
+    const fFin = new Date(fInicio);
+    fFin.setMonth(fInicio.getMonth() + parseInt(plazo_meses || 12));
 
-    // Buscamos el nombre para la bitácora
     db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, results) => {
         const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Fondeador Desconocido';
 
         const query = `
             INSERT INTO CONTRATOS_INVERSION 
-            (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, fecha_inicio, fecha_fin, estatus) 
-            VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO')
+            (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO')
         `;
 
-        db.query(query, [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, fechaInicio, fechaFin], (err, result) => {
+        db.query(query, [
+            id_inversor, 
+            id_tasa, 
+            monto_inicial, 
+            frecuencia_pagos, 
+            tipo_amortizacion || 'frances', 
+            plan_json || null, 
+            fInicio.toISOString().split('T')[0], 
+            fFin.toISOString().split('T')[0]
+        ], (err, result) => {
             if (err) {
                 console.error(err);
                 return res.status(500).json({ success: false, message: 'Error al registrar la inversión' });
@@ -252,7 +294,6 @@ router.post('/beneficiarios', verificarToken, (req, res) => {
     [id_inversor, nombre_completo, parentesco, telefono || null, porcentaje, fecha_nacimiento || null], (err) => {
       if (err) return res.status(500).json({ success: false });
       
-      // Consultamos a quién se le asignó para la bitácora
       db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
           const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
           registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agregó a ${nombre_completo} como beneficiario de: ${nombreFondeador}`);
@@ -288,7 +329,6 @@ router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, 
   db.query('INSERT INTO MOVIMIENTOS_INVERSION (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', [id_contrato, tipo, monto, recibo], (err) => {
     if (err) return res.status(500).json({ success: false });
     
-    // Logueamos de quién fue el movimiento
     db.query('SELECT p.nombre_razon_social FROM CONTRATOS_INVERSION c JOIN PERSONAS p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
        const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
        registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registró un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`);
@@ -309,14 +349,18 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
                p.nombre_razon_social as inversor, p.direccion, p.rfc
         FROM contratos_inversion c
         JOIN catalogo_tasas t ON c.id_tasa = t.id
-        JOIN inversores i ON c.id_inversor = i.id_persona
-        JOIN personas p ON i.id_persona = p.id
+        JOIN personas p ON c.id_inversor = p.id
         WHERE c.id = ?
     `;
 
     db.query(query, [idContrato], (err, results) => {
-        if (err || results.length === 0) {
-            return res.status(500).json({ success: false, message: 'Error o contrato no encontrado' });
+        if (err) {
+            console.error("❌ Error en SQL de Constancia PDF:", err);
+            return res.status(500).json({ success: false, message: 'Error en la base de datos' });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ success: false, message: 'Contrato no encontrado' });
         }
 
         const contrato = results[0];
@@ -434,9 +478,180 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 
         doc.end();
         
-        // CORRECCIÓN: Agregamos el nombre del inversor al generar el PDF
-        registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargó constancia del contrato #${contrato.contrato_id} perteneciente a: ${contrato.inversor}`);
+        try {
+            registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargó constancia del contrato #${contrato.contrato_id} perteneciente a: ${contrato.inversor}`);
+        } catch (e) {
+            console.error("Aviso: No se pudo registrar en bitácora", e);
+        }
     });
+});
+
+// =========================================================================
+// RUTA WYSIWYG: RECIBE LA TABLA YA CALCULADA DESDE REACT Y CREA EL PDF ESTILIZADO
+// =========================================================================
+router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (req, res) => {
+    const idContrato = req.params.id;
+    const { tablaData, fondeador, montoInicial, tasa, sistema } = req.body;
+
+    if (!tablaData || !Array.isArray(tablaData)) {
+        return res.status(400).json({ success: false, message: 'Faltan los datos de la tabla.' });
+    }
+
+    try {
+        // Colores Sacimex y diseño
+        const COLOR_PRIMARIO_VERDE = '#0F6B38'; // Un verde corporativo profesional
+        const COLOR_TEXTO_HEADER = '#FFFFFF';
+        const COLOR_LINEAS = '#CBD5E1'; // Gris claro para líneas
+        const COLOR_SHADING_FILAS = '#F8FAFC'; // Gris muy claro para filas alternas
+
+        const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
+        res.setHeader('Content-disposition', `attachment; filename=Amortizacion_Contrato_${idContrato}.pdf`);
+        res.setHeader('Content-type', 'application/pdf');
+        doc.pipe(res);
+
+        // --- ENCABEZADO ESTILIZADO CON LOGO ---
+        const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
+        if (fs.existsSync(logoPath)) {
+            doc.image(logoPath, 30, 30, { width: 60 });
+        }
+        
+        doc.fontSize(14).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
+           .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 100, 35);
+        doc.fontSize(10).font('Helvetica').fillColor('black')
+           .text('TABLA DE AMORTIZACIÓN DE FONDEO', 100, 52);
+        doc.moveDown(1);
+        doc.moveTo(30, doc.y).lineTo(doc.page.width - 30, doc.y).strokeColor(COLOR_LINEAS).stroke();
+        doc.moveDown(1);
+
+        // --- SECCIÓN DE INFORMACIÓN DEL CRÉDITO (TIPO GRID EXCEL) ---
+        const startY = doc.y;
+        const infoRowHeight = 18;
+
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
+        
+        // Columna Izquierda
+        doc.text('EMPRESA:', 30, startY);
+        doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 120, startY);
+        
+        doc.font('Helvetica-Bold').text('CRÉDITO:', 30, startY + infoRowHeight);
+        doc.font('Helvetica').text(String(idContrato).padStart(5, '0'), 120, startY + infoRowHeight);
+        
+        doc.font('Helvetica-Bold').text('MONTO:', 30, startY + (infoRowHeight * 2));
+        doc.font('Helvetica').text(formatMoney(montoInicial), 120, startY + (infoRowHeight * 2));
+
+        doc.font('Helvetica-Bold').text('FONDEADOR:', 30, startY + (infoRowHeight * 3));
+        doc.font('Helvetica').text(fondeador || 'N/A', 120, startY + (infoRowHeight * 3));
+
+        // Columna Derecha
+        const rightColX = 400;
+        doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
+        doc.font('Helvetica').text('MXN', rightColX + 110, startY);
+
+        doc.font('Helvetica-Bold').text('TASA DE INT.:', rightColX, startY + infoRowHeight);
+        doc.font('Helvetica').text(`${tasa}% Anual`, rightColX + 110, startY + infoRowHeight);
+
+        doc.font('Helvetica-Bold').text('FECHA DISPOSICIÓN:', rightColX, startY + (infoRowHeight * 2));
+        doc.font('Helvetica').text(tablaData[0] ? tablaData[0].fechaStr : 'S/N', rightColX + 110, startY + (infoRowHeight * 2));
+
+        doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
+        doc.font('Helvetica').text(sistema.toUpperCase(), rightColX + 110, startY + (infoRowHeight * 3));
+
+        doc.moveDown(2);
+        let currentY = doc.y + 10;
+
+        // --- TABLA DE AMORTIZACIÓN ESTILIZADA ---
+        const colWidths = [35, 75, 85, 85, 85, 70, 85, 85, 40];
+        const startX = 35;
+        const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINCIPAL', 'ANTICIPO CAP.', 'INT. ORDINARIO', 'IVA', 'TOTAL PERIODO', 'SALDO INSOLUTO', 'DÍAS'];
+        
+        const drawTableHeader = (y) => {
+            doc.rect(30, y - 6, doc.page.width - 60, 22).fillAndStroke(COLOR_PRIMARIO_VERDE, COLOR_PRIMARIO_VERDE);
+            doc.font('Helvetica-Bold').fontSize(7).fillColor(COLOR_TEXTO_HEADER);
+            let x = startX;
+            headers.forEach((h, i) => { 
+                doc.text(h, x, y, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                x += colWidths[i];
+            });
+            return y + 22;
+        };
+
+        currentY = drawTableHeader(currentY);
+        doc.font('Helvetica').fontSize(8).fillColor('black');
+
+        // --- DIBUJAR FILAS ---
+        tablaData.forEach((row, rowIndex) => {
+            let x = startX;
+            const isAlternateRow = rowIndex % 2 === 1;
+
+            if (isAlternateRow) {
+                doc.rect(30, currentY - 4, doc.page.width - 60, 16).fill(COLOR_SHADING_FILAS);
+            }
+
+            const vals = [
+                row.numero, 
+                row.fechaStr, 
+                formatMoney(row.abono), 
+                formatMoney(row.anticipo), 
+                formatMoney(row.interes), 
+                formatMoney(row.iva), 
+                formatMoney(row.pagoTotal), 
+                formatMoney(row.saldoFinal),
+                row.dias,
+            ];
+            
+            doc.fillColor('black');
+            vals.forEach((v, i) => { 
+                doc.text(String(v), x, currentY, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                x += colWidths[i]; 
+            });
+            currentY += 16;
+            
+            // Salto de página automático
+            if (currentY > doc.page.height - 60) { 
+                doc.addPage({layout:'landscape', margin:30}); 
+                doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACIÓN - CONTRATO #' + String(idContrato).padStart(5, '0'), 30, 30, { align: 'center' });
+                currentY = drawTableHeader(60);
+                doc.font('Helvetica').fontSize(8).fillColor('black');
+            }
+        });
+
+        // --- FILA DE TOTALES ESTILIZADA ---
+        doc.rect(30, currentY - 4, doc.page.width - 60, 20).fill('#E2E8F0');
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
+        
+        doc.text('TOTALES:', startX, currentY, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
+        
+        const totalAbono = tablaData.reduce((acc, curr) => acc + curr.abono, 0);
+        const totalAnticipo = tablaData.reduce((acc, curr) => acc + curr.anticipo, 0);
+        const totalInteresOrd = tablaData.reduce((acc, curr) => acc + curr.interes, 0);
+        const totalIva = tablaData.reduce((acc, curr) => acc + curr.iva, 0);
+        const totalPagoGral = tablaData.reduce((acc, curr) => acc + curr.pagoTotal, 0);
+        const totalDias = tablaData.reduce((acc, curr) => acc + curr.dias, 0);
+
+        let tx = startX + colWidths[0] + colWidths[1];
+        doc.text(formatMoney(totalAbono), tx, currentY, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
+        doc.text(formatMoney(totalAnticipo), tx, currentY, { width: colWidths[3] - 5, align: 'right' }); tx += colWidths[3];
+        doc.text(formatMoney(totalInteresOrd), tx, currentY, { width: colWidths[4] - 5, align: 'right' }); tx += colWidths[4];
+        doc.text(formatMoney(totalIva), tx, currentY, { width: colWidths[5] - 5, align: 'right' }); tx += colWidths[5];
+        
+        doc.fillColor(COLOR_PRIMARIO_VERDE);
+        doc.text(formatMoney(totalPagoGral), tx, currentY, { width: colWidths[6] - 5, align: 'right' }); tx += colWidths[6];
+        
+        doc.fillColor('black');
+        doc.text('-', tx, currentY, { width: colWidths[7] - 5, align: 'right' }); tx += colWidths[7];
+        doc.text(String(totalDias), tx, currentY, { width: colWidths[8] - 5, align: 'center' });
+
+        doc.end();
+        
+        try {
+            registrarBitacora(req.usuario.id, 'EXPORTAR_AMORTIZACION_ESTILIZADA', `Descargó tabla interactiva estilizada del contrato #${idContrato}`);
+        } catch (e) {
+            console.error("Aviso: No se pudo registrar en bitácora", e);
+        }
+    } catch (pdfError) {
+        console.error("Error al generar PDF:", pdfError);
+        res.status(500).json({ success: false, message: 'Error interno al generar PDF' });
+    }
 });
 
 module.exports = router;
