@@ -91,24 +91,26 @@ router.get('/', verificarToken, (req, res) => {
 
 router.post('/', verificarToken, (req, res) => {
   const { 
+      tipo_persona,
       nombre, apellidos, rfc, direccion, telefono, email, 
       clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito,
       ben_nombre, ben_parentesco, ben_telefono 
   } = req.body;
 
-  const nombreCompleto = `${nombre} ${apellidos}`.trim();
+  const tipoPersonaReal = tipo_persona || 'FISICA';
+  const nombreCompleto = tipoPersonaReal === 'MORAL' ? nombre.trim() : `${nombre} ${apellidos || ''}`.trim();
   const rfcFinal = rfc ? rfc.toUpperCase() : 'XAXX010101000';
 
   db.beginTransaction(err => {
     if (err) {
-        console.error("❌ Error al iniciar transacción:", err);
+        console.error("Error al iniciar transacción:", err);
         return res.status(500).json({ success: false, message: "Error interno del servidor." });
     }
     
     db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
-      ['FISICA', nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
+      [tipoPersonaReal, nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
         if (err) {
-            console.error("❌ Error en INSERT PERSONAS:", err.sqlMessage || err);
+            console.error("Error en INSERT PERSONAS:", err.sqlMessage || err);
             return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: ${err.sqlMessage}` }));
         }
         
@@ -117,7 +119,7 @@ router.post('/', verificarToken, (req, res) => {
         db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
           [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL', limite_credito || 0], (err) => {
             if (err) {
-                console.error("❌ Error en INSERT INVERSORES:", err.sqlMessage || err);
+                console.error("Error en INSERT INVERSORES:", err.sqlMessage || err);
                 return db.rollback(() => res.status(500).json({ success: false, message: `Error en Inversores: ${err.sqlMessage}` }));
             }
             
@@ -125,7 +127,7 @@ router.post('/', verificarToken, (req, res) => {
                 db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
                 [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
                     if (err) {
-                        console.error("❌ Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
+                        console.error("Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
                         return db.rollback(() => res.status(500).json({ success: false, message: `Error en Beneficiarios: ${err.sqlMessage}` }));
                     }
                     commitFondeador();
@@ -137,14 +139,14 @@ router.post('/', verificarToken, (req, res) => {
             function commitFondeador() {
                 db.commit(err => {
                   if (err) {
-                      console.error("❌ Error en COMMIT:", err.sqlMessage || err);
+                      console.error("Error en COMMIT:", err.sqlMessage || err);
                       return db.rollback(() => res.status(500).json({ success: false, message: "Error al guardar todo." }));
                   }
                   
                   try {
                       registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador: ${nombreCompleto} con límite de ${formatMoney(limite_credito)}`);
                   } catch (bitErr) {
-                      console.error("⚠️ Aviso: Fondeador guardado, pero falló la bitácora:", bitErr);
+                      console.error("Aviso: Fondeador guardado, pero falló la bitácora:", bitErr);
                   }
                   
                   res.json({ success: true, message: 'Fondeador registrado exitosamente.' });
@@ -225,10 +227,10 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
 });
 
 router.post('/contratos', verificarToken, (req, res) => {
-  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json } = req.body;
+  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
   
-  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO")',
-    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin], (err) => {
+  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
+    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err) => {
       if (err) {
           console.error("Error al guardar contrato estático:", err);
           return res.status(500).json({ success: false, message: 'Error de servidor' });
@@ -238,7 +240,7 @@ router.post('/contratos', verificarToken, (req, res) => {
 });
 
 router.post('/inversion', verificarToken, (req, res) => {
-    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses, tipo_amortizacion, plan_json, fecha_inicio } = req.body;
+    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses, tipo_amortizacion, plan_json, fecha_inicio, numero_disposicion } = req.body;
 
     const fInicio = fecha_inicio ? new Date(fecha_inicio + 'T12:00:00') : new Date();
     const fFin = new Date(fInicio);
@@ -249,8 +251,8 @@ router.post('/inversion', verificarToken, (req, res) => {
 
         const query = `
             INSERT INTO CONTRATOS_INVERSION 
-            (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO')
+            (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus, numero_disposicion) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO', ?)
         `;
 
         db.query(query, [
@@ -261,7 +263,8 @@ router.post('/inversion', verificarToken, (req, res) => {
             tipo_amortizacion || 'frances', 
             plan_json || null, 
             fInicio.toISOString().split('T')[0], 
-            fFin.toISOString().split('T')[0]
+            fFin.toISOString().split('T')[0],
+            numero_disposicion || null
         ], (err, result) => {
             if (err) {
                 console.error(err);
@@ -271,6 +274,28 @@ router.post('/inversion', verificarToken, (req, res) => {
             res.json({ success: true, message: 'Fondeo registrado correctamente' });
         });
     });
+});
+
+// ==========================================
+// PAGOS IRREGULARES Y ALERTAS (CRM)
+// ==========================================
+
+router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
+    const { pagos_irregulares } = req.body;
+    const jsonStr = JSON.stringify(pagos_irregulares);
+    
+    db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ? WHERE id = ?', [jsonStr, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al guardar inyecciones.' });
+        registrarBitacora(req.usuario.id, 'INYECCION_CAPITAL', `Se guardaron/actualizaron inyecciones de capital para el contrato #${req.params.id}`);
+        res.json({ success: true, message: 'Inyecciones guardadas correctamente.' });
+    });
+});
+
+router.post('/alertas-correo', verificarToken, (req, res) => {
+    const { email, fondeador, totalPagos } = req.body;
+    // Simulación de envío de correo
+    registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS', `Se enviaron alertas de ${totalPagos} pagos próximos al correo: ${email}`);
+    res.json({ success: true, message: `Alertas enviadas exitosamente a ${email}` });
 });
 
 // ==========================================
@@ -344,7 +369,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
 
     const query = `
-        SELECT c.id as contrato_id, c.monto_inicial, c.fecha_inicio, c.fecha_fin, 
+        SELECT c.id as contrato_id, c.monto_inicial, c.fecha_inicio, c.fecha_fin, c.numero_disposicion,
                t.nombre_tasa, t.tasa_anual_esperada,
                p.nombre_razon_social as inversor, p.direccion, p.rfc
         FROM contratos_inversion c
@@ -355,7 +380,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 
     db.query(query, [idContrato], (err, results) => {
         if (err) {
-            console.error("❌ Error en SQL de Constancia PDF:", err);
+            console.error("Error en SQL de Constancia PDF:", err);
             return res.status(500).json({ success: false, message: 'Error en la base de datos' });
         }
 
@@ -491,18 +516,17 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 // =========================================================================
 router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
-    const { tablaData, fondeador, montoInicial, tasa, sistema } = req.body;
+    const { tablaData, fondeador, montoInicial, tasa, sistema, fechaInicio, numeroDisposicion } = req.body;
 
     if (!tablaData || !Array.isArray(tablaData)) {
         return res.status(400).json({ success: false, message: 'Faltan los datos de la tabla.' });
     }
 
     try {
-        // Colores Sacimex y diseño
-        const COLOR_PRIMARIO_VERDE = '#0F6B38'; // Un verde corporativo profesional
+        const COLOR_PRIMARIO_VERDE = '#0F6B38'; 
         const COLOR_TEXTO_HEADER = '#FFFFFF';
-        const COLOR_LINEAS = '#CBD5E1'; // Gris claro para líneas
-        const COLOR_SHADING_FILAS = '#F8FAFC'; // Gris muy claro para filas alternas
+        const COLOR_LINEAS = '#CBD5E1'; 
+        const COLOR_SHADING_FILAS = '#F8FAFC'; 
 
         const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
         res.setHeader('Content-disposition', `attachment; filename=Amortizacion_Contrato_${idContrato}.pdf`);
@@ -533,14 +557,17 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.text('EMPRESA:', 30, startY);
         doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 120, startY);
         
-        doc.font('Helvetica-Bold').text('CRÉDITO:', 30, startY + infoRowHeight);
-        doc.font('Helvetica').text(String(idContrato).padStart(5, '0'), 120, startY + infoRowHeight);
+        doc.font('Helvetica-Bold').text('CRÉDITO MAESTRO:', 30, startY + infoRowHeight);
+        doc.font('Helvetica').text('1543999', 120, startY + infoRowHeight);
         
-        doc.font('Helvetica-Bold').text('MONTO:', 30, startY + (infoRowHeight * 2));
-        doc.font('Helvetica').text(formatMoney(montoInicial), 120, startY + (infoRowHeight * 2));
+        doc.font('Helvetica-Bold').text('DISPOSICIÓN NO.:', 30, startY + (infoRowHeight * 2));
+        doc.font('Helvetica').text(numeroDisposicion || 'S/N', 120, startY + (infoRowHeight * 2));
 
-        doc.font('Helvetica-Bold').text('FONDEADOR:', 30, startY + (infoRowHeight * 3));
-        doc.font('Helvetica').text(fondeador || 'N/A', 120, startY + (infoRowHeight * 3));
+        doc.font('Helvetica-Bold').text('MONTO:', 30, startY + (infoRowHeight * 3));
+        doc.font('Helvetica').text(formatMoney(montoInicial), 120, startY + (infoRowHeight * 3));
+
+        doc.font('Helvetica-Bold').text('FONDEADOR:', 30, startY + (infoRowHeight * 4));
+        doc.font('Helvetica').text(fondeador || 'N/A', 120, startY + (infoRowHeight * 4));
 
         // Columna Derecha
         const rightColX = 400;
@@ -551,13 +578,14 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica').text(`${tasa}% Anual`, rightColX + 110, startY + infoRowHeight);
 
         doc.font('Helvetica-Bold').text('FECHA DISPOSICIÓN:', rightColX, startY + (infoRowHeight * 2));
-        doc.font('Helvetica').text(tablaData[0] ? tablaData[0].fechaStr : 'S/N', rightColX + 110, startY + (infoRowHeight * 2));
+        const fechaMostrar = fechaInicio ? new Date(fechaInicio + 'T12:00:00').toLocaleDateString('es-MX') : (tablaData[0] ? tablaData[0].fechaStr : 'S/N');
+        doc.font('Helvetica').text(fechaMostrar, rightColX + 110, startY + (infoRowHeight * 2));
 
         doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
         doc.font('Helvetica').text(sistema.toUpperCase(), rightColX + 110, startY + (infoRowHeight * 3));
 
-        doc.moveDown(2);
-        let currentY = doc.y + 10;
+        // Mover Y asegurando espacio para las 5 filas
+        let currentY = startY + (infoRowHeight * 5) + 15;
 
         // --- TABLA DE AMORTIZACIÓN ESTILIZADA ---
         const colWidths = [35, 75, 85, 85, 85, 70, 85, 85, 40];
