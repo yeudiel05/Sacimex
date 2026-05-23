@@ -293,7 +293,6 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
 
 router.post('/alertas-correo', verificarToken, (req, res) => {
     const { email, fondeador, totalPagos } = req.body;
-    // Simulación de envío de correo
     registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS', `Se enviaron alertas de ${totalPagos} pagos próximos al correo: ${email}`);
     res.json({ success: true, message: `Alertas enviadas exitosamente a ${email}` });
 });
@@ -533,44 +532,47 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         res.setHeader('Content-type', 'application/pdf');
         doc.pipe(res);
 
-        // --- ENCABEZADO ESTILIZADO CON LOGO ---
+        // --- ENCABEZADO ESTILIZADO CON LOGO CENTRADO ---
         const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
         if (fs.existsSync(logoPath)) {
-            doc.image(logoPath, 30, 30, { width: 60 });
+            // Posicionamos el logo a la izquierda, dándole un buen espacio
+            doc.image(logoPath, 40, 30, { width: 70 });
         }
         
-        doc.fontSize(14).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
-           .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 100, 35);
-        doc.fontSize(10).font('Helvetica').fillColor('black')
-           .text('TABLA DE AMORTIZACIÓN DE FONDEO', 100, 52);
-        doc.moveDown(1);
-        doc.moveTo(30, doc.y).lineTo(doc.page.width - 30, doc.y).strokeColor(COLOR_LINEAS).stroke();
-        doc.moveDown(1);
+        // Centramos los títulos principales para que no se amontonen con el logo
+        doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
+           .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 0, 40, { align: 'center' });
+        doc.fontSize(11).font('Helvetica').fillColor('black')
+           .text('TABLA DE AMORTIZACIÓN DE FONDEO', 0, 60, { align: 'center' });
+        
+        // Bajamos la línea divisoria para que pase debajo del logo y los textos
+        const lineY = 115;
+        doc.moveTo(40, lineY).lineTo(doc.page.width - 40, lineY).strokeColor(COLOR_LINEAS).stroke();
 
         // --- SECCIÓN DE INFORMACIÓN DEL CRÉDITO (TIPO GRID EXCEL) ---
-        const startY = doc.y;
-        const infoRowHeight = 18;
+        let startY = 130;
+        const infoRowHeight = 20;
 
-        doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('black');
         
         // Columna Izquierda
-        doc.text('EMPRESA:', 30, startY);
-        doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 120, startY);
+        doc.text('EMPRESA:', 50, startY);
+        doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 150, startY);
         
-        doc.font('Helvetica-Bold').text('CRÉDITO MAESTRO:', 30, startY + infoRowHeight);
-        doc.font('Helvetica').text('1543999', 120, startY + infoRowHeight);
+        doc.font('Helvetica-Bold').text('CRÉDITO MAESTRO:', 50, startY + infoRowHeight);
+        doc.font('Helvetica').text('1543999', 150, startY + infoRowHeight);
         
-        doc.font('Helvetica-Bold').text('DISPOSICIÓN NO.:', 30, startY + (infoRowHeight * 2));
-        doc.font('Helvetica').text(numeroDisposicion || 'S/N', 120, startY + (infoRowHeight * 2));
+        doc.font('Helvetica-Bold').text('DISPOSICIÓN NO.:', 50, startY + (infoRowHeight * 2));
+        doc.font('Helvetica').text(numeroDisposicion || 'S/N', 150, startY + (infoRowHeight * 2));
 
-        doc.font('Helvetica-Bold').text('MONTO:', 30, startY + (infoRowHeight * 3));
-        doc.font('Helvetica').text(formatMoney(montoInicial), 120, startY + (infoRowHeight * 3));
+        doc.font('Helvetica-Bold').text('MONTO:', 50, startY + (infoRowHeight * 3));
+        doc.font('Helvetica').text(formatMoney(montoInicial), 150, startY + (infoRowHeight * 3));
 
-        doc.font('Helvetica-Bold').text('FONDEADOR:', 30, startY + (infoRowHeight * 4));
-        doc.font('Helvetica').text(fondeador || 'N/A', 120, startY + (infoRowHeight * 4));
+        doc.font('Helvetica-Bold').text('FONDEADOR:', 50, startY + (infoRowHeight * 4));
+        doc.font('Helvetica').text(fondeador || 'N/A', 150, startY + (infoRowHeight * 4));
 
-        // Columna Derecha
-        const rightColX = 400;
+        // Columna Derecha (bien espaciada)
+        const rightColX = 450;
         doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
         doc.font('Helvetica').text('MXN', rightColX + 110, startY);
 
@@ -584,23 +586,27 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
         doc.font('Helvetica').text(sistema.toUpperCase(), rightColX + 110, startY + (infoRowHeight * 3));
 
-        // Mover Y asegurando espacio para las 5 filas
-        let currentY = startY + (infoRowHeight * 5) + 15;
+        // Mover Y asegurando espacio para las filas de info
+        let currentY = startY + (infoRowHeight * 5) + 20;
 
-        // --- TABLA DE AMORTIZACIÓN ESTILIZADA ---
-        const colWidths = [35, 75, 85, 85, 85, 70, 85, 85, 40];
-        const startX = 35;
-        const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINCIPAL', 'ANTICIPO CAP.', 'INT. ORDINARIO', 'IVA', 'TOTAL PERIODO', 'SALDO INSOLUTO', 'DÍAS'];
+        // --- TABLA DE AMORTIZACIÓN CENTRADA ---
+        const colWidths = [50, 80, 85, 85, 80, 60, 90, 90, 40]; 
+        const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+        // Calculamos startX para que la tabla quede perfectamente al centro
+        const tableStartX = (doc.page.width - tableWidth) / 2;
+        
+        const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINC.', 'ANTICIPO CAP.', 'INT. ORD.', 'IVA', 'TOTAL PAGO', 'SALDO INSOLUTO', 'DÍAS'];
         
         const drawTableHeader = (y) => {
-            doc.rect(30, y - 6, doc.page.width - 60, 22).fillAndStroke(COLOR_PRIMARIO_VERDE, COLOR_PRIMARIO_VERDE);
-            doc.font('Helvetica-Bold').fontSize(7).fillColor(COLOR_TEXTO_HEADER);
-            let x = startX;
+            doc.rect(tableStartX, y - 6, tableWidth, 24).fillAndStroke(COLOR_PRIMARIO_VERDE, COLOR_PRIMARIO_VERDE);
+            doc.font('Helvetica-Bold').fontSize(8).fillColor(COLOR_TEXTO_HEADER);
+            let x = tableStartX;
             headers.forEach((h, i) => { 
-                doc.text(h, x, y, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                // Añadimos un pequeño offset a la "Y" para centrar el texto verticalmente en el rectángulo
+                doc.text(h, x, y + 2, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
                 x += colWidths[i];
             });
-            return y + 22;
+            return y + 24;
         };
 
         currentY = drawTableHeader(currentY);
@@ -608,11 +614,12 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
 
         // --- DIBUJAR FILAS ---
         tablaData.forEach((row, rowIndex) => {
-            let x = startX;
+            let x = tableStartX;
             const isAlternateRow = rowIndex % 2 === 1;
 
             if (isAlternateRow) {
-                doc.rect(30, currentY - 4, doc.page.width - 60, 16).fill(COLOR_SHADING_FILAS);
+                // Aumentamos ligeramente la altura de las filas para que respiren más
+                doc.rect(tableStartX, currentY - 4, tableWidth, 18).fill(COLOR_SHADING_FILAS);
             }
 
             const vals = [
@@ -629,25 +636,25 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             
             doc.fillColor('black');
             vals.forEach((v, i) => { 
-                doc.text(String(v), x, currentY, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                doc.text(String(v), x, currentY + 1, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
                 x += colWidths[i]; 
             });
-            currentY += 16;
+            currentY += 18;
             
-            // Salto de página automático
+            // Salto de página automático ajustado
             if (currentY > doc.page.height - 60) { 
                 doc.addPage({layout:'landscape', margin:30}); 
-                doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACIÓN - CONTRATO #' + String(idContrato).padStart(5, '0'), 30, 30, { align: 'center' });
+                doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACIÓN - CONTRATO #' + String(idContrato).padStart(5, '0'), 0, 30, { align: 'center' });
                 currentY = drawTableHeader(60);
                 doc.font('Helvetica').fontSize(8).fillColor('black');
             }
         });
 
         // --- FILA DE TOTALES ESTILIZADA ---
-        doc.rect(30, currentY - 4, doc.page.width - 60, 20).fill('#E2E8F0');
+        doc.rect(tableStartX, currentY - 4, tableWidth, 22).fill('#E2E8F0');
         doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
         
-        doc.text('TOTALES:', startX, currentY, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
+        doc.text('TOTALES:', tableStartX, currentY + 1, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
         
         const totalAbono = tablaData.reduce((acc, curr) => acc + curr.abono, 0);
         const totalAnticipo = tablaData.reduce((acc, curr) => acc + curr.anticipo, 0);
@@ -656,18 +663,18 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         const totalPagoGral = tablaData.reduce((acc, curr) => acc + curr.pagoTotal, 0);
         const totalDias = tablaData.reduce((acc, curr) => acc + curr.dias, 0);
 
-        let tx = startX + colWidths[0] + colWidths[1];
-        doc.text(formatMoney(totalAbono), tx, currentY, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
-        doc.text(formatMoney(totalAnticipo), tx, currentY, { width: colWidths[3] - 5, align: 'right' }); tx += colWidths[3];
-        doc.text(formatMoney(totalInteresOrd), tx, currentY, { width: colWidths[4] - 5, align: 'right' }); tx += colWidths[4];
-        doc.text(formatMoney(totalIva), tx, currentY, { width: colWidths[5] - 5, align: 'right' }); tx += colWidths[5];
+        let tx = tableStartX + colWidths[0] + colWidths[1];
+        doc.text(formatMoney(totalAbono), tx, currentY + 1, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
+        doc.text(formatMoney(totalAnticipo), tx, currentY + 1, { width: colWidths[3] - 5, align: 'right' }); tx += colWidths[3];
+        doc.text(formatMoney(totalInteresOrd), tx, currentY + 1, { width: colWidths[4] - 5, align: 'right' }); tx += colWidths[4];
+        doc.text(formatMoney(totalIva), tx, currentY + 1, { width: colWidths[5] - 5, align: 'right' }); tx += colWidths[5];
         
         doc.fillColor(COLOR_PRIMARIO_VERDE);
-        doc.text(formatMoney(totalPagoGral), tx, currentY, { width: colWidths[6] - 5, align: 'right' }); tx += colWidths[6];
+        doc.text(formatMoney(totalPagoGral), tx, currentY + 1, { width: colWidths[6] - 5, align: 'right' }); tx += colWidths[6];
         
         doc.fillColor('black');
-        doc.text('-', tx, currentY, { width: colWidths[7] - 5, align: 'right' }); tx += colWidths[7];
-        doc.text(String(totalDias), tx, currentY, { width: colWidths[8] - 5, align: 'center' });
+        doc.text('-', tx, currentY + 1, { width: colWidths[7] - 5, align: 'right' }); tx += colWidths[7];
+        doc.text(String(totalDias), tx, currentY + 1, { width: colWidths[8] - 5, align: 'center' });
 
         doc.end();
         
