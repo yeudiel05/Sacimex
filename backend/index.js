@@ -18,14 +18,18 @@ const notificacionesRoutes = require('./routes/notificaciones.routes');
 const backupRoutes = require('./routes/backup.routes');
 const rolesRoutes = require('./routes/roles.routes');
 const viaticosroutes = require('./routes/viaticos.routes');
-
+const aprobadoresRoutes = require('./routes/aprobadores.routes'); 
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Aseguramos que la carpeta de firmas exista junto con la de uploads
 const uploadDir = path.join(__dirname, 'uploads');
+const firmasDir = path.join(uploadDir, 'firmas');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+if (!fs.existsSync(firmasDir)) fs.mkdirSync(firmasDir);
+
 app.use('/uploads', express.static(uploadDir));
 
 app.use('/api', authRoutes);
@@ -41,6 +45,7 @@ app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/viaticos', viaticosroutes);
+app.use('/api/aprobadores', aprobadoresRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 

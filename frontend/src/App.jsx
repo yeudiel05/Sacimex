@@ -7,6 +7,7 @@ import Proveedores from './pages/Proveedores/Proveedores';
 import Layout from './components/Layout/Layout';
 import Usuarios from './pages/Usuarios/Usuarios';
 import Configuracion from './pages/Configuracion/Configuracion';
+import Aprobadores from './pages/Configuracion/Aprobadores'; 
 import Reportes from './pages/Reportes/Reportes';
 import Auditoria from './pages/Auditoria/Auditoria';
 import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
@@ -26,12 +27,12 @@ function App() {
           <Route path="/proveedores" element={<Proveedores />} />
           <Route path="/usuarios" element={<Usuarios />} />
           <Route path="/configuracion" element={<Configuracion />} />
+          <Route path="/aprobadores" element={<Aprobadores />} /> 
           <Route path="/reportes" element={<Reportes />} />
           <Route path="/auditoria" element={<Auditoria />} />
           <Route path="/autorizaciones" element={<Autorizaciones />} />
           <Route path="/viaticos" element={<Viaticos />} />
           <Route path="/revision-viaticos" element={<RevisionViaticos />} />
-
         </Route>
       </Routes>
     </Router>

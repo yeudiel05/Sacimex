@@ -2,13 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Proveedores.css';
 
+// ==========================================
+// UTILERÍAS GLOBALES Y MATEMÁTICAS
+// ==========================================
+const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount || 0);
+
+const parseInputMonto = (val) => {
+    if (val === null || val === undefined) return '';
+    return String(val).replace(/,/g, ''); 
+};
+
 function Proveedores() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null); 
   
+  // --- ESTADOS GENERALES Y BÚSQUEDA ---
   const [proveedores, setProveedores] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // --- ESTADOS DE MODALES Y FORMULARIOS CRUD ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -24,17 +36,27 @@ function Proveedores() {
     email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0
   });
 
+  // --- ESTADOS PARA EL FLUJO DE SOLICITUDES DE PAGO (WORKFLOW) ---
   const [panelOpen, setPanelOpen] = useState(false);
   const [provActivo, setProvActivo] = useState(null);
-  const [pagos, setPagos] = useState([]);
+  const [solicitudes, setSolicitudes] = useState([]);
   const [showNuevoPago, setShowNuevoPago] = useState(false);
-  const [formPago, setFormPago] = useState({ concepto: '', monto_pago: '', num_factura_ref: '' });
+  
+  // Adaptado al nuevo modelo de la BD: id_concepto, unidad_negocio, justificacion, monto_pago
+  const [formPago, setFormPago] = useState({ 
+      id_concepto: '1', 
+      unidad_negocio: '01.CRP - Corporativo', 
+      justificacion: '', 
+      monto_pago: '', 
+      num_factura_ref: '' 
+  });
   const [fileComprobante, setFileComprobante] = useState(null);
 
-  // --- NUEVOS ESTADOS PARA PAGOS POR VENCER ---
+  // --- ESTADOS PARA REPORTES Y ALERTAS ---
   const [panelVencimientosOpen, setPanelVencimientosOpen] = useState(false);
   const [pagosPorVencer, setPagosPorVencer] = useState([]);
 
+  // --- FUNCIONES DE RED Y SEGURIDAD ---
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/'); return null; }
@@ -46,21 +68,17 @@ function Proveedores() {
     return false;
   };
 
-  const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
-
+  // --- FETCH PRINCIPALES ---
   const fetchProveedores = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
       const response = await fetch('http://localhost:3001/api/proveedores', { headers });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
-      if (data.success) {
-        setProveedores(data.data);
-      }
+      if (data.success) setProveedores(data.data);
     } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
-  // --- NUEVA FUNCIÓN PARA TRAER PAGOS POR VENCER ---
   const fetchPagosPorVencer = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
@@ -75,208 +93,118 @@ function Proveedores() {
 
   useEffect(() => { fetchProveedores(); }, []);
 
+  // --- FUNCIONES PARA EXCEL Y DIRECTORIO ---
   const handleImportExcel = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!file.name.endsWith('.xlsx')) return alert("Por favor, selecciona un archivo con extensión .xlsx");
+    if (!window.confirm(`¿Deseas intentar importar los proveedores del archivo "${file.name}"?`)) { e.target.value = null; return; }
 
-    if (!file.name.endsWith('.xlsx')) {
-        alert("Por favor, selecciona un archivo con extensión .xlsx");
-        return;
-    }
-
-    if (!window.confirm(`¿Deseas intentar importar los proveedores del archivo "${file.name}"?`)) {
-        e.target.value = null;
-        return;
-    }
-
-    const headers = getAuthHeaders();
-    if (!headers) return;
-    const { Authorization } = headers;
-    
+    const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
-    const formDataUpload = new FormData();
-    formDataUpload.append('archivo_excel', file);
+    const formDataUpload = new FormData(); formDataUpload.append('archivo_excel', file);
 
     try {
-        const response = await fetch('http://localhost:3001/api/proveedores/importar', {
-            method: 'POST',
-            headers: { Authorization },
-            body: formDataUpload
-        });
-
+        const response = await fetch('http://localhost:3001/api/proveedores/importar', { method: 'POST', headers: { Authorization: headers.Authorization }, body: formDataUpload });
         if (handleAuthError(response.status)) return;
-        
         const data = await response.json();
         alert(data.message); 
-        
-        if (data.success) {
-            fetchProveedores(); 
-        }
-    } catch (error) {
-        alert("Hubo un problema de conexión al importar.");
-    } finally {
-        setIsLoading(false);
-        e.target.value = null; 
-    }
+        if (data.success) fetchProveedores(); 
+    } catch (error) { alert("Hubo un problema de conexión al importar."); } finally { setIsLoading(false); e.target.value = null; }
   };
 
-  const openNewModal = () => { 
-    setIsEditing(false); setEditId(null); setFormError(''); 
-    setFormData({ tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0 }); 
-    setIsModalOpen(true); 
-  };
-  
-  const openEditModal = (prov) => { 
-    setIsEditing(true); setEditId(prov.id); setFormError(''); 
-    setFormData({ 
-      tipo_persona: prov.tipo_persona || 'MORAL', nombre: prov.nombre || '', rfc: prov.rfc || '', direccion: prov.ubicacion || '', 
-      telefono: prov.telefono || '', email: prov.email || '', categoria: prov.categoria || 'OTROS', 
-      clabe_bancaria: prov.clabe_bancaria || '', numero_cuenta: prov.numero_cuenta || '', banco: prov.banco || '', dias_credito: prov.dias_credito || 0 
-    }); 
-    setIsModalOpen(true); 
-  };
-  
+  const openNewModal = () => { setIsEditing(false); setEditId(null); setFormError(''); setFormData({ tipo_persona: 'MORAL', nombre: '', rfc: '', direccion: '', telefono: '', email: '', categoria: 'OTROS', clabe_bancaria: '', numero_cuenta: '', banco: '', dias_credito: 0 }); setIsModalOpen(true); };
+  const openEditModal = (prov) => { setIsEditing(true); setEditId(prov.id); setFormError(''); setFormData({ tipo_persona: prov.tipo_persona || 'MORAL', nombre: prov.nombre || '', rfc: prov.rfc || '', direccion: prov.ubicacion || '', telefono: prov.telefono || '', email: prov.email || '', categoria: prov.categoria || 'OTROS', clabe_bancaria: prov.clabe_bancaria || '', numero_cuenta: prov.numero_cuenta || '', banco: prov.banco || '', dias_credito: prov.dias_credito || 0 }); setIsModalOpen(true); };
   const triggerEliminar = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Proveedor', message: `¿Estás seguro de eliminar a ${nombre || 'este proveedor'}? Se ocultará del directorio permanentemente.`, onConfirm: () => ejecutarEliminar(id) }); };
   
   const ejecutarEliminar = async (id) => { 
     const headers = getAuthHeaders(); if (!headers) return; 
-    try { 
-        const res = await fetch(`http://localhost:3001/api/proveedores/${id}`, { method: 'DELETE', headers }); 
-        if (handleAuthError(res.status)) return; 
-        if ((await res.json()).success) fetchProveedores(); 
-    } catch (error) { console.error(error); } 
+    try { const res = await fetch(`http://localhost:3001/api/proveedores/${id}`, { method: 'DELETE', headers }); if (handleAuthError(res.status)) return; if ((await res.json()).success) fetchProveedores(); } catch (error) { console.error(error); } 
   };
   
   const validarFormulario = () => { 
     setFormError(''); 
     if (!formData.nombre.trim()) { setFormError('La Razón Social / Nombre es obligatorio.'); return false; } 
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) { setFormError('Correo Electrónico inválido. Verifica el formato.'); return false; } 
-    if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener exactamente 10 dígitos.'); return false; } 
-    
-    if (formData.rfc) {
-      if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { 
-        setFormError('Has seleccionado Persona Física, el RFC debe tener 13 caracteres.'); 
-        return false; 
-      }
-      if (formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { 
-        setFormError('Has seleccionado Persona Moral, el RFC debe tener 12 caracteres.'); 
-        return false; 
-      }
-    }
-
-    if (formData.numero_cuenta && formData.numero_cuenta.length !== 10) {
-      setFormError('El Número de Cuenta debe tener exactamente 10 dígitos.');
-      return false;
-    }
-
-    if (formData.clabe_bancaria && formData.clabe_bancaria.length !== 18) {
-      setFormError('La CLABE Interbancaria debe tener exactamente 18 dígitos.');
-      return false;
-    }
-
-    if ((formData.numero_cuenta || formData.clabe_bancaria) && !formData.banco) {
-      setFormError('Debes seleccionar un Banco Destino si ingresas una cuenta o CLABE.');
-      return false;
-    }
-
+    if (formData.rfc && formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { setFormError('El RFC Física debe tener 13 caracteres.'); return false; }
+    if (formData.rfc && formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { setFormError('El RFC Moral debe tener 12 caracteres.'); return false; }
     return true; 
   };
   
   const handleSubmit = async (e) => { 
-    e.preventDefault(); 
-    if (!validarFormulario()) return; 
-    const headers = getAuthHeaders(); if (!headers) return; 
-    setIsLoading(true); 
+    e.preventDefault(); if (!validarFormulario()) return; 
+    const headers = getAuthHeaders(); if (!headers) return; setIsLoading(true); 
     const url = isEditing ? `http://localhost:3001/api/proveedores/${editId}` : 'http://localhost:3001/api/proveedores'; 
     const method = isEditing ? 'PUT' : 'POST'; 
-    
     try { 
       const res = await fetch(url, { method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) }); 
       if (handleAuthError(res.status)) return; 
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch(parseErr) {
-        setFormError(`El backend no respondió de forma correcta. Revisa tu terminal de Node.`);
-        setIsLoading(false);
-        return;
-      }
-      
-      if (data.success) { 
-        setIsModalOpen(false); 
-        fetchProveedores(); 
-      } else { 
-        setFormError(data.message || "Error al intentar guardar en la base de datos."); 
-      } 
-    } catch (error) { 
-      setFormError(`Falla de Red. Asegúrate de que el backend en el puerto 3001 esté encendido.`); 
-    } finally { 
-      setIsLoading(false); 
-    } 
+      const data = await res.json();
+      if (data.success) { setIsModalOpen(false); fetchProveedores(); } else setFormError(data.message || "Error al intentar guardar."); 
+    } catch (error) { setFormError(`Falla de Red.`); } finally { setIsLoading(false); } 
   };
   
   const cambiarEstatus = async (id_persona, estatus_actual) => { 
-    const nuevoEstatus = estatus_actual === 1 ? 0 : 1; 
-    const headers = getAuthHeaders(); if (!headers) return; 
-    try { 
-        const res = await fetch(`http://localhost:3001/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); 
-        if ((await res.json()).success) fetchProveedores(); 
-    } catch (error) { console.error(error); } 
+    const nuevoEstatus = estatus_actual === 1 ? 0 : 1; const headers = getAuthHeaders(); if (!headers) return; 
+    try { const res = await fetch(`http://localhost:3001/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); if ((await res.json()).success) fetchProveedores(); } catch (error) {} 
   };
 
-  const abrirPanelPagos = (prov) => {
+  // ==========================================
+  // FUNCIONES DEL WORKFLOW DE SOLICITUDES
+  // ==========================================
+  const abrirPanelSolicitudes = (prov) => {
     setProvActivo(prov);
     setShowNuevoPago(false);
     setPanelOpen(true);
-    fetchPagos(prov.id);
+    fetchSolicitudes(prov.id);
   };
 
-  const fetchPagos = async (id_proveedor) => {
+  const fetchSolicitudes = async (id_proveedor) => {
     const headers = getAuthHeaders();
     const res = await fetch(`http://localhost:3001/api/proveedores/${id_proveedor}/pagos`, { headers });
     const data = await res.json();
-    if (data.success) setPagos(data.data);
+    if (data.success) setSolicitudes(data.data);
   };
 
-  const handleGuardarPago = async (e) => {
+  const handleCrearSolicitud = async (e) => {
     e.preventDefault();
-    if (!formPago.concepto || !formPago.monto_pago) return alert("Completa el concepto y el monto a pagar.");
+    if (!formPago.justificacion || !formPago.monto_pago) return alert("Completa la justificación y el monto.");
     
     const headers = getAuthHeaders();
     setIsLoading(true);
     
     const formDataUpload = new FormData();
     formDataUpload.append('id_proveedor', provActivo.id);
-    formDataUpload.append('concepto', formPago.concepto);
+    formDataUpload.append('id_concepto', formPago.id_concepto);
+    formDataUpload.append('unidad_negocio', formPago.unidad_negocio);
+    formDataUpload.append('justificacion', formPago.justificacion);
     formDataUpload.append('monto_pago', formPago.monto_pago);
     formDataUpload.append('num_factura_ref', formPago.num_factura_ref);
     if (fileComprobante) formDataUpload.append('comprobante', fileComprobante);
 
     try {
-      const res = await fetch('http://localhost:3001/api/proveedores/pagos', { method: 'POST', headers, body: formDataUpload });
+      const res = await fetch('http://localhost:3001/api/proveedores/pagos', { method: 'POST', headers: { Authorization: headers.Authorization }, body: formDataUpload });
       const data = await res.json();
       if (data.success) {
         setShowNuevoPago(false);
-        setFormPago({ concepto: '', monto_pago: '', num_factura_ref: '' });
+        setFormPago({ id_concepto: '1', unidad_negocio: '01.CRP - Corporativo', justificacion: '', monto_pago: '', num_factura_ref: '' });
         setFileComprobante(null);
-        fetchPagos(provActivo.id);
+        fetchSolicitudes(provActivo.id);
       } else { alert(data.message); }
     } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
 
-  const avanzarWorkflowPago = async (id_pago, accion) => {
-    if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} este pago?`)) return;
+  const avanzarWorkflowPago = async (id_solicitud, accion) => {
+    if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} esta solicitud?`)) return;
     const headers = getAuthHeaders();
     setIsLoading(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_pago}/autorizacion`, {
+      const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_solicitud}/autorizacion`, {
         method: 'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion })
       });
       const data = await res.json();
-      if (data.success) fetchPagos(provActivo.id); 
+      if (data.success) fetchSolicitudes(provActivo.id); 
       else alert(data.message);
     } catch (error) {
       alert('Error de conexión con el servidor.');
@@ -285,6 +213,7 @@ function Proveedores() {
     }
   };
 
+  // --- FILTROS Y PAGINACIÓN ---
   const proveedoresFiltrados = proveedores.filter(p => 
     (p.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.categoria || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -302,40 +231,22 @@ function Proveedores() {
     <div className="inversores-container">
       <div className="page-header stagger-1 fade-in-up">
         <div>
-          <h1>Proveedores</h1>
-          <p>Directorio de proveedores y servicios contratados</p>
+          <h1>Proveedores y Gastos</h1>
+          <p>Directorio, Cuentas por Pagar y Flujo de Autorizaciones</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          
-          {/* NUEVO BOTÓN: Pagos por Vencer */}
-          <button 
-             className="btn-view" 
-             style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 'bold' }}
-             onClick={fetchPagosPorVencer}
-          >
-             Pagos por Vencer
+          <button className="btn-view" style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 'bold' }} onClick={fetchPagosPorVencer}>
+              Pagos por Vencer
           </button>
-
-          <input 
-            type="file" 
-            accept=".xlsx" 
-            ref={fileInputRef} 
-            style={{ display: 'none' }} 
-            onChange={handleImportExcel} 
-          />
-          <button 
-             className="btn-view" 
-             style={{ borderColor: 'var(--brand-green)', color: 'var(--brand-green)', fontWeight: 'bold' }}
-             onClick={() => fileInputRef.current.click()}
-             disabled={isLoading}
-          >
-             {isLoading ? 'Cargando...' : 'Importar Excel'}
+          <input type="file" accept=".xlsx" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImportExcel} />
+          <button className="btn-view" style={{ borderColor: 'var(--brand-green)', color: 'var(--brand-green)', fontWeight: 'bold' }} onClick={() => fileInputRef.current.click()} disabled={isLoading}>
+              {isLoading ? 'Cargando...' : 'Importar Excel'}
           </button>
-          
           <button className="btn-primary" onClick={openNewModal}>+ Agregar Proveedor</button>
         </div>
       </div>
 
+      {/* --- TABLA PRINCIPAL DE PROVEEDORES --- */}
       <div className="inversores-list-container fade-in-up" style={{ marginTop: '20px' }}>
         <div className="list-header">
             <h2>Catálogo de Proveedores</h2>
@@ -384,13 +295,13 @@ function Proveedores() {
                                 </div>
                             </td>
                             <td>
-                                <button className={`badge-estatus-select ${p.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatus(p.id, p.estatus_activo)} style={{ padding: '6px 12px' }}>
+                                <button className={`badge-estatus ${p.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatus(p.id, p.estatus_activo)}>
                                     {p.estatus_activo ? 'Vigente' : 'Suspendido'}
                                 </button>
                             </td>
                             <td style={{ textAlign: 'right' }}>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                                    <button className="btn-icon-edit" onClick={() => abrirPanelPagos(p)} title="Pagos y CXC">
+                                    <button className="btn-icon-edit" onClick={() => abrirPanelSolicitudes(p)} title="Solicitudes y Pagos">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                                     </button>
                                     <button className="btn-icon-edit" onClick={() => openEditModal(p)} title="Editar Proveedor">
@@ -425,7 +336,7 @@ function Proveedores() {
         </div>
       </div>
 
-      {/* --- PANEL LATERAL DE PAGOS POR VENCER (EL NUEVO SEMÁFORO) --- */}
+      {/* --- MODAL: PAGOS POR VENCER (SEMÁFORO) --- */}
       {panelVencimientosOpen && (
         <div className="modal-overlay" onClick={() => setPanelVencimientosOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -441,13 +352,12 @@ function Proveedores() {
                 {pagosPorVencer.length > 0 ? (
                     <div className="movimientos-list">
                         {pagosPorVencer.map(pago => {
-                            // LOGICA DEL SEMÁFORO
-                            let cardStyle = { borderLeft: '4px solid #10b981', background: '#ecfdf5', iconColor: '#059669', badgeBg: '#d1fae5', text: 'En tiempo' }; // Verde (A tiempo > 5 días)
+                            let cardStyle = { borderLeft: '4px solid #10b981', background: '#ecfdf5', iconColor: '#059669', badgeBg: '#d1fae5', text: 'En tiempo' }; 
                             
                             if(pago.dias_restantes <= 5 && pago.dias_restantes > 0) {
-                                cardStyle = { borderLeft: '4px solid #f59e0b', background: '#fffbeb', iconColor: '#d97706', badgeBg: '#fef3c7', text: 'Próximo a vencer' }; // Naranja
+                                cardStyle = { borderLeft: '4px solid #f59e0b', background: '#fffbeb', iconColor: '#d97706', badgeBg: '#fef3c7', text: 'Próximo a vencer' }; 
                             } else if (pago.dias_restantes <= 0) {
-                                cardStyle = { borderLeft: '4px solid #ef4444', background: '#fef2f2', iconColor: '#dc2626', badgeBg: '#fee2e2', text: 'VENCIDO' }; // Rojo (Vencido)
+                                cardStyle = { borderLeft: '4px solid #ef4444', background: '#fef2f2', iconColor: '#dc2626', badgeBg: '#fee2e2', text: 'VENCIDO' }; 
                             }
 
                             return (
@@ -455,7 +365,7 @@ function Proveedores() {
                                     
                                     <div style={{display: 'flex', justifyContent: 'space-between', width: '100%'}}>
                                         <div>
-                                            <strong style={{fontSize: '15px'}}>{pago.proveedor}</strong>
+                                            <strong style={{fontSize: '15px', color: 'var(--text-main)'}}>{pago.proveedor}</strong>
                                             <p style={{margin: '4px 0', fontSize: '13px', color: 'var(--text-muted)'}}>{pago.concepto}</p>
                                         </div>
                                         <div style={{textAlign: 'right'}}>
@@ -468,14 +378,10 @@ function Proveedores() {
                                             Solicitado: {new Date(pago.fecha_solicitud).toLocaleDateString()} <br/>
                                             <strong style={{color: 'var(--text-main)'}}>Límite: {new Date(pago.fecha_vencimiento).toLocaleDateString()}</strong>
                                         </div>
-                                        <div style={{
-                                            backgroundColor: cardStyle.badgeBg, color: cardStyle.iconColor, 
-                                            padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold'
-                                        }}>
+                                        <div style={{ backgroundColor: cardStyle.badgeBg, color: cardStyle.iconColor, padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
                                             {pago.dias_restantes > 0 ? `Faltan ${pago.dias_restantes} días` : `Tiene ${Math.abs(pago.dias_restantes)} días de retraso`}
                                         </div>
                                     </div>
-
                                 </div>
                             )
                         })}
@@ -491,13 +397,13 @@ function Proveedores() {
         </div>
       )}
 
-      {/* --- PANEL DE HISTORIAL DEL PROVEEDOR (Existente) --- */}
+      {/* --- PANEL DE FLUJO Y WORKFLOW DEL PROVEEDOR --- */}
       {panelOpen && provActivo && (
         <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
             <div className="panel-header">
               <div>
-                <h2>Cuentas por Pagar</h2>
+                <h2>Solicitudes de Pago</h2>
                 <p className="client-badge" style={{backgroundColor: '#e0f2fe', color: '#1e40af'}}>{provActivo.nombre || 'SIN NOMBRE'}</p>
               </div>
               <button className="btn-close" onClick={() => setPanelOpen(false)}>×</button>
@@ -507,89 +413,103 @@ function Proveedores() {
               {!showNuevoPago ? (
                 <>
                   <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px'}}>
-                    <h4 className="section-subtitle" style={{margin: 0, border: 'none'}}>Historial de Egresos</h4>
-                    <button className="btn-primary" style={{padding: '8px 16px', fontSize: '13px'}} onClick={() => setShowNuevoPago(true)}>+ Registrar Pago</button>
+                    <h4 className="section-subtitle" style={{margin: 0, border: 'none'}}>Flujo de Solicitudes</h4>
+                    <button className="btn-primary" onClick={() => setShowNuevoPago(true)}>+ Nueva Solicitud</button>
                   </div>
                   
-                  {pagos.length > 0 ? (
+                  {solicitudes.length > 0 ? (
                     <div className="movimientos-list">
-                      {pagos.map(pago => {
-                        let estatusColor = '#64748b'; 
-                        let estatusBg = '#f1f5f9';
-                        if (pago.estatus === 'PENDIENTE_VALIDACION' || pago.estatus === 'PENDIENTE') { estatusColor = '#d97706'; estatusBg = '#fef3c7'; }
-                        if (pago.estatus === 'PENDIENTE_AUTORIZACION') { estatusColor = '#2563eb'; estatusBg = '#dbeafe'; }
-                        if (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') { estatusColor = '#16a34a'; estatusBg = '#dcfce3'; }
-                        if (pago.estatus === 'RECHAZADO') { estatusColor = '#ef4444'; estatusBg = '#fef2f2'; }
+                      {solicitudes.map(sol => {
+                        // SEMAFORIZACIÓN DE LAS ETAPAS DEL WORKFLOW
+                        let estatusColor = '#64748b'; let estatusBg = '#f1f5f9'; let estatusTexto = 'DESCONOCIDO';
+                        if (sol.estatus_actual === 'PENDIENTE_REVISION') { estatusColor = '#f59e0b'; estatusBg = '#fef3c7'; estatusTexto = 'En Revisión (Paso 1)'; }
+                        if (sol.estatus_actual === 'PENDIENTE_AUT_1') { estatusColor = '#3b82f6'; estatusBg = '#dbeafe'; estatusTexto = 'Autorización Nivel 1'; }
+                        if (sol.estatus_actual === 'PENDIENTE_AUT_2') { estatusColor = '#4f46e5'; estatusBg = '#e0e7ff'; estatusTexto = 'Autorización Nivel 2'; }
+                        if (sol.estatus_actual === 'PENDIENTE_AUT_3') { estatusColor = '#7c3aed'; estatusBg = '#ede9fe'; estatusTexto = 'Autorización Nivel 3 (Director)'; }
+                        if (sol.estatus_actual === 'EN_TESORERIA') { estatusColor = '#0891b2'; estatusBg = '#cffafe'; estatusTexto = 'Aprobado - En Tesorería'; }
+                        if (sol.estatus_actual === 'PAGADO') { estatusColor = '#16a34a'; estatusBg = '#dcfce3'; estatusTexto = 'PAGADO Y LIQUIDADO'; }
+                        if (sol.estatus_actual === 'RECHAZADO') { estatusColor = '#ef4444'; estatusBg = '#fef2f2'; estatusTexto = 'RECHAZADO'; }
 
-                        const rolUsuario = localStorage.getItem('rol'); 
+                        const rolUsuario = localStorage.getItem('rol') || 'ADMIN'; // En el futuro lo validas según permisos
 
                         return (
-                          <div className="movimiento-item" key={pago.id} style={{ borderLeft: `4px solid ${estatusColor}` }}>
-                            <div className="mov-icon" style={{backgroundColor: estatusBg, color: estatusColor}}>
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-                            </div>
+                          <div className="movimiento-item" key={sol.id} style={{ borderLeft: `4px solid ${estatusColor}` }}>
                             <div className="mov-detalles">
-                              <strong>{pago.concepto}</strong>
-                              <span>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleDateString()}</span>
-                              <span style={{
-                                fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, 
-                                padding: '2px 8px', borderRadius: '12px', width: 'fit-content', fontWeight: '800', marginTop: '4px'
-                              }}>
-                                {pago.estatus ? pago.estatus.replace(/_/g, ' ') : 'PENDIENTE VALIDACION'}
+                              <strong>{sol.justificacion}</strong>
+                              <span>Folio: {sol.folio} • {new Date(sol.fecha_creacion).toLocaleDateString()}</span>
+                              <span style={{ fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, padding: '4px 10px', borderRadius: '12px', width: 'fit-content', fontWeight: '800', marginTop: '6px' }}>
+                                {estatusTexto}
                               </span>
                             </div>
                             <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                              <span className="mov-monto" style={{color: (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') ? '#ef4444' : '#64748b'}}>
-                                {pago.estatus === 'RECHAZADO' ? '$0.00' : `-${formatMoney(pago.monto_pago)}`}
+                              <span className="mov-monto" style={{color: sol.estatus_actual === 'PAGADO' ? '#ef4444' : '#64748b'}}>
+                                {sol.estatus_actual === 'RECHAZADO' ? '$0.00' : `-${formatMoney(sol.monto_total)}`}
                               </span>
                               
                               <div style={{ display: 'flex', gap: '6px' }}>
-                                {(pago.estatus === 'PENDIENTE_VALIDACION' || pago.estatus === 'PENDIENTE') && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
-                                  <button className="btn-view" style={{ borderColor: '#d97706', color: '#d97706' }} onClick={() => avanzarWorkflowPago(pago.id, 'VALIDAR')} title="Validar Factura">
-                                    Validar
-                                  </button>
-                                )}
-                                
-                                {pago.estatus === 'PENDIENTE_AUTORIZACION' && rolUsuario === 'ADMIN' && (
-                                  <button className="btn-view" style={{ borderColor: '#2563eb', color: '#2563eb' }} onClick={() => avanzarWorkflowPago(pago.id, 'AUTORIZAR')} title="Autorizar Pago">
-                                    Autorizar
+                                {/* Botones Dinámicos para el Motor de Flujo */}
+                                {sol.estatus_actual !== 'PAGADO' && sol.estatus_actual !== 'RECHAZADO' && (
+                                  <button className="btn-view" style={{ borderColor: '#16a34a', color: '#16a34a' }} onClick={() => avanzarWorkflowPago(sol.id, 'APROBAR')} title="Aprobar / Avanzar Etapa">
+                                    Aprobar
                                   </button>
                                 )}
 
-                                {pago.estatus !== 'AUTORIZADO' && pago.estatus !== 'PAGADO' && pago.estatus !== 'RECHAZADO' && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
-                                  <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444' }} onClick={() => avanzarWorkflowPago(pago.id, 'RECHAZAR')} title="Rechazar Pago">
+                                {sol.estatus_actual !== 'PAGADO' && sol.estatus_actual !== 'RECHAZADO' && (
+                                  <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444' }} onClick={() => avanzarWorkflowPago(sol.id, 'RECHAZAR')} title="Rechazar Solicitud">
                                     ✕
                                   </button>
                                 )}
 
-                                {pago.url_comprobante_pago && ( 
-                                  <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" title="Ver Factura/XML">Doc</a> 
-                                )}
+                                {/* Siempre dejar ver el PDF si existe o generarlo */}
+                                <button className="btn-view" onClick={() => window.open(`http://localhost:3001/api/proveedores/autorizaciones/${sol.id}/pdf`, '_blank')} title="Descargar Formato SAC-TSR-RCS">
+                                    PDF
+                                </button>
                               </div>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                  ) : ( 
-                    <div className="empty-state">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '32px', marginBottom: '10px'}}><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                      <p>No hay pagos registrados para este proveedor.</p>
-                    </div> 
-                  )}
+                  ) : ( <div className="empty-state">No hay solicitudes de pago para este proveedor.</div> )}
                 </>
               ) : (
-                <form className="modal-form" style={{padding: '0'}} onSubmit={handleGuardarPago}>
-                  <h4 className="section-subtitle">Emitir Pago / Registrar Factura</h4>
+                <form className="modal-form" style={{padding: '0'}} onSubmit={handleCrearSolicitud}>
+                  <h4 className="section-subtitle">Nueva Solicitud Universal de Recursos</h4>
                   
+                  <div className="form-row">
+                    <div className="form-group">
+                        <label>Unidad de Negocio</label>
+                        <select className="custom-select" required value={formPago.unidad_negocio} onChange={e => setFormPago({...formPago, unidad_negocio: e.target.value})}>
+                            <option value="01.CRP - Corporativo">01.CRP - Corporativo</option>
+                            <option value="02.PCH - Pochutla">02.PCH - Pochutla</option>
+                            <option value="13.SLN - Salina Cruz">13.SLN - Salina Cruz</option>
+                            <option value="07.CCT - Cuicatlán">07.CCT - Cuicatlán</option>
+                            <option value="11.TCM - Tecamachalco">11.TCM - Tecamachalco</option>
+                            <option value="04.HTL - Huatulco">04.HTL - Huatulco</option>
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Concepto C-XX</label>
+                        <select className="custom-select" required value={formPago.id_concepto} onChange={e => setFormPago({...formPago, id_concepto: e.target.value})}>
+                            <option value="1">C-01 Cómputo (Corporativo)</option>
+                            <option value="6">C-06 Serv. Empresariales (Moral)</option>
+                            <option value="7">C-07 Serv. y Honorarios (Física)</option>
+                            <option value="8">C-08 Servicios Públicos</option>
+                            <option value="11">C-11 Renta de Inmuebles</option>
+                            <option value="16">C-16 Fondo Fijo para Gastos Menores</option>
+                            <option value="17">C-17 Gastos a Comprobar</option>
+                        </select>
+                    </div>
+                  </div>
+
                   <div className="form-group">
-                    <label>Concepto del Servicio</label>
-                    <input type="text" required placeholder="Ej. Honorarios contables enero, Compra material..." value={formPago.concepto} onChange={e => setFormPago({...formPago, concepto: e.target.value})}/>
+                    <label>Justificación del Gasto</label>
+                    <input type="text" required placeholder="Ej. Honorarios contables enero, Pago de luz sucursal..." value={formPago.justificacion} onChange={e => setFormPago({...formPago, justificacion: e.target.value})}/>
                   </div>
                   
                   <div className="form-row">
                     <div className="form-group">
-                      <label>Monto a Pagar (MXN)</label>
+                      <label>Monto a Solicitar (MXN)</label>
                       <input type="number" required min="1" placeholder="Ej. 15000" value={formPago.monto_pago} onChange={e => setFormPago({...formPago, monto_pago: e.target.value})}/>
                     </div>
                     <div className="form-group">
@@ -599,13 +519,13 @@ function Proveedores() {
                   </div>
 
                   <div className="form-group">
-                    <label>Comprobante o Factura (PDF, XML, JPG)</label>
-                    <input type="file" className="file-input" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg,.xml"/>
+                    <label>Adjuntar Cotización, XML o PDF</label>
+                    <input type="file" className="file-input" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg,.xml" style={{ padding: '8px', border: '1px dashed var(--border-focus)' }}/>
                   </div>
 
                   <div className="modal-footer" style={{marginTop: '24px', padding: '0', border: 'none', backgroundColor: 'transparent'}}>
                     <button type="button" className="btn-cancel" onClick={() => setShowNuevoPago(false)}>Cancelar</button>
-                    <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Registrar Salida de Dinero'}</button>
+                    <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Procesando...' : 'Enviar Solicitud a Revisión'}</button>
                   </div>
                 </form>
               )}
@@ -624,7 +544,6 @@ function Proveedores() {
             </div>
             
             <form onSubmit={handleSubmit} style={{display: 'flex', flexDirection: 'column', maxHeight: '80vh'}}>
-              
               <div className="modal-form" style={{padding: '24px 32px', overflowY: 'auto'}}>
                 <h4 className="section-subtitle">Datos Empresariales</h4>
                 <div className="form-group"><label>Razón Social / Nombre Completo</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} /></div>
@@ -731,6 +650,7 @@ function Proveedores() {
         </div>
       )}
 
+      {/* --- MODAL CONFIRMAR ELIMINACIÓN --- */}
       {confirmModal.isOpen && (
         <div className="modal-overlay" style={{zIndex: 2000}}>
           <div className="confirm-modal-content fade-in-up">
