@@ -18,7 +18,7 @@ const notificacionesRoutes = require('./routes/notificaciones.routes');
 const backupRoutes = require('./routes/backup.routes');
 const rolesRoutes = require('./routes/roles.routes');
 const viaticosroutes = require('./routes/viaticos.routes');
-
+const solicitudesRoutes = require('./routes/solicitudes.routes');
 
 const app = express();
 app.use(cors());
@@ -41,6 +41,7 @@ app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/viaticos', viaticosroutes);
+app.use('/api/solicitudes', solicitudesRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => { 

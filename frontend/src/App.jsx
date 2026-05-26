@@ -12,6 +12,9 @@ import Auditoria from './pages/Auditoria/Auditoria';
 import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
 import Viaticos from './pages/Viaticos/Viaticos';
 import RevisionViaticos from './pages/Viaticos/RevisionViaticos';
+import Solicitud from './pages/Solicitudes/Solicitud';
+import Historial from './pages/Solicitudes/Historial';
+import DetalleSolicitud from './pages/Solicitudes/DetalleSolicitud';
 
 function App() {
   return (
@@ -31,7 +34,13 @@ function App() {
           <Route path="/autorizaciones" element={<Autorizaciones />} />
           <Route path="/viaticos" element={<Viaticos />} />
           <Route path="/revision-viaticos" element={<RevisionViaticos />} />
-
+          
+          {/* Módulo de Solicitudes */}
+          <Route path="/solicitudes/nueva" element={<Solicitud />} />
+          <Route path="/solicitudes/historial" element={<Historial />} />
+          <Route path="/solicitudes/detalle/:id" element={<DetalleSolicitud />} />
+          <Route path="/solicitudes/detalle/:id" element={<DetalleSolicitud />} />
+          
         </Route>
       </Routes>
     </Router>

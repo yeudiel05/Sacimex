@@ -102,7 +102,7 @@ function Layout() {
     {
       path: '/dashboard',
       label: 'Dashboard',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], // Agregado DHO
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], 
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
       )
@@ -140,9 +140,22 @@ function Layout() {
       )
     },
     {
+      path: '/solicitudes/nueva',
+      label: 'Solicitudes',
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'],
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+      )
+    },
+    {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], // Agregado DHO
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'],
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
@@ -153,7 +166,7 @@ function Layout() {
     {
       path: '/revision-viaticos',
       label: 'Bandeja D.H.O.',
-      rolesPermitidos: ['D.H.O'], // Solo Admin y DHO
+      rolesPermitidos: ['D.H.O'],
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
       )
@@ -205,7 +218,6 @@ function Layout() {
   };
 
   return (
-    // Agregamos la clase "sidebar-collapsed" dinámicamente
     <div className={`dashboard-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
 
       <aside className="sidebar fade-in-left">
@@ -227,7 +239,7 @@ function Layout() {
                 key={item.path}
                 className={location.pathname === item.path ? 'active' : ''}
                 onClick={() => navigate(item.path)}
-                title={isSidebarCollapsed ? item.label : ''} // Tooltip al estar colapsado
+                title={isSidebarCollapsed ? item.label : ''} 
               >
                 {item.icon}
                 <span className="nav-label">{item.label}</span>
@@ -249,7 +261,6 @@ function Layout() {
         <header className="top-header fade-in-down">
 
           <div className="header-left">
-            {/* --- BOTÓN PARA OCULTAR/MOSTRAR SIDEBAR --- */}
             <button className="toggle-sidebar-btn" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="3" y1="12" x2="21" y2="12"></line>
@@ -264,7 +275,6 @@ function Layout() {
 
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
 
-            {/* --- BUSCADOR FUNCIONAL (CTRL + K) --- */}
             <div className="header-search-wrapper" ref={searchContainerRef} style={{ position: 'relative' }}>
               <div className={`header-search ${isSearchFocused ? 'focused' : ''}`}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -282,7 +292,6 @@ function Layout() {
                 <span className="search-shortcut">Ctrl+K</span>
               </div>
 
-              {/* DROPDOWN DE RESULTADOS DE BÚSQUEDA */}
               {isSearchFocused && searchQuery && (
                 <div className="search-dropdown fade-in-down">
                   <p className="search-title">RESULTADOS</p>
@@ -306,14 +315,12 @@ function Layout() {
 
             <div className="header-actions">
 
-              {/* --- CAMPANA DE NOTIFICACIONES --- */}
               <div className="notification-wrapper" ref={notifRef} style={{ position: 'relative' }}>
                 <button className="icon-button notification-bell" onClick={() => setShowNotifMenu(!showNotifMenu)}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                   </svg>
-                  {/* Se muestra la placa de alerta si es ADMIN o D.H.O y hay notificaciones */}
                   {(userRole === 'ADMIN' || userRole === 'D.H.O') && notificaciones.length > 0 && (
                     <span className="badge pulse-animation" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '9px', width: '14px', height: '14px', top: '-4px', right: '-4px' }}>
                       {notificaciones.length}
@@ -352,7 +359,6 @@ function Layout() {
                 )}
               </div>
 
-              {/* --- PERFIL DE USUARIO --- */}
               <div
                 className="header-profile"
                 ref={menuRef}
@@ -365,7 +371,6 @@ function Layout() {
                   style={{ width: '40px', height: '40px', borderRadius: '50%' }}
                 />
 
-                {/* MENÚ DESPLEGABLE DEL PERFIL */}
                 {showProfileMenu && (
                   <div className="dropdown-menu fade-in-up-fast" style={{ position: 'absolute', top: '50px', right: '0', background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', width: '220px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100 }}>
                     <div className="dropdown-header" style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>

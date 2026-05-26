@@ -1,0 +1,242 @@
+/* =====================================================
+   Historial.css — Estilo de tabla SACIMEX
+   ===================================================== */
+
+.historial-container {
+    padding: 24px;
+    background-color: #f1f5f9;
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── HEADER ── */
+.historial-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+.historial-header h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #0f172a;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.historial-header p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.btn-icon {
+    background-color: white;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.btn-icon:hover {
+    color: #10d440;
+    border-color: #10d440;
+}
+
+.btn-primary {
+    background-color: #10d440;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 6px -1px rgba(16, 212, 64, 0.25);
+    transition: all 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: #0ebf39;
+    transform: translateY(-1px);
+}
+
+/* ── TARJETA Y TABLA ── */
+.historial-card {
+    background-color: white;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+}
+
+.data-table th {
+    padding: 16px 24px;
+    background-color: #f8fafc;
+    color: #64748b;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 16px 24px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    color: #334155;
+}
+
+.data-table tbody tr {
+    transition: background-color 0.2s;
+}
+
+.data-table tbody tr:hover {
+    background-color: #f8fafc;
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.truncate-text {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+}
+
+.unidad-pill {
+    background-color: #f1f5f9;
+    color: #475569;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid #e2e8f0;
+}
+
+/* ── STATUS BADGES ── */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    display: inline-block;
+    border: 1px solid transparent;
+}
+
+.badge-warning {
+    background-color: #fffbeb;
+    color: #d97706;
+    border-color: #fef3c7;
+}
+
+.badge-info {
+    background-color: #eff6ff;
+    color: #2563eb;
+    border-color: #dbeafe;
+}
+
+.badge-success {
+    background-color: #f0fdf4;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+
+.badge-danger {
+    background-color: #fef2f2;
+    color: #dc2626;
+    border-color: #fecaca;
+}
+
+.badge-default {
+    background-color: #f1f5f9;
+    color: #475569;
+    border-color: #e2e8f0;
+}
+
+/* ── BOTON ACCION (Ver Detalle) ── */
+.btn-action-view {
+    background: none;
+    border: 1px solid #cbd5e1;
+    color: #64748b;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.btn-action-view:hover {
+    color: #2563eb;
+    border-color: #2563eb;
+    background-color: #eff6ff;
+}
+
+.error-alert {
+    background-color: #fef2f2;
+    color: #dc2626;
+    padding: 12px 24px;
+    border-bottom: 1px solid #fecaca;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Spinner básico */
+.loading-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #cbd5e1;
+    border-top-color: #10d440;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}

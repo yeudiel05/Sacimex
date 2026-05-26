@@ -15,7 +15,6 @@ function Usuarios() {
 
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   
-  // Estado limpio solo para nombre y descripción
   const [nuevoRol, setNuevoRol] = useState({ 
     nombre_rol: '', 
     descripcion: ''
@@ -25,9 +24,13 @@ function Usuarios() {
   const [formError, setFormError] = useState('');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
+  // 1. ESTADO PARA LA FIRMA
+  const [archivoFirma, setArchivoFirma] = useState(null);
+
   const [formData, setFormData] = useState({
     nombre: '', rfc: '', telefono: '', email: '', 
-    puesto: '', departamento: '', unidad_negocio: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null
+    puesto: '', departamento: '', unidad_negocio: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null,
+    puede_solicitar: 0, nivel_autorizacion: 0 // Agregamos los permisos por defecto
   });
 
   const getAuthHeaders = () => {
@@ -41,7 +44,7 @@ function Usuarios() {
   const fetchUsuarios = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch('http://localhost:3001/api/usuarios', { headers });
+      const res = await fetch('/api/usuarios', { headers });
       const data = await res.json();
       if (data.success) setUsuarios(data.data);
     } catch (error) { console.error(error); }
@@ -50,7 +53,7 @@ function Usuarios() {
   const fetchRoles = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch('http://localhost:3001/api/roles', { headers });
+      const res = await fetch('/api/roles', { headers });
       const data = await res.json();
       if (data.success) setRoles(data.data);
     } catch (error) { console.error(error); }
@@ -65,7 +68,8 @@ function Usuarios() {
     setIsEditing(false);
     setEditId(null);
     setFormError('');
-    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: departamentoSeleccionado || '', unidad_negocio: '', username: '', password: '', rol: '', id_persona: null });
+    setArchivoFirma(null); // Reseteamos la firma
+    setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: departamentoSeleccionado || '', unidad_negocio: '', username: '', password: '', rol: '', id_persona: null, puede_solicitar: 0, nivel_autorizacion: 0 });
     setIsModalOpen(true);
   };
 
@@ -73,15 +77,19 @@ function Usuarios() {
     setIsEditing(true);
     setEditId(user.id_usuario);
     setFormError('');
+    setArchivoFirma(null); // Reseteamos la firma
     setFormData({ 
       nombre: user.nombre, rfc: user.rfc || '', telefono: user.telefono || '', email: user.email || '', 
       puesto: user.puesto, departamento: user.departamento, unidad_negocio: user.unidad_negocio || '',
       username: user.username, password: '',
-      rol: user.rol, id_persona: user.id_persona
+      rol: user.rol, id_persona: user.id_persona,
+      puede_solicitar: user.puede_solicitar || 0,
+      nivel_autorizacion: user.nivel_autorizacion || 0
     });
     setIsModalOpen(true);
   };
 
+  // 2. MODIFICACIÓN: Enviar como FormData para soportar archivos
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
@@ -94,12 +102,29 @@ function Usuarios() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
 
-    const url = isEditing ? `http://localhost:3001/api/usuarios/${editId}` : 'http://localhost:3001/api/usuarios';
+    const url = isEditing ? `/api/usuarios/${editId}` : '/api/usuarios';
     const method = isEditing ? 'PUT' : 'POST';
 
+    // Creamos el paquete FormData
+    const formPayload = new FormData();
+    for (const key in formData) {
+      if (formData[key] !== null && formData[key] !== undefined) {
+        formPayload.append(key, formData[key]);
+      }
+    }
+    
+    // Si seleccionaron una firma, la agregamos
+    if (archivoFirma) {
+      formPayload.append('firma', archivoFirma);
+    }
+
     try {
+      // OJO: Al usar FormData con fetch, NO debes poner el Content-Type. 
+      // El navegador lo pone automáticamente con el límite multiparte.
       const res = await fetch(url, { 
-        method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) 
+        method: method, 
+        headers: { ...headers }, 
+        body: formPayload 
       });
       const data = await res.json();
       if (data.success) {
@@ -115,7 +140,7 @@ function Usuarios() {
     const nuevoEstatus = estatus_actual === 1 ? 0 : 1;
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/usuarios/${id}/estatus`, { 
+      const res = await fetch(`/api/usuarios/${id}/estatus`, { 
         method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) 
       });
       if ((await res.json()).success) fetchUsuarios();
@@ -128,7 +153,7 @@ function Usuarios() {
       message: `¿Estás seguro de eliminar al usuario ${nombre}? Perderá el acceso inmediatamente.`,
       onConfirm: async () => {
         const headers = getAuthHeaders();
-        await fetch(`http://localhost:3001/api/usuarios/${id_persona}`, { method: 'DELETE', headers });
+        await fetch(`/api/usuarios/${id_persona}`, { method: 'DELETE', headers });
         fetchUsuarios();
       }
     });
@@ -140,7 +165,7 @@ function Usuarios() {
     const headers = getAuthHeaders();
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/roles', {
+      const res = await fetch('/api/roles', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify(nuevoRol)
@@ -159,7 +184,7 @@ function Usuarios() {
     if(!window.confirm("¿Seguro que deseas desactivar este rol? Ningún usuario nuevo podrá asignárselo.")) return;
     const headers = getAuthHeaders();
     try {
-      const res = await fetch(`http://localhost:3001/api/roles/${id_rol}`, { method: 'DELETE', headers });
+      const res = await fetch(`/api/roles/${id_rol}`, { method: 'DELETE', headers });
       const data = await res.json();
       if (data.success) fetchRoles(); else alert(data.message);
     } catch (error) { console.error(error); }
@@ -180,19 +205,49 @@ function Usuarios() {
     return depUsuario === departamentoSeleccionado;
   });
 
+  // 3. MAGIA: Lógica automática de perfiles y roles basada en las reglas de negocio
   const manejarCambioPuesto = (e) => {
     const puestoElegido = e.target.value;
     let deptoAuto = '';
+    let nivelAuto = 0; 
+    let rolAuto = 'AUXILIAR'; // Rol base sin privilegios de firma
+    let puedeSoli = 0; // Por defecto no pueden solicitar
 
-    if (puestoElegido === 'CONTADOR GENERAL' || puestoElegido === 'AUXILIAR CONTABLE') { deptoAuto = 'Contabilidad y Finanzas'; }
+    // ─── REGLAS DE NEGOCIO SACIMEX ───
+
+    // Los que participan en el proceso de revisión/autorización:
+    if (puestoElegido === 'AUXILIAR CONTABLE') { 
+        deptoAuto = 'Contabilidad y Finanzas'; 
+        nivelAuto = 0; 
+        rolAuto = 'REVISOR'; 
+    }
+    else if (puestoElegido === 'CONTADOR GENERAL') { 
+        deptoAuto = 'Contabilidad y Finanzas'; 
+        nivelAuto = 1; 
+        rolAuto = 'AUTORIZADOR_1'; 
+        puedeSoli = 1;
+    }
+    else if (puestoElegido === 'DIRECTOR GENERAL') { 
+        deptoAuto = 'Director'; 
+        nivelAuto = 3; 
+        rolAuto = 'AUTORIZADOR_2'; 
+        puedeSoli = 1;
+    }
+    // El resto del personal (Se acomodan en sus departamentos, pero sin rol de autorizador):
     else if (puestoElegido === 'COORDINADOR DE CRÉDITO' || puestoElegido === 'GESTOR DE COBRANZA' || puestoElegido === 'ENCARGADO DE ALMACEN') { deptoAuto = 'Operaciones'; }
     else if (puestoElegido === 'COORDINADOR DE SUCURSAL' || puestoElegido === 'CAJERO' || puestoElegido === 'ENCARGADO DE SUCURSAL' || puestoElegido === 'ASESOR DE CRÉDITO') { deptoAuto = 'Sucursales'; }
     else if (puestoElegido === 'CAPACITADOR' || puestoElegido === 'COORDINADOR DE D.H.O.' || puestoElegido === 'ASISTENTE DE D.H.O.') { deptoAuto = 'Desarrollo Humano y Organizacional'; }
-    else if (puestoElegido === 'DIRECTOR GENERAL') { deptoAuto = 'Director'; }
     else if (puestoElegido === 'ENCARGADO DE NORMATIVIDAD') { deptoAuto = 'Normativo'; }
     else if (puestoElegido === 'ENCARGADO DE TI' || puestoElegido === 'AUXILIAR DE SISTEMAS' || puestoElegido === 'ASISTENTE DE SISTEMAS') { deptoAuto = 'TECNOLOGÍA, INFORMÁTICA Y COMUNICACIONES (TIC)'; }
     
-    setFormData({...formData, puesto: puestoElegido, departamento: deptoAuto});
+    setFormData({
+        ...formData, 
+        puesto: puestoElegido, 
+        departamento: deptoAuto, 
+        nivel_autorizacion: nivelAuto, 
+        rol: rolAuto,
+        puede_solicitar: puedeSoli
+    });
   };
 
   return (
@@ -287,7 +342,7 @@ function Usuarios() {
                     </div>
                     <div className="user-actions" style={{display: 'flex', gap: '8px'}}>
                     <button className="btn-icon-edit" onClick={() => openEditModal(user)} title="Editar Usuario">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 9.5-9.5z"></path></svg>
                     </button>
                     <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminar(user.id_persona, user.nombre)} title="Eliminar Usuario">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -321,7 +376,6 @@ function Usuarios() {
                     <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
                     <div className="form-group"><label>Correo Institucional</label><input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
                     
-                    {/* AQUI ESTÁN TUS DATOS CORRECTOS DE UNIDAD DE NEGOCIO */}
                     <div className="form-group" style={{marginTop: '20px'}}>
                       <label style={{color: 'var(--brand-green)'}}>Unidad de Negocio (Asignación)</label>
                       <select className="custom-select" required value={formData.unidad_negocio} onChange={(e) => setFormData({...formData, unidad_negocio: e.target.value})}>
@@ -385,6 +439,18 @@ function Usuarios() {
                       <label>{isEditing ? 'Nueva Contraseña (Vacío = No cambiar)' : 'Contraseña Temporal'}</label>
                       <input type="text" placeholder={isEditing ? '******' : 'Asigne una contraseña'} value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} required={!isEditing} />
                     </div>
+
+                    <div className="form-group" style={{marginTop: '16px'}}>
+                      <label style={{color: '#92400e'}}>Firma Autorizada (Imagen .png / .jpg)</label>
+                      <input 
+                        type="file" 
+                        accept="image/png, image/jpeg" 
+                        onChange={(e) => setArchivoFirma(e.target.files[0])} 
+                        style={{ padding: '8px', border: '1px dashed #cbd5e1', borderRadius: '8px', width: '100%', cursor: 'pointer', backgroundColor: '#fffbeb' }}
+                      />
+                      <small style={{color: '#64748b', fontSize: '11px', marginTop: '4px'}}>Solo necesario si el usuario autorizará solicitudes.</small>
+                    </div>
+
                   </div>
                 </div>
               </div>
@@ -398,7 +464,7 @@ function Usuarios() {
         </div>
       )}
 
-      {/* --- MODAL ROLES (Limpio y original) --- */}
+      {/* --- MODAL ROLES --- */}
       {isRoleModalOpen && (
         <div className="modal-overlay" onClick={() => setIsRoleModalOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>

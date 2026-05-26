@@ -3,10 +3,29 @@ const router = express.Router();
 const bcrypt = require('bcryptjs'); 
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// ─── Configuración de Multer para subir firmas ───────────────────────
+// Aseguramos que la carpeta exista, si no, se crea automáticamente
+const dirFirmas = path.join(__dirname, '../uploads/firmas');
+if (!fs.existsSync(dirFirmas)){
+    fs.mkdirSync(dirFirmas, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, dirFirmas),
+    filename: (req, file, cb) => cb(null, `firma_${Date.now()}${path.extname(file.originalname)}`)
+});
+const upload = multer({ storage });
+
+// ─── RUTAS ───────────────────────────────────────────────────────────
 
 router.get('/', verificarToken, (req, res) => {
     const query = `
         SELECT u.id as id_usuario, u.username, u.rol, u.estatus_activo, 
+               u.puede_solicitar, u.nivel_autorizacion, u.ruta_firma_png,
                e.puesto, e.departamento, e.unidad_negocio, 
                p.id as id_persona, p.nombre_razon_social AS nombre, p.email_contacto AS email, p.telefono, p.rfc
         FROM usuarios u
@@ -21,8 +40,12 @@ router.get('/', verificarToken, (req, res) => {
     });
 });
 
-router.post('/', verificarToken, async (req, res) => {
-    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol } = req.body;
+// ⚠️ Usamos upload.single('firma') para atrapar la imagen en la creación
+router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
+    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, puede_solicitar, nivel_autorizacion } = req.body;
+    
+    // Si se subió un archivo, armamos la ruta
+    const rutaFirma = req.file ? `uploads/firmas/${req.file.filename}` : null;
 
     try {
         const salt = await bcrypt.genSalt(10);
@@ -33,22 +56,35 @@ router.post('/', verificarToken, async (req, res) => {
 
             db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, telefono, email_contacto) VALUES ("FISICA", ?, ?, ?, ?)',
                 [nombre, rfc, telefono, email], (err, resultPersona) => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error: El RFC ya existe o datos inválidos.' }));
+                    
+                    if (err) {
+                        console.error("❌ Error en Personas:", err.message);
+                        return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Personas): ' + err.message }));
+                    }
 
                     const idPersona = resultPersona.insertId;
 
                     db.query('INSERT INTO empleados (id_persona, puesto, departamento, unidad_negocio, fecha_ingreso) VALUES (?, ?, ?, ?, CURDATE())',
                         [idPersona, puesto, departamento, unidad_negocio], (err) => {
-                            if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error al registrar empleado.' }));
+                            
+                            if (err) {
+                                console.error("❌ Error en Empleados:", err.message);
+                                return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Empleados): ' + err.message }));
+                            }
 
-                            db.query('INSERT INTO usuarios (id_empleado, username, password_hash, rol) VALUES (?, ?, ?, ?)',
-                                [idPersona, username, hashedPassword, rol], (err) => {
-                                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error: El Nombre de Usuario ya está en uso.' }));
+                            // Insertamos los permisos y la ruta de la firma en la tabla usuarios
+                            db.query('INSERT INTO usuarios (id_empleado, username, password_hash, rol, puede_solicitar, nivel_autorizacion, ruta_firma_png) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                [idPersona, username, hashedPassword, rol, puede_solicitar || 0, nivel_autorizacion || 0, rutaFirma], (err) => {
+                                    
+                                    if (err) {
+                                        console.error("❌ Error en Usuarios:", err.message);
+                                        return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Usuarios): ' + err.message }));
+                                    }
 
                                     db.commit(err => {
                                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
                                         registrarBitacora(req.usuario.id, 'CREAR_USUARIO', `Se creó el usuario ${username} con rol ${rol}`);
-                                        res.json({ success: true, message: 'Usuario creado exitosamente.' });
+                                        res.json({ success: true, message: 'Usuario y firma creados exitosamente.' });
                                     });
                                 });
                         });
@@ -60,9 +96,13 @@ router.post('/', verificarToken, async (req, res) => {
     }
 });
 
-router.put('/:id_usuario', verificarToken, async (req, res) => {
+// ⚠️ Usamos upload.single('firma') para atrapar la imagen en la edición
+router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, res) => {
     const { id_usuario } = req.params;
-    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona } = req.body;
+    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona, puede_solicitar, nivel_autorizacion } = req.body;
+
+    // Si se subió un nuevo archivo, actualizamos la firma, si no, se queda la que ya estaba en la BD
+    const rutaFirmaNueva = req.file ? `uploads/firmas/${req.file.filename}` : null;
 
     try {
         let hashedPassword = null;
@@ -75,22 +115,32 @@ router.put('/:id_usuario', verificarToken, async (req, res) => {
             if (err) return res.status(500).json({ success: false });
             db.query('UPDATE personas SET nombre_razon_social=?, rfc=?, telefono=?, email_contacto=? WHERE id=?',
                 [nombre, rfc, telefono, email, id_persona], (err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'RFC duplicado.' }));
+                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Personas: ' + err.message }));
 
                     db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=? WHERE id_persona=?',
                         [puesto, departamento, unidad_negocio, id_persona], (err) => {
-                            if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                            if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
                             
-                            let queryUser = 'UPDATE usuarios SET username=?, rol=? WHERE id=?';
-                            let paramsUser = [username, rol, id_usuario];
+                            // Construcción dinámica de la consulta para usuarios
+                            let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';
+                            let paramsUser = [username, rol, puede_solicitar || 0, nivel_autorizacion || 0];
 
                             if (hashedPassword) {
-                                queryUser = 'UPDATE usuarios SET username=?, rol=?, password_hash=? WHERE id=?';
-                                paramsUser = [username, rol, hashedPassword, id_usuario];
+                                queryUser += ', password_hash=?';
+                                paramsUser.push(hashedPassword);
+                            }
+                            
+                            // Si detectamos que mandaron un archivo nuevo, lo agregamos al UPDATE
+                            if (rutaFirmaNueva) {
+                                queryUser += ', ruta_firma_png=?';
+                                paramsUser.push(rutaFirmaNueva);
                             }
 
+                            queryUser += ' WHERE id=?';
+                            paramsUser.push(id_usuario);
+
                             db.query(queryUser, paramsUser, (err) => {
-                                if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Usuario ya en uso.' }));
+                                if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Usuarios: ' + err.message }));
 
                                 db.commit(err => {
                                     if (err) return db.rollback(() => res.status(500).json({ success: false }));

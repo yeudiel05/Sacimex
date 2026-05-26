@@ -1,0 +1,236 @@
+/* =====================================================
+   DetalleSolicitud.css
+   ===================================================== */
+
+.detalle-container {
+    padding: 24px;
+    background-color: var(--bg-main, #f8fafc);
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── HEADER ── */
+.detalle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+}
+
+.detalle-title-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.detalle-header h1 {
+    margin: 0 0 4px 0;
+    font-size: 28px;
+    color: var(--text-main, #0f172a);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.detalle-estatus {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted, #64748b);
+    font-weight: 600;
+}
+
+/* ── GRID PRINCIPAL ── */
+.detalle-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 24px;
+    align-items: start;
+}
+
+@media (max-width: 1024px) {
+    .detalle-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── BLOQUES DE INFORMACIÓN ── */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.info-block {
+    background-color: var(--bg-main, #f8fafc);
+    border: 1px solid var(--border-light, #e2e8f0);
+    padding: 16px 20px;
+    border-radius: var(--radius-md, 12px);
+    transition: all 0.2s ease;
+}
+
+.info-block:hover {
+    border-color: var(--brand-green, #10d440);
+    box-shadow: 0 4px 12px rgba(16, 212, 64, 0.05);
+}
+
+.info-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.info-value {
+    font-size: 15px;
+    color: var(--text-main, #0f172a);
+    font-weight: 600;
+}
+
+.info-value.monto {
+    color: var(--brand-green, #10d440);
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.desc-block {
+    background-color: #fffbeb; /* Un tono amarillo muy suave para destacar justificación */
+    border: 1px solid #fde68a;
+    padding: 20px;
+    border-radius: var(--radius-md, 12px);
+}
+
+.desc-block p {
+    margin: 8px 0 0 0;
+    font-size: 14px;
+    color: #92400e;
+    line-height: 1.6;
+    font-weight: 500;
+}
+
+/* ── TIMELINE / TRACKER ── */
+.timeline {
+    position: relative;
+    padding-left: 12px;
+    margin-top: 16px;
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 32px;
+    padding-bottom: 24px;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+/* Línea conectora */
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: 11px; /* Centro del círculo */
+    top: 24px; /* Debajo del círculo actual */
+    bottom: -8px; /* Hasta el siguiente círculo */
+    width: 2px;
+    background-color: var(--border-light, #e2e8f0);
+}
+
+.timeline-item:last-child::before {
+    display: none; /* El último elemento no tiene línea hacia abajo */
+}
+
+/* Círculo indicador */
+.timeline-icon {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: var(--brand-green, #10d440);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 4px var(--bg-card, #ffffff);
+}
+
+.timeline-content {
+    background-color: var(--bg-main, #f8fafc);
+    border: 1px solid var(--border-light, #e2e8f0);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-top: -4px; /* Alinear con el círculo */
+}
+
+.timeline-user {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main, #0f172a);
+    display: flex;
+    justify-content: space-between;
+}
+
+.timeline-date {
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+    font-weight: 500;
+}
+
+.timeline-comment {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #475569;
+    font-style: italic;
+    border-left: 2px solid var(--brand-green, #10d440);
+    padding-left: 8px;
+} 
+
+/* ── ESTILOS FALTANTES: BOTONES Y MONTO ── */
+.btn-icon-back {
+    background-color: white; border: 1px solid #cbd5e1; border-radius: 8px;
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: #475569; transition: all 0.2s;
+}
+.btn-icon-back:hover { background-color: #f1f5f9; color: #0f172a; }
+
+.btn-outline-red {
+    background-color: white; border: 1px solid #fecaca; color: #dc2626;
+    border-radius: 8px; padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s;
+}
+.btn-outline-red:hover { background-color: #fef2f2; }
+
+.btn-danger-outline {
+    background-color: white; border: 1px solid #fecaca; color: #dc2626;
+    border-radius: 8px; padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s;
+}
+.btn-danger-outline:hover { background-color: #fef2f2; }
+
+.btn-primary {
+    background-color: #10d440; border: none; color: white;
+    border-radius: 8px; padding: 8px 16px; display: flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 6px -1px rgba(16, 212, 64, 0.25);
+}
+.btn-primary:hover { background-color: #0ebf39; }
+.btn-primary:disabled { background-color: #86efac; cursor: not-allowed; box-shadow: none; }
+
+/* Monto Grande (Estilo Tarjeta Verde) */
+.monto-grande {
+    background: linear-gradient(135deg, #10d440 0%, #059669 100%);
+    border-radius: 12px; padding: 20px; color: white;
+    margin-top: 16px; display: flex; flex-direction: column; gap: 6px;
+}
+.monto-label { font-size: 11px; text-transform: uppercase; font-weight: 700; opacity: 0.85; letter-spacing: 0.5px; }
+.monto-valor { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+.monto-forma { font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; align-self: flex-start; margin-top: 4px; }
