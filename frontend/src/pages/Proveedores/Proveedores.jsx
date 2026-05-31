@@ -34,7 +34,7 @@ function Proveedores() {
   // --- NUEVOS ESTADOS PARA REPORTE MAESTRO DE EGRESOS ---
   const [panelReporteOpen, setPanelReporteOpen] = useState(false);
   const [datosReporte, setDatosReporte] = useState([]);
-  const [resumenReporte, setResumenReporte] = useState({ total_pagado: 0, total_pendiente: 0, gran_total: 0 });
+  const [resumenReporte, setResumenReporte] = useState({ total_pagado: 0, total_pendiente: 0, gran_total: 0, presupuesto_ingreso: 0 });
   const [mesFiltro, setMesFiltro] = useState(new Date().getMonth() + 1);
   const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear());
 
@@ -72,7 +72,7 @@ function Proveedores() {
         const data = await response.json();
         if (data.success) {
             setDatosReporte(data.data);
-            setResumenReporte(data.resumen);
+            setResumenReporte(prev => ({ ...data.resumen, presupuesto_ingreso: prev.presupuesto_ingreso }));
             setPanelReporteOpen(true);
         }
     } catch (error) { 
@@ -323,7 +323,6 @@ function Proveedores() {
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           
-          {/* NUEVO BOTÓN: Reporte Maestro */}
           <button 
              className="btn-view" 
              style={{ borderColor: '#2563eb', color: '#2563eb', fontWeight: 'bold' }}
@@ -442,10 +441,10 @@ function Proveedores() {
         </div>
       </div>
 
-      {/* --- NUEVO PANEL ANCHO: REPORTE MAESTRO DE EGRESOS --- */}
+      {/* --- PANEL ANCHO: REPORTE MAESTRO DE EGRESOS --- */}
       {panelReporteOpen && (
         <div className="modal-overlay" onClick={() => setPanelReporteOpen(false)}>
-          <div className="master-panel fade-in-right" style={{ maxWidth: '1000px', width: '90vw' }} onClick={(e) => e.stopPropagation()}>
+          <div className="master-panel fade-in-right" style={{ maxWidth: '1000px', width: '90vw', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div className="panel-header" style={{backgroundColor: '#eff6ff', borderBottom: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <div>
                 <h2 style={{color: '#1e40af'}}> Reporte Maestro de Egresos</h2>
@@ -546,6 +545,97 @@ function Proveedores() {
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* --- DASHBOARD FINANCIERO (Presupuesto vs Realidad) --- */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '32px' }}>
+                    
+                    {/* Columna Izquierda: Ingresos y Márgenes */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', backgroundColor: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                            <tbody>
+                                <tr>
+                                    <td style={{ backgroundColor: '#93c5fd', padding: '8px', fontWeight: 'bold', width: '120px' }}>{new Date(anioFiltro, mesFiltro, 0).toLocaleDateString('es-MX')}</td>
+                                    <td style={{ backgroundColor: '#bbf7d0', padding: '8px', fontWeight: 'bold' }}>PRESUPUESTO DE INGRESOS</td>
+                                    <td style={{ backgroundColor: '#fca5a5', padding: '8px', fontWeight: 'bold', textAlign: 'center' }}>PRESUPUESTO DE GASTOS ADMON Y FINANCIEROS</td>
+                                </tr>
+                                <tr>
+                                    <td style={{ backgroundColor: '#bfdbfe', padding: '8px' }}></td>
+                                    <td style={{ backgroundColor: '#bfdbfe', padding: '8px', fontWeight: 'bold' }}>GASTOS PROYECTADOS</td>
+                                    <td style={{ backgroundColor: '#fecaca', padding: '8px', textAlign: 'right' }}>{formatMoney(resumenReporte.gran_total)}</td>
+                                </tr>
+                                <tr>
+                                    <td style={{ backgroundColor: '#bfdbfe', padding: '8px' }}></td>
+                                    <td style={{ backgroundColor: '#bfdbfe', padding: '8px', fontWeight: 'bold' }}>GASTOS REALIZADOS "PAGADOS"</td>
+                                    <td style={{ backgroundColor: '#fecaca', padding: '8px', textAlign: 'right' }}>{formatMoney(resumenReporte.total_pagado)}</td>
+                                </tr>
+                                <tr>
+                                    <td style={{ backgroundColor: '#d1fae5', padding: '8px', fontWeight: 'bold' }}>{new Date(anioFiltro, mesFiltro, 0).toLocaleDateString('es-MX')}</td>
+                                    <td style={{ backgroundColor: '#d1fae5', padding: '8px', fontWeight: 'bold' }}>TOTAL INGRESO</td>
+                                    <td style={{ backgroundColor: '#a5f3fc', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>
+                                        <input 
+                                            type="number" 
+                                            placeholder="Ingresa Presupuesto" 
+                                            style={{width: '100%', border: 'none', background: 'transparent', textAlign: 'right', fontWeight: 'bold', outline: 'none'}}
+                                            value={resumenReporte.presupuesto_ingreso || ''}
+                                            onChange={(e) => setResumenReporte({...resumenReporte, presupuesto_ingreso: parseFloat(e.target.value) || 0})}
+                                        />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', backgroundColor: '#9ca3af', color: 'black' }}>
+                            <tbody>
+                                <tr>
+                                    <td style={{ padding: '8px' }}>Margen ingresos vs gastos</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', color: '#991b1b', fontWeight: 'bold' }}>
+                                        {formatMoney((resumenReporte.presupuesto_ingreso || 0) - resumenReporte.gran_total)}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ padding: '8px' }}>margen ingresos vs gastos efectivamente pagado</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', color: '#1e3a8a', fontWeight: 'bold' }}>
+                                        {formatMoney((resumenReporte.presupuesto_ingreso || 0) - resumenReporte.total_pagado)}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Columna Derecha: Desglose por Categoría */}
+                    <div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #cbd5e1', backgroundColor: 'white' }}>
+                            <tbody>
+                                {datosReporte.length > 0 ? Array.from(new Set(datosReporte.map(item => item.tipo_gasto || 'OTROS'))).map((categoria, idx) => {
+                                    // Asignamos colores como en tu Excel
+                                    let bg = '#93c5fd'; // Azul base
+                                    if(categoria.includes('ADMINISTRACION')) bg = '#bbf7d0'; // Verde
+                                    if(categoria.includes('CAPITAL')) bg = '#fef08a'; // Amarillo
+                                    if(categoria.includes('PASIVOS')) bg = '#fdba74'; // Naranja
+                                    if(categoria.includes('INTERES')) bg = '#e879f9'; // Morado
+
+                                    // Calcular la suma de esta categoría
+                                    const sumaCat = datosReporte.filter(d => d.tipo_gasto === categoria).reduce((s, item) => s + parseFloat(item.monto), 0);
+
+                                    return (
+                                        <tr key={idx}>
+                                            <td style={{ backgroundColor: bg, padding: '6px 12px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>{categoria}</td>
+                                            <td style={{ padding: '6px 12px', border: '1px solid #cbd5e1', textAlign: 'right', fontWeight: 'bold' }}>{formatMoney(sumaCat)}</td>
+                                        </tr>
+                                    )
+                                }) : (
+                                    <tr><td colSpan="2" style={{padding: '10px', textAlign: 'center'}}>Sin datos</td></tr>
+                                )}
+                                <tr>
+                                    <td style={{ padding: '8px 12px', border: '1px solid #cbd5e1' }}>TOTAL</td>
+                                    <td style={{ padding: '8px 12px', border: '1px solid #cbd5e1', textAlign: 'right', fontWeight: 'bold' }}>{formatMoney(resumenReporte.gran_total)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
                 </div>
 
             </div>

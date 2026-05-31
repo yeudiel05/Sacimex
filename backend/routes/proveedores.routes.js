@@ -55,6 +55,24 @@ function numeroALetras(num) {
     return `${textoFinal.toUpperCase()} PESOS ${centavos.toString().padStart(2, '0')}/100 M.N.`;
 }
 
+// =====================================================================
+// CEREBRO DE AUTORIZACIONES (Reglas Estrictas)
+// =====================================================================
+function calcularNivelesRequeridos(monto) {
+    return parseFloat(monto) > 100000 ? 3 : 2; 
+}
+
+function obtenerRolEsperado(monto, nivelActual) {
+    if (nivelActual === 0) return 'REVISOR';
+    if (nivelActual === 1) return 'AUTORIZADOR_1';
+    if (nivelActual === 2 && parseFloat(monto) > 100000) return 'AUTORIZADOR_2';
+    return null;
+}
+
+function formatMoney(n) {
+    return '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 // ==========================================
 // RUTAS DE AUTORIZACIÓN (ADMIN) - VISTA GENERAL
 // ==========================================
@@ -189,15 +207,13 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// RUTAS DE REPORTES
+// RUTAS DE REPORTES (CON MOTOR JSON + DASHBOARD)
 // ==========================================
-
-// REPORTE MAESTRO DE EGRESOS (OPERATIVOS + FONDEADORES EN JSON)
 router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
-    // 1. OBTENER GASTOS OPERATIVOS
+    // 1. GASTOS OPERATIVOS (Proveedores)
     const queryOperativos = `
         SELECT 
             s.fecha_limite_pago AS fecha_recepcion,
@@ -218,26 +234,29 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
         if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos: ' + err.message });
 
-        // 2. OBTENER FONDEADORES Y EXTRAER JSON
+        // 2. FONDEADORES + HISTORIAL DE PAGOS REALES
         const queryFondeadores = `
             SELECT 
+                ci.id AS id_contrato, 
                 ci.plan_json, 
                 ci.pagos_irregulares_json, 
-                p.nombre_razon_social AS proveedor
+                p.nombre_razon_social AS proveedor,
+                (SELECT GROUP_CONCAT(MONTH(fecha_movimiento)) FROM movimientos_inversion mi WHERE mi.id_contrato = ci.id AND mi.tipo = 'PAGO_INTERES' AND mi.estatus_movimiento = 'COMPLETADO' AND YEAR(fecha_movimiento) = ?) AS meses_pagados
             FROM contratos_inversion ci
             JOIN inversores i ON ci.id_inversor = i.id_persona
             JOIN personas p ON i.id_persona = p.id
             WHERE ci.estatus = 'ACTIVO'
         `;
 
-        db.query(queryFondeadores, (err2, resContratos) => {
+        db.query(queryFondeadores, [anioFiltro], (err2, resContratos) => {
             if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
 
             let fondeadoresCalculados = [];
 
             // Analizamos cada contrato para extraer las cuotas de su JSON
             resContratos.forEach(contrato => {
-                
+                const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
+
                 // Extraer del Plan Regular
                 if (contrato.plan_json) {
                     try {
@@ -246,13 +265,14 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                             if (cuota.fecha && cuota.abono) {
                                 const [year, month] = cuota.fecha.split('-');
                                 if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
+                                    const yaSePago = mesesPagadosArray.includes(String(mesFiltro));
                                     fondeadoresCalculados.push({
                                         fecha_recepcion: cuota.fecha,
                                         tipo_gasto: 'PAGOS INTERES DE CRED',
                                         proveedor: contrato.proveedor,
                                         concepto: `Pago Rendimiento (Cuota ${cuota.numero || '-'})`,
                                         monto: parseFloat(cuota.abono) || 0,
-                                        estatus_pago: 'PENDIENTE',
+                                        estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
                                         origen_dato: 'FONDEADOR'
                                     });
                                 }
@@ -288,19 +308,25 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
             // 3. FUSIONAR Y ORDENAR POR FECHA
             const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
 
-            // 4. CALCULAR SUMATORIAS
+            // 4. CALCULAR SUMATORIAS Y DESGLOSE POR CATEGORÍA
             const resumen = {
                 total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
                 total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
             };
             resumen.gran_total = resumen.total_pagado + resumen.total_pendiente;
 
-            res.json({ success: true, data: dataFinal, resumen });
+            const desglose = {};
+            dataFinal.forEach(item => {
+                const cat = item.tipo_gasto || 'OTROS';
+                if(!desglose[cat]) desglose[cat] = 0;
+                desglose[cat] += parseFloat(item.monto);
+            });
+
+            res.json({ success: true, data: dataFinal, resumen, desglose });
         });
     });
 });
 
-// REPORTE LEGACY (Solo Pagos a Proveedores)
 router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
     const query = `
         SELECT 
@@ -321,10 +347,7 @@ router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
     `;
     
     db.query(query, (err, results) => {
-        if (err) {
-            console.error("Error al obtener pagos por vencer:", err);
-            return res.status(500).json({ success: false, message: 'Error de base de datos' });
-        }
+        if (err) return res.status(500).json({ success: false, message: 'Error de base de datos' });
         res.json({ success: true, data: results });
     });
 });
@@ -345,10 +368,7 @@ router.get('/', verificarToken, (req, res) => {
         ORDER BY p.id DESC
     `;
     db.query(query, (err, results) => {
-        if (err) {
-            console.error("ERROR EN CONSULTA GET:", err);
-            return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
-        }
+        if (err) return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
         res.json({ success: true, data: results });
     });
 });
@@ -361,20 +381,14 @@ router.post('/', verificarToken, (req, res) => {
         
         db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
         [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
-            if (err) {
-                console.error("ERROR MYSQL PERSONAS:", err);
-                return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
-            }
+            if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
             
             const idNuevaPersona = resultPersona.insertId;
             const catLimpia = categoria || 'OTROS';
             
             db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
             [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
-                if (err) {
-                    console.error("ERROR MYSQL PROVEEDORES:", err);
-                    return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
-                }
+                if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
                 
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
@@ -507,9 +521,35 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
     });
 });
 
-// ==========================================
-// RUTA PARA IMPORTAR PROVEEDORES DESDE EXCEL
-// ==========================================
+router.post('/crear', verificarToken, (req, res) => {
+    const { concepto_id, unidad_negocio, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
+    const solicitante_id = req.usuario.id;
+    const montoNum = parseFloat(monto) || 0;
+    const niveles = calcularNivelesRequeridos(montoNum);
+
+    const anio = new Date().getFullYear();
+    const folioBase = `SAC-TSR-RCS-${anio}`;
+
+    const query = `
+        INSERT INTO solicitudes_recursos 
+        (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
+         id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?)
+    `;
+
+    db.query(query, [
+        solicitante_id, concepto_id, descripcion, montoNum,
+        unidad_negocio, id_proveedor || null, forma_pago || 'TRANSFERENCIA', niveles, fecha_limite_pago || null
+    ], (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.sqlMessage });
+        const solicitudId = result.insertId;
+        const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
+        db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
+            res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada' });
+        });
+    });
+});
+
 router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
