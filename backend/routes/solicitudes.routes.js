@@ -2,56 +2,60 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const multer = require('multer');
+const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
-const PDFDocument = require('pdfkit');
-const xlsx = require('xlsx'); 
+const multer = require('multer');
 
-const uploadDir = path.join(__dirname, '../uploads');
+// ─── Multer para comprobante de pago ─────────────────────────────────
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) { cb(null, uploadDir); },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'prov-' + req.body.id_proveedor + '-' + uniqueSuffix + path.extname(file.originalname));
-    }
+    destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
+    filename: (req, file, cb) => cb(null, `solicitud-${req.params.id}-${Date.now()}${path.extname(file.originalname)}`)
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
-const uploadExcel = multer({ storage: multer.memoryStorage() });
-
+// =====================================================================
+// FUNCIONES AUXILIARES
+// =====================================================================
 function numeroALetras(num) {
-    const unidades = ['Cero', 'Un', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve'];
-    const decenas = ['Diez', 'Once', 'Doce', 'Trece', 'Catorce', 'Quince', 'Dieciseis', 'Diecisiete', 'Dieciocho', 'Diecinueve'];
-    const decenasMultiplos = ['', '', 'Veinte', 'Treinta', 'Cuarenta', 'Cincuenta', 'Sesenta', 'Setenta', 'Ochenta', 'Noventa'];
-    const centenas = ['', 'Ciento', 'Doscientos', 'Trescientos', 'Cuatrocientos', 'Quinientos', 'Seiscientos', 'Setecientos', 'Ochocientos', 'Novecientos'];
+    const unidades = ['','UN ','DOS ','TRES ','CUATRO ','CINCO ','SEIS ','SIETE ','OCHO ','NUEVE '];
+    const decenas  = ['DIEZ ','ONCE ','DOCE ','TRECE ','CATORCE ','QUINCE ','DIECISEIS ','DIECISIETE ','DIECIOCHO ','DIECINUEVE ','VEINTE ','TREINTA ','CUARENTA ','CINCUENTA ','SESENTA ','SETENTA ','OCHENTA ','NOVENTA '];
+    const centenas = ['','CIENTO ','DOSCIENTOS ','TRESCIENTOS ','CUATROCIENTOS ','QUINIENTOS ','SEISCIENTOS ','SETECIENTOS ','OCHOCIENTOS ','NOVECIENTOS '];
+
+    let entero = Math.floor(num);
+    let centavos = Math.round((num - entero) * 100);
+    if(entero === 0) return 'CERO PESOS ' + centavos.toString().padStart(2, '0') + '/100 M.N.';
 
     function convertirGrupo(n) {
-        let texto = '';
-        let c = Math.floor(n / 100);
-        let d = Math.floor((n % 100) / 10);
-        let u = n % 10;
-        if (c > 0) { if (c === 1 && d === 0 && u === 0) texto += 'Cien '; else texto += centenas[c] + ' '; }
-        if (d === 1) texto += decenas[u] + ' ';
-        else if (d > 1) { texto += decenasMultiplos[d] + ' '; if (u > 0) texto += 'y ' + unidades[u] + ' '; } 
-        else if (u > 0) { if (u === 1) texto += 'Un '; else texto += unidades[u] + ' '; }
-        return texto.trim();
+        let output = '';
+        if (n === 100) return 'CIEN ';
+        output += centenas[Math.floor(n / 100)];
+        n = n % 100;
+        if (n < 10) output += unidades[n];
+        else if (n < 20) output += decenas[n - 10];
+        else if (n === 20) output += 'VEINTE ';
+        else if (n < 30) output += 'VEINTI' + unidades[n - 20];
+        else {
+            output += decenas[Math.floor(n / 10) + 8];
+            if (n % 10 !== 0) output += 'Y ' + unidades[n % 10];
+        }
+        return output;
     }
 
-    let enteros = Math.floor(num);
-    let centavos = Math.round((num - enteros) * 100);
-    let textoFinal = '';
-
-    if (enteros === 0) textoFinal = 'Cero';
-    else if (enteros > 999) {
-        let miles = Math.floor(enteros / 1000);
-        let resto = enteros % 1000;
-        if (miles === 1) textoFinal += 'Mil ';
-        else textoFinal += convertirGrupo(miles) + ' Mil ';
-        if (resto > 0) textoFinal += convertirGrupo(resto);
-    } else { textoFinal = convertirGrupo(enteros); }
-
-    return `${textoFinal.toUpperCase()} PESOS ${centavos.toString().padStart(2, '0')}/100 M.N.`;
+    let letras = '';
+    if (entero >= 1000000) {
+        let millones = Math.floor(entero / 1000000);
+        letras += (millones === 1 ? 'UN MILLÓN ' : convertirGrupo(millones) + 'MILLONES ');
+        entero = entero % 1000000;
+    }
+    if (entero >= 1000) {
+        let miles = Math.floor(entero / 1000);
+        letras += (miles === 1 ? 'MIL ' : convertirGrupo(miles) + 'MIL ');
+        entero = entero % 1000;
+    }
+    if (entero > 0) letras += convertirGrupo(entero);
+    
+    return letras.trim() + ' PESOS ' + centavos.toString().padStart(2, '0') + '/100 M.N.';
 }
 
 function calcularNivelesRequeridos(monto) {
@@ -69,508 +73,482 @@ function formatMoney(n) {
     return '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// ==========================================
-// RUTAS DE AUTORIZACIÓN (ADMIN) - VISTA GENERAL
-// ==========================================
-router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
-    const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, u.username as solicitante
-        FROM pagos_a_proveedores pp
-        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
-        JOIN personas p ON pr.id_persona = p.id
-        JOIN usuarios u ON pp.id_usuario_solicita = u.id
-        WHERE pp.estatus IN ('PENDIENTE_VALIDACION', 'PENDIENTE_AUTORIZACION', 'AUTORIZADO', 'PENDIENTE', 'PAGADO')
-        ORDER BY pp.estatus DESC, pp.fecha_solicitud DESC
+// =====================================================================
+// RUTAS PRINCIPALES DE SOLICITUDES
+// =====================================================================
+
+router.get('/', verificarToken, (req, res) => {
+    const miRol = req.usuario.rol;
+    const miId  = req.usuario.id;
+
+    let query = `
+        SELECT 
+            s.id, s.folio, s.concepto_id, s.unidad_negocio, s.monto, 
+            s.estatus, s.nivel_actual, s.niveles_requeridos,
+            s.fecha_solicitud, s.comprobante_pago_path,
+            p.nombre_razon_social AS solicitante_nombre
+        FROM solicitudes_recursos s
+        JOIN usuarios u ON s.solicitante_id = u.id
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
     `;
+
+    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(miRol)) {
+        query += ` WHERE s.solicitante_id = ${db.escape(miId)}`;
+    }
+    query += ' ORDER BY s.fecha_solicitud DESC';
+
     db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false });
+        if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.put('/autorizaciones/:id/aprobar', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
-    db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
-        const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
-        db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'PAGO_AUTORIZADO', `Autorizó la salida de dinero a favor de: ${proveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
+router.get('/pendientes', verificarToken, (req, res) => {
+    const miRol = req.usuario.rol;
+    const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2 };
+    
+    const nivelRol = rolANivel[miRol];
+    if (nivelRol === undefined && miRol !== 'ADMIN') return res.json({ success: true, data: [] });
 
-router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
-    db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
-        const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
-        db.query("UPDATE pagos_a_proveedores SET estatus = 'RECHAZADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'PAGO_RECHAZADO', `Rechazó el pago solicitado para: ${proveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
-
-router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
-    const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
-               u.username as solicitante, u.rol as rol_solicitante
-        FROM pagos_a_proveedores pp
-        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
-        JOIN personas p ON pr.id_persona = p.id
-        JOIN usuarios u ON pp.id_usuario_solicita = u.id
-        WHERE pp.id = ?
+    let query = `
+        SELECT s.id, s.folio, s.concepto_id, s.unidad_negocio, s.monto,
+               s.estatus, s.nivel_actual, s.niveles_requeridos, s.fecha_solicitud,
+               p.nombre_razon_social AS solicitante_nombre
+        FROM solicitudes_recursos s
+        JOIN usuarios u ON s.solicitante_id = u.id
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        WHERE s.estatus NOT IN ('PAGADO', 'RECHAZADO', 'AUTORIZADO_FINAL')
     `;
 
-    db.query(query, [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(404).send('Pago no encontrado');
-        const pago = results[0];
+    if (miRol !== 'ADMIN') {
+        query += ` AND s.nivel_actual = ${db.escape(nivelRol)}`;
+    }
+    query += ' ORDER BY s.fecha_solicitud ASC';
 
-        const doc = new PDFDocument({ size: 'LETTER', margin: 40 });
-        res.setHeader('Content-disposition', `attachment; filename=Solicitud_Recursos_Folio_${pago.id}.pdf`);
-        res.setHeader('Content-type', 'application/pdf');
-        doc.pipe(res);
-
-        const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
-        if (fs.existsSync(logoPath)) doc.image(logoPath, 40, 40, { width: 70 });
-
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#16a34a').text('SOLICITUD UNIVERSAL DE RECURSOS 2026', 0, 40, { align: 'right' });
-        doc.text('SAC-TSR-RCS-2026', 0, 52, { align: 'right' });
-        doc.rect(480, 68, 90, 13).fill('#fef08a');
-        doc.fillColor('black').fontSize(9).font('Helvetica').text('Oaxaca de Juárez, Oax., a', 350, 71, { align: 'left' });
-        doc.font('Helvetica-Bold').text(new Date(pago.fecha_solicitud).toLocaleDateString('es-MX'), 485, 71);
-
-        doc.font('Helvetica-Bold').text('C. BEATRIZ CRUZ CANO', 40, 95);
-        doc.font('Helvetica').text('TESORERÍA', 40, 107);
-        doc.text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 40, 119);
-
-        doc.text('Por medio del presente solicito recurso para: ', 40, 150, { continued: true }).font('Helvetica-Bold').text(pago.concepto.toUpperCase());
-        doc.font('Helvetica').text('correspondiente a la unidad de negocio: ', 40, 165);
-        doc.rect(230, 163, 110, 12).fill('#fef08a');
-        doc.fillColor('black').font('Helvetica-Bold').text('01.CRP - Corporativo', 235, 165);
-
-        doc.rect(40, 185, 530, 15).fill('#fef08a');
-        doc.fillColor('black').font('Helvetica').text('Por la cantidad de: ', 45, 188, { continued: true }).font('Helvetica-Bold').text(`$${Number(pago.monto_pago).toLocaleString('es-MX', {minimumFractionDigits:2})}    ( ${numeroALetras(pago.monto_pago)} )`);
-
-        doc.font('Helvetica').text('Lo cual será destinado para lo descrito en el apartado siguiente.', 40, 215);
-
-        doc.font('Helvetica-Bold').text('DATOS DEL PROVEEDOR O BENEFICIARIO', 40, 250);
-        doc.moveTo(40, 260).lineTo(570, 260).stroke('#cbd5e1'); 
-        doc.fontSize(8).text('DESCRIPCIÓN ESPECÍFICA DE LA FINALIDAD DEL RECURSO:', 40, 270);
-        doc.font('Helvetica').text(pago.concepto.toUpperCase(), 40, 282);
-        
-        doc.font('Helvetica-Bold').text('TIPO DE SOLICITUD', 40, 310);
-        doc.font('Helvetica').text('TRANSFERENCIA', 40, 322);
-        
-        doc.font('Helvetica-Bold').text('CUENTA/CLABE/CIE', 200, 310);
-        doc.font('Helvetica').text(pago.numero_cuenta || pago.clabe_bancaria || 'N/D', 200, 322);
-        
-        doc.font('Helvetica-Bold').text('BANCO', 360, 310);
-        doc.font('Helvetica').text(pago.banco || 'N/D', 360, 322);
-        
-        doc.font('Helvetica-Bold').text('RFC PROVEEDOR', 40, 350);
-        doc.font('Helvetica').text(pago.rfc || 'N/A', 40, 362);
-        
-        doc.font('Helvetica-Bold').text('NOMBRE DEL PROVEEDOR', 200, 350);
-        doc.font('Helvetica').text(pago.proveedor, 200, 362);
-
-        if(pago.num_factura_ref) {
-            doc.font('Helvetica-Bold').text('FACTURA / REFERENCIA', 40, 390);
-            doc.font('Helvetica').text(pago.num_factura_ref, 40, 402);
-        }
-
-        doc.fillColor('black');
-        const sigY1 = 480;
-        doc.moveTo(50, sigY1).lineTo(250, sigY1).stroke();
-        doc.font('Helvetica-Bold').fontSize(7).text('SOLICITADO POR', 50, sigY1 + 5, { width: 200, align: 'center' });
-        doc.font('Helvetica').text(pago.solicitante.toUpperCase(), 50, sigY1 + 15, { width: 200, align: 'center' });
-
-        doc.moveTo(320, sigY1).lineTo(520, sigY1).stroke();
-        doc.font('Helvetica-Bold').text('REVISADO POR', 320, sigY1 + 5, { width: 200, align: 'center' });
-        doc.font('Helvetica').text('LIC C.P. MARIAM ITZEL RAMIREZ CARRASCO', 320, sigY1 + 15, { width: 200, align: 'center' });
-
-        if(pago.estatus === 'PAGADO' || pago.estatus === 'AUTORIZADO'){
-            doc.save();
-            doc.rotate(-20, { origin: [300, 500] });
-            doc.fontSize(45).font('Helvetica-Bold').fillColor('rgba(22, 163, 74, 0.15)').text('AUTORIZADO', 160, 480);
-            doc.restore();
-        }
-        doc.end();
-        registrarBitacora(req.usuario.id, 'DESCARGA_PDF', `Descargó Solicitud Universal de Pago para: ${pago.proveedor}`);
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: results });
     });
 });
 
-// ==========================================
-// RUTAS DE REPORTES (CON MOTOR JSON)
-// ==========================================
-router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
-    const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
-    const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
-
-    const queryOperativos = `
-        SELECT 
-            s.fecha_limite_pago AS fecha_recepcion,
-            cp.descripcion AS tipo_gasto,
-            COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
-            s.descripcion AS concepto,
-            s.monto AS monto,
-            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
-            'OPERATIVO' AS origen_dato
+router.get('/:id', verificarToken, (req, res) => {
+    const { id } = req.params;
+    const querySolicitud = `
+        SELECT s.*, 
+               p.nombre_razon_social AS solicitante_nombre,
+               pprov.nombre_razon_social AS proveedor_nombre, 
+               pprov.rfc AS proveedor_rfc,
+               prov.banco AS proveedor_banco, 
+               prov.numero_cuenta AS proveedor_cuenta, 
+               prov.cuenta_bancaria AS proveedor_clabe,
+               cp.descripcion AS concepto_desc, 
+               cp.clave AS concepto_clave
         FROM solicitudes_recursos s
-        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        JOIN usuarios u ON s.solicitante_id = u.id
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
         LEFT JOIN personas pprov ON prov.id_persona = pprov.id
-        WHERE MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?
-        AND s.estatus != 'RECHAZADO'
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        WHERE s.id = ?
     `;
+    
+    const queryFirmas = `
+        SELECT b.comentarios as comentario, b.fecha_firma, b.accion, b.etapa_firma,
+               p.nombre_razon_social AS aprobador, e.puesto AS aprobador_puesto
+        FROM historial_firmas_pago b 
+        JOIN usuarios u ON b.id_usuario = u.id 
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        WHERE b.id_solicitud = ?
+        ORDER BY b.fecha_firma ASC
+    `;
+    
+    db.query(querySolicitud, [id], (err, resSol) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (resSol.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
+        
+        db.query(queryFirmas, [id], (err2, resFirmas) => {
+            if (err2) return res.status(500).json({ success: false, message: err2.message });
+            res.json({ success: true, solicitud: resSol[0], firmas: resFirmas });
+        });
+    });
+});
 
-    db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos: ' + err.message });
+// ─── RUTA CREAR (CON SOPORTE PARA FECHA LÍMITE) ───
+router.post('/crear', verificarToken, (req, res) => {
+    try {
+        const { concepto_id, unidad_negocio, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
+        
+        const solicitante_id = req.usuario.id;
+        const montoNum = parseFloat(monto) || 0;
+        const niveles = calcularNivelesRequeridos(montoNum);
 
-        const queryFondeadores = `
-            SELECT 
-                ci.plan_json, 
-                ci.pagos_irregulares_json, 
-                p.nombre_razon_social AS proveedor
-            FROM contratos_inversion ci
-            JOIN inversores i ON ci.id_inversor = i.id_persona
-            JOIN personas p ON i.id_persona = p.id
-            WHERE ci.estatus = 'ACTIVO'
+        const anio = new Date().getFullYear();
+        const folioBase = `SAC-TSR-RCS-${anio}`;
+
+        // Si id_proveedor está vacío, lo forzamos a nulo para evitar errores en BD
+        const idProvFinal = (id_proveedor === '' || id_proveedor === null) ? null : id_proveedor;
+        const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null) ? null : fecha_limite_pago;
+
+        const query = `
+            INSERT INTO solicitudes_recursos 
+            (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
+             id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?)
         `;
 
-        db.query(queryFondeadores, (err2, resContratos) => {
-            if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
-
-            let fondeadoresCalculados = [];
-
-            resContratos.forEach(contrato => {
-                if (contrato.plan_json) {
-                    try {
-                        const plan = JSON.parse(contrato.plan_json);
-                        plan.forEach(cuota => {
-                            if (cuota.fecha && cuota.abono) {
-                                const [year, month] = cuota.fecha.split('-');
-                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
-                                    fondeadoresCalculados.push({
-                                        fecha_recepcion: cuota.fecha,
-                                        tipo_gasto: 'PAGOS INTERES DE CRED',
-                                        proveedor: contrato.proveedor,
-                                        concepto: `Pago Rendimiento (Cuota ${cuota.numero || '-'})`,
-                                        monto: parseFloat(cuota.abono) || 0,
-                                        estatus_pago: 'PENDIENTE',
-                                        origen_dato: 'FONDEADOR'
-                                    });
-                                }
-                            }
-                        });
-                    } catch(e) {}
-                }
-
-                if (contrato.pagos_irregulares_json) {
-                    try {
-                        const irregulares = JSON.parse(contrato.pagos_irregulares_json);
-                        irregulares.forEach(cuota => {
-                            if (cuota.fecha && cuota.monto) {
-                                const [year, month] = cuota.fecha.split('-');
-                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
-                                    fondeadoresCalculados.push({
-                                        fecha_recepcion: cuota.fecha,
-                                        tipo_gasto: 'RETIRO / PAGO ESPECIAL',
-                                        proveedor: contrato.proveedor,
-                                        concepto: 'Pago Irregular / Capital',
-                                        monto: parseFloat(cuota.monto) || 0,
-                                        estatus_pago: 'PENDIENTE',
-                                        origen_dato: 'FONDEADOR'
-                                    });
-                                }
-                            }
-                        });
-                    } catch(e) {}
-                }
-            });
-
-            const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
-
-            const resumen = {
-                total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
-                total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
-            };
-            resumen.gran_total = resumen.total_pagado + resumen.total_pendiente;
-
-            res.json({ success: true, data: dataFinal, resumen });
-        });
-    });
-});
-
-router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
-    const query = `
-        SELECT 
-            pp.id AS id_pago,
-            p.nombre_razon_social AS proveedor,
-            pp.concepto,
-            pp.monto_pago,
-            pp.estatus,
-            DATE(pp.fecha_solicitud) as fecha_solicitud,
-            pr.dias_credito,
-            DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY) AS fecha_vencimiento,
-            DATEDIFF(DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY), CURDATE()) AS dias_restantes
-        FROM pagos_a_proveedores pp
-        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
-        JOIN personas p ON pr.id_persona = p.id
-        WHERE pp.estatus NOT IN ('PAGADO', 'RECHAZADO')
-        ORDER BY fecha_vencimiento ASC
-    `;
-    
-    db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error de base de datos' });
-        res.json({ success: true, data: results });
-    });
-});
-
-// ==========================================
-// CRUD NORMAL DE PROVEEDORES
-// ==========================================
-router.get('/', verificarToken, (req, res) => {
-    const query = `
-        SELECT 
-            p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
-            p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, 
-            pr.categoria, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
-            pr.banco, pr.dias_credito, pr.estatus_activo 
-        FROM personas p 
-        INNER JOIN proveedores pr ON p.id = pr.id_persona 
-        WHERE p.eliminado = FALSE 
-        ORDER BY p.id DESC
-    `;
-    db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
-        res.json({ success: true, data: results });
-    });
-});
-
-router.post('/', verificarToken, (req, res) => {
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    
-    db.beginTransaction(err => {
-        if (err) return res.status(500).json({ success: false, message: 'Fallo al iniciar transacción BD.' });
-        
-        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
-        [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
-            if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
+        db.query(query, [
+            solicitante_id, concepto_id, descripcion, montoNum,
+            unidad_negocio, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal
+        ], (err, result) => {
+            if (err) {
+                console.error("Error BD en Crear Solicitud:", err);
+                return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
+            }
             
-            const idNuevaPersona = resultPersona.insertId;
-            const catLimpia = categoria || 'OTROS';
+            const solicitudId = result.insertId;
+            const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
             
-            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-            [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
-                if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
-                
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
-                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
-                    res.json({ success: true });
-                });
+            db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
+                res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
             });
         });
-    });
+
+    } catch (catastrofe) {
+        console.error("Error catastrófico en Crear Solicitud:", catastrofe);
+        res.status(500).json({ success: false, message: String(catastrofe) });
+    }
 });
 
-router.put('/:id', verificarToken, (req, res) => {
+router.post('/autorizar/:id', verificarToken, (req, res) => {
     const { id } = req.params;
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    
-    db.beginTransaction(err => {
-        if (err) return res.status(500).json({ success: false, message: 'Fallo en BD' });
-        
-        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
-        [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
-            if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
-            
-            const catLimpia = categoria || 'OTROS';
+    const { comentario } = req.body;
+    const miRol = req.usuario.rol;
+    const miUsuarioId = req.usuario.id;
 
-            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
-            [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
-                if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`);
-                    res.json({ success: true });
-                });
-            });
-        });
-    });
-});
+    db.query('SELECT monto, nivel_actual, estatus FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
+        if (err || rows.length === 0) return res.status(404).json({ success: false, message: "No encontrada" });
 
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(500).json({ success: false });
-        const nombreProveedor = results[0].nombre_razon_social;
-        db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
+        const sol = rows[0];
+        if (['PAGADO', 'RECHAZADO'].includes(sol.estatus)) return res.status(400).json({ success: false, message: "Ya procesada" });
 
-router.delete('/:id', verificarToken, (req, res) => {
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(500).json({ success: false });
-        const nombreProveedor = results[0].nombre_razon_social;
-        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
+        const rolEsperado = obtenerRolEsperado(sol.monto, sol.nivel_actual);
+        if (!rolEsperado) return res.status(400).json({ success: false, message: 'Ya firmada' });
 
-router.get('/:id/pagos', verificarToken, (req, res) => {
-    db.query('SELECT * FROM pagos_a_proveedores WHERE id_proveedor = ? ORDER BY fecha_solicitud DESC', [req.params.id], (err, results) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, data: results });
-    });
-});
-
-router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) => {
-    const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
-    let url = req.file ? `uploads/${req.file.filename}` : null;
-    const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
-    const id_autoriza = req.usuario.rol === 'ADMIN' ? req.usuario.id : null;
-
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_proveedor], (err, results) => {
-        const nombreProveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
-        db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
-        [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            if(estatus === 'PAGADO'){
-                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo a favor de: ${nombreProveedor}`);
-            } else {
-                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago para validación a favor de: ${nombreProveedor}`);
-            }
-            res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
-        });
-    });
-});
-
-router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
-    const { id_pago } = req.params;
-    const { accion } = req.body; 
-    const id_usuario = req.usuario.id;
-
-    let nuevoEstatus = '';
-    let queryUpdate = '';
-    let params = [];
-    let accionBitacora = '';
-
-    if (accion === 'VALIDAR') {
-        nuevoEstatus = 'PENDIENTE_AUTORIZACION';
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_validador = ?, fecha_validacion = NOW() WHERE id = ?';
-        params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'VALIDACIÓN_PAGO';
-    } else if (accion === 'AUTORIZAR') {
-        nuevoEstatus = 'PAGADO'; 
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ?';
-        params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'AUTORIZACIÓN_FINAL';
-    } else if (accion === 'RECHAZAR') {
-        nuevoEstatus = 'RECHAZADO';
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ? WHERE id = ?';
-        params = [nuevoEstatus, id_pago];
-        accionBitacora = 'RECHAZO_PAGO';
-    } else {
-        return res.status(400).json({ success: false, message: 'Acción no válida' });
-    }
-
-    db.query(queryUpdate, params, (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        if (result.affectedRows === 0) return res.status(400).json({ success: false, message: 'Pago no encontrado.' });
-
-        db.query('SELECT pp.concepto, pp.monto_pago, p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [id_pago], (err, row) => {
-            if (!err && row.length > 0) {
-                const estatusLegible = nuevoEstatus.replace('_', ' ');
-                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
-            }
-            res.json({ success: true });
-        });
-    });
-});
-
-router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
-    }
-
-    try {
-        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0]; 
-        const sheet = workbook.Sheets[sheetName];
-        
-        const data = xlsx.utils.sheet_to_json(sheet);
-        
-        if (data.length === 0) {
-            return res.status(400).json({ success: false, message: 'El archivo Excel está vacío' });
+        if (miRol !== 'ADMIN' && miRol !== rolEsperado) {
+            return res.status(403).json({ success: false, message: `Se requiere rol: ${rolEsperado}` });
         }
 
-        let procesados = 0;
-        let errores = 0;
+        const nuevoNivel = sol.nivel_actual + 1;
+        const siguienteRol = obtenerRolEsperado(sol.monto, nuevoNivel);
+        const nuevoEstatus = siguienteRol ? `AUTORIZADO_${nuevoNivel}` : 'AUTORIZADO_FINAL';
 
-        for (const row of data) {
-            const rfc_original = row['RFC'] ? row['RFC'].toString().trim().toUpperCase() : null;
-            const nombre = row['NOMBRE'] ? row['NOMBRE'].toString().trim() : null;
+        db.beginTransaction(err3 => {
+            if (err3) return res.status(500).json({ success: false });
 
-            if (!rfc_original || !nombre) {
-                errores++;
-                continue; 
-            }
-
-            let tipo_persona = 'MORAL';
-            if (rfc_original.length === 13) {
-                tipo_persona = 'FISICA';
-            }
-
-            try {
-                await new Promise((resolve, reject) => {
-                    db.beginTransaction(err => {
-                        if (err) return reject(err);
-
-                        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
-                        [tipo_persona, nombre, rfc_original, '', '', ''], (err, resultPersona) => {
-                            if (err) return db.rollback(() => reject(err));
-                            
-                            const idNuevaPersona = resultPersona.insertId;
-                            
-                            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-                            [idNuevaPersona, 'OTROS', '', '', '', 0], (err) => {
-                                if (err) return db.rollback(() => reject(err));
-                                
-                                db.commit(err => {
-                                    if (err) return db.rollback(() => reject(err));
-                                    resolve();
-                                });
-                            });
-                        });
+            const queryFirma = `
+                INSERT INTO historial_firmas_pago 
+                (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
+                VALUES (?, ?, ?, 'FIRMADO', 'APROBADO', ?)
+            `;
+            db.query(queryFirma, [id, miUsuarioId, rolEsperado, comentario || 'Aprobado'], (err4) => {
+                if (err4) return db.rollback(() => res.status(500).json({ success: false }));
+                db.query('UPDATE solicitudes_recursos SET estatus = ?, nivel_actual = ? WHERE id = ?', [nuevoEstatus, nuevoNivel, id], (err5) => {
+                    if (err5) return db.rollback(() => res.status(500).json({ success: false }));
+                    db.commit(err6 => {
+                        if (err6) return db.rollback(() => res.status(500).json({ success: false }));
+                        registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma nivel ${nuevoNivel} en sol #${id}`);
+                        res.json({ success: true, nuevo_estatus: nuevoEstatus, message: 'Autorizado' });
                     });
                 });
-                procesados++;
-            } catch (err) {
-                errores++;
+            });
+        });
+    });
+});
+
+router.post('/rechazar/:id', verificarToken, (req, res) => {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const miRol = req.usuario.rol;
+
+    db.query('SELECT monto, nivel_actual FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
+        if (err || rows.length === 0) return res.status(404).json({ success: false });
+        const sol = rows[0];
+        const rolEsperado = obtenerRolEsperado(sol.monto, sol.nivel_actual);
+
+        if (miRol !== 'ADMIN' && miRol !== rolEsperado) return res.status(403).json({ success: false });
+
+        db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
+        [id, req.usuario.id, rolEsperado || 'REVISOR', motivo || 'Rechazado'], () => {
+            db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
+                res.json({ success: true, message: 'Solicitud rechazada' });
+            });
+        });
+    });
+});
+
+router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (req, res) => {
+    const { id } = req.params;
+    const miUsuarioId = req.usuario.id;
+
+    if (!req.file) return res.status(400).json({ success: false });
+
+    const ruta = `uploads/${req.file.filename}`;
+    db.query('UPDATE solicitudes_recursos SET comprobante_pago_path = ?, estatus = "PAGADO", fecha_pago = NOW() WHERE id = ?', [ruta, id], () => {
+        const queryFirma = `
+            INSERT INTO historial_firmas_pago 
+            (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
+            VALUES (?, ?, 'PAGADO', 'FIRMADO', 'APROBADO', 'Comprobante de pago subido')
+        `;
+        db.query(queryFirma, [id, miUsuarioId], () => {
+            registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud #${id}`);
+            res.json({ success: true, message: 'Pago registrado' });
+        });
+    });
+});
+
+// =====================================================================
+// GENERADOR PDF (CLON PERFECTO DE EXCEL)
+// =====================================================================
+router.get('/:id/pdf', verificarToken, (req, res) => {
+    const { id } = req.params;
+
+    const querySolicitud = `
+        SELECT s.*, s.folio, 
+               p.nombre_razon_social AS solicitante_nombre,
+               e.puesto AS solicitante_puesto, 
+               e.unidad_negocio AS solicitante_unidad,
+               u.ruta_firma_png AS solicitante_firma,
+               pprov.nombre_razon_social AS proveedor_nombre, 
+               pprov.rfc AS proveedor_rfc,
+               prov.banco AS proveedor_banco, 
+               prov.numero_cuenta AS proveedor_cuenta, 
+               prov.cuenta_bancaria AS proveedor_clabe,
+               cp.descripcion AS concepto_desc, 
+               cp.clave AS concepto_clave
+        FROM solicitudes_recursos s
+        JOIN usuarios u ON s.solicitante_id = u.id
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
+        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        WHERE s.id = ?
+    `;
+
+    const queryFirmas = `
+        SELECT hf.etapa_firma, hf.fecha_firma, hf.accion,
+               p.nombre_razon_social AS aprobador, e.puesto AS aprobador_puesto, u.ruta_firma_png
+        FROM historial_firmas_pago hf
+        JOIN usuarios u ON hf.id_usuario = u.id
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        WHERE hf.id_solicitud = ?
+        ORDER BY hf.fecha_firma ASC
+    `;
+
+    db.query(querySolicitud, [id], (err, solRows) => {
+        if (err || solRows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
+        db.query(queryFirmas, [id], (err2, firmas) => {
+            if (err2) return res.status(500).json({ success: false });
+            generarPDFSolicitud(res, solRows[0], firmas || []);
+        });
+    });
+});
+
+function generarPDFSolicitud(res, sol, firmas) {
+    const doc = new PDFDocument({ size: 'LETTER', margin: 30, layout: 'portrait' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=${sol.folio || sol.id}.pdf`);
+    doc.pipe(res);
+
+    const C_VERDE_TITULO = '#00B050';
+    const C_AMARILLO     = '#FFFF00';
+    const C_AZUL         = '#0000FF';
+    const C_ROJO         = '#FF0000';
+    const C_GRIS_BORDE   = '#000000';
+    const C_VERDE_CAJA   = '#00B050';
+
+    const W = doc.page.width - 60;
+    const LEFT = 30;
+    let y = 30;
+
+    const drawCell = (cx, cy, cw, ch, text, fill, textCol, align, bold, size, valigOffset = 4) => {
+        if (fill) { doc.rect(cx, cy, cw, ch).fill(fill); }
+        doc.rect(cx, cy, cw, ch).stroke(C_GRIS_BORDE);
+        if (text) {
+            doc.fillColor(textCol || '#000000').font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size || 7)
+               .text(text, cx + 2, cy + valigOffset, { width: cw - 4, align: align || 'left' });
+        }
+    };
+
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(C_VERDE_TITULO).text('SOLICITUD UNIVERSAL DE RECURSOS 2026', LEFT, y, { width: W, align: 'center' });
+    doc.fontSize(9).text('SAC-TSR-RCS-2026', LEFT, y, { width: W, align: 'right' });
+    
+    y += 15;
+    const fechaText = new Date(sol.fecha_solicitud).toLocaleDateString('es-MX');
+    doc.font('Helvetica').fontSize(9).fillColor('#000000').text('Oaxaca de Juárez, Oax., a', LEFT + 350, y);
+    drawCell(LEFT + 470, y - 2, 80, 12, fechaText, C_AMARILLO, C_AZUL, 'center', true, 9, 2);
+    doc.fontSize(7).fillColor(C_ROJO).text('Fecha (dd/mm/aa)', LEFT + 470, y + 12, { width: 80, align: 'center' });
+
+    y += 10;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text('C. BEATRIZ CRUZ CANO\nTESORERÍA\nOPCIONES SACIMEX SA DE CV SOFOM ENR', LEFT, y);
+    y += 35;
+    doc.font('Helvetica-Oblique').fillColor(C_AZUL).text('Servicios integrados EXDAN SA DE CV', LEFT, y);
+
+    y += 20;
+    doc.font('Helvetica').fillColor('#000000').fontSize(8).text('Por medio del presente solicito recurso para:', LEFT, y + 3);
+    drawCell(LEFT + 195, y, 320, 13, sol.concepto_desc || sol.concepto_id || 'PAGO', C_AMARILLO, C_AZUL, 'left', true, 8, 3);
+    doc.fillColor('#000').font('Helvetica').text(sol.concepto_clave || sol.concepto_id, LEFT + 525, y + 3);
+
+    y += 16;
+    doc.fillColor('#000000').text('correspondiente a la unidad de negocio:', LEFT, y + 3);
+    doc.rect(LEFT + 195, y, 320, 13).lineWidth(2).stroke(C_VERDE_CAJA); 
+    doc.rect(LEFT + 195, y, 320, 13).fill(C_AMARILLO);
+    doc.lineWidth(1); 
+    doc.fillColor(C_AZUL).font('Helvetica-Bold').text(sol.unidad_negocio || 'Corporativo', LEFT + 198, y + 3);
+
+    y += 22;
+    doc.fillColor('#000000').font('Helvetica').text('Por la cantidad de:', LEFT, y + 3);
+    drawCell(LEFT + 80, y, 80, 13, formatMoney(sol.monto), C_AMARILLO, C_AZUL, 'center', true, 9, 3);
+    
+    const letrasMonto = numeroALetras(sol.monto);
+    doc.fillColor('#000000').font('Helvetica-Bold').fontSize(8).text(letrasMonto, LEFT + 165, y + 3);
+
+    y += 16;
+    doc.font('Helvetica').fontSize(8).text('Lo cual será destinado para lo descrito en el apartado siguiente. Sin más por el momento quedo a sus órdenes.', LEFT, y);
+
+    y += 22;
+    drawCell(LEFT, y, W, 13, 'DATOS DEL PROVEEDOR O BENEFICIARIO', null, '#000000', 'center', true, 9, 3);
+    
+    y += 13;
+    drawCell(LEFT, y, 250, 13, 'DESCRIPCIÓN ESPECÍFICA DE LA FINALIDAD DEL RECURSO:', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 250, y, 180, 13, 'Ayuda: (El despacho, honorarios, colegiaturas, etc.)', null, C_ROJO, 'left', false, 7, 4);
+    drawCell(LEFT + 430, y, W - 430, 13, 'Fecha de vencimiento', null, C_ROJO, 'center', false, 7, 4);
+
+    y += 13;
+    const fechaLimiteText = sol.fecha_limite_pago ? new Date(sol.fecha_limite_pago).toLocaleDateString('es-MX', {timeZone: 'UTC'}) : '---';
+    drawCell(LEFT, y, 430, 15, sol.descripcion || '', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 430, y, W - 430, 15, fechaLimiteText, C_AMARILLO, C_AZUL, 'center', true, 8, 4);
+
+    y += 15;
+    drawCell(LEFT, y, 120, 13, 'TIPO DE SOLICITUD', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 120, y, 130, 13, 'REFERENCIA', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 250, y, 180, 13, 'CUENTA / CLABE / CIE', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 430, y, W - 430, 13, 'BANCO:', null, '#000000', 'left', true, 7, 4);
+
+    y += 13;
+    drawCell(LEFT, y, 120, 15, (sol.forma_pago || 'TRANSFERENCIA').toUpperCase(), C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 120, y, 130, 15, '', null, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 250, y, 180, 15, sol.proveedor_clabe || sol.proveedor_cuenta || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 430, y, W - 430, 15, sol.proveedor_banco || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+
+    y += 15;
+    drawCell(LEFT, y, 250, 13, 'NOMBRE DEL PROVEEDOR // BENEFICIARIO', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 250, y, 180, 13, 'RFC PROVEEDOR', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 430, y, W - 430, 13, 'CORREO DEL PROVEEDOR', null, '#000000', 'left', true, 7, 4);
+
+    y += 13;
+    drawCell(LEFT, y, 250, 15, sol.proveedor_nombre || '---', null, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 250, y, 180, 15, sol.proveedor_rfc || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 430, y, W - 430, 15, '---', null, C_AZUL, 'left', true, 8, 4);
+
+    y += 15;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(C_ROJO).text('Ayuda: Recuerda solicitar la factura con uso de G03 - Gastos en general.', LEFT, y + 3);
+
+    y += 20;
+    drawCell(LEFT, y, 80, 15, 'SÓLO PFF ->', null, C_ROJO, 'center', true, 8, 4);
+    drawCell(LEFT + 80, y, 80, 15, 'CAPITAL', null, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 160, y, 80, 15, '', C_AMARILLO, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 240, y, 70, 15, 'INTERESES', null, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 310, y, 70, 15, '', C_AMARILLO, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 380, y, 60, 15, 'CARGOS', null, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 440, y, 50, 15, '', C_AMARILLO, '#000000', 'center', true, 8, 4);
+    drawCell(LEFT + 490, y, 62, 15, 'TOTAL', null, '#000000', 'center', true, 8, 4);
+
+    y += 30;
+    doc.moveTo(LEFT, y).lineTo(LEFT + W, y).dash(3, {space: 3}).stroke('#999').undash();
+
+    y += 20;
+    const isCheque = (sol.forma_pago || '').toUpperCase() === 'CHEQUE';
+    const txtCheque = isCheque ? '' : 'NO APLICA EN TRANSFERENCIA';
+    
+    doc.rect(LEFT, y, 180, 16).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+    doc.fillColor('#FFF').font('Helvetica-Bold').text('PÓLIZA DE CHEQUE', LEFT, y + 4, {width: 180, align: 'center'});
+    doc.fillColor('#000').font('Helvetica').text(`Unidad de negocio: ${sol.unidad_negocio || ''}`, LEFT + 190, y + 4);
+    doc.text(fechaText, LEFT + 450, y + 4);
+
+    y += 16;
+    doc.rect(LEFT, y, W, 80).stroke(C_VERDE_CAJA);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#000');
+    doc.text('LA PÓLIZA CHEQUE ' + txtCheque, LEFT + 40, y + 15);
+    doc.text(isCheque ? '' : 'NO APLICA', LEFT + 450, y + 15);
+    
+    doc.font('Helvetica-Oblique').fontSize(9).text(isCheque ? '' : 'NO APLICA', LEFT + 40, y + 35);
+    doc.text(isCheque ? '' : 'NO APLICA', LEFT + 40, y + 55);
+    doc.font('Helvetica').fontSize(8).text('Datos cuenta:     ' + (isCheque ? '' : 'NO APLICA'), LEFT + 40, y + 70);
+    doc.font('Helvetica-Bold').text(isCheque ? '' : 'NO APLICA    NO APLICA', LEFT + 430, y + 70);
+
+    y += 90;
+    doc.rect(LEFT, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+    doc.fillColor('#FFF').font('Helvetica-Bold').text('CONCEPTO DE PAGO', LEFT, y + 3, {width: 260, align: 'center'});
+    doc.rect(LEFT, y+14, 260, 40).stroke(C_VERDE_CAJA);
+    doc.fillColor('#000').font('Helvetica-Oblique').text(isCheque ? sol.concepto_id : 'PÓLIZA CHEQUE NO APLICA EN TRANSFERENCIA', LEFT, y + 30, {width: 260, align: 'center'});
+
+    doc.rect(LEFT + 292, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+    doc.fillColor('#FFF').font('Helvetica-Bold').text('NOMBRE Y FIRMA DE RECIBIDO', LEFT + 292, y + 3, {width: 260, align: 'center'});
+    doc.rect(LEFT + 292, y+14, 260, 40).stroke(C_VERDE_CAJA);
+    doc.fillColor(C_ROJO).font('Helvetica-Oblique').text(isCheque ? '' : 'PÓLIZA CHEQUE NO APLICA EN TRANSFERENCIA', LEFT + 292, y + 30, {width: 260, align: 'center'});
+
+    y += 90; 
+    let fy = y + 50; 
+    const fw = 160; 
+    const gap = (W - (fw * 3)) / 2; 
+
+    const drawSignatureBlock = (px, py, title, name, role, firmImgPath, extraTitle) => {
+        doc.fillColor('#000').font('Helvetica-Bold').fontSize(8).text(title, px, py - 45, { width: fw, align: 'center' });
+        
+        if (firmImgPath) {
+            const absPath = path.join(__dirname, '../', firmImgPath);
+            if (fs.existsSync(absPath)) {
+                doc.image(absPath, px + (fw/2) - 35, py - 38, { width: 70, height: 35 });
             }
         }
 
-        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} con errores o duplicados.`);
+        doc.moveTo(px, py).lineTo(px + fw, py).stroke('#000');
         
-        res.json({ 
-            success: true, 
-            message: `Proceso completado. Proveedores importados: ${procesados}. Errores/Duplicados omitidos: ${errores}.` 
-        });
+        doc.fillColor(C_AZUL).font('Helvetica-Bold').fontSize(7).text(name || '---', px, py + 4, { width: fw, align: 'center' }); 
+        doc.fillColor('#000').font('Helvetica').fontSize(7).text(role || '---', px, py + 14, { width: fw, align: 'center' }); 
+        if (extraTitle) doc.text(extraTitle, px, py + 24, { width: fw, align: 'center' });
+    };
 
-    } catch (error) {
-        console.error("Error al procesar Excel:", error);
-        res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' });
-    }
-});
+    const getFirma = (rolBuscado) => firmas.find(f => f.etapa_firma === rolBuscado && f.accion === 'APROBADO') || {};
+
+    drawSignatureBlock(LEFT, fy, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'Servicios integrados EXDAN SA DE CV');
+    drawSignatureBlock(LEFT + fw + gap, fy, 'VISTO BUENO (SI APLICA)', '---', '---', null, '');
+    
+    const pagado = getFirma('PAGADO');
+    const pagoName = sol.estatus === 'PAGADO' ? (pagado.aprobador || 'C. BEATRIZ CRUZ CANO') : '---';
+    const pagoRol  = sol.estatus === 'PAGADO' ? (pagado.aprobador_puesto || 'TSR - Coordinador(a) de Tesorería') : '---';
+    const firmaTesorera = sol.estatus === 'PAGADO' ? (pagado.ruta_firma_png || null) : null;
+    drawSignatureBlock(LEFT + (fw + gap)*2, fy, 'PAGADO POR', pagoName, pagoRol, firmaTesorera, sol.estatus === 'PAGADO' ? 'Servicios integrados EXDAN SA DE CV' : '');
+
+    fy += 120; 
+    
+    const rev = getFirma('REVISOR');
+    drawSignatureBlock(LEFT, fy, 'REVISADO POR', rev.aprobador, rev.aprobador_puesto, rev.ruta_firma_png, rev.aprobador ? 'Servicios integrados EXDAN SA DE CV' : '');
+
+    const aut1 = getFirma('AUTORIZADOR_1');
+    drawSignatureBlock(LEFT + fw + gap, fy, 'AUTORIZACIÓN NIVEL 1', aut1.aprobador, aut1.aprobador_puesto, aut1.ruta_firma_png, aut1.aprobador ? 'Servicios integrados EXDAN SA DE CV' : '');
+
+    const aut2 = getFirma('AUTORIZADOR_2');
+    drawSignatureBlock(LEFT + (fw + gap)*2, fy, 'AUTORIZACIÓN NIVEL 2', aut2.aprobador ? aut2.aprobador : 'N/A', aut2.aprobador ? aut2.aprobador_puesto : '---', aut2.ruta_firma_png, '');
+
+    doc.end();
+}
 
 module.exports = router;

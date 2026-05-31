@@ -31,12 +31,16 @@ function Proveedores() {
   const [formPago, setFormPago] = useState({ concepto: '', monto_pago: '', num_factura_ref: '' });
   const [fileComprobante, setFileComprobante] = useState(null);
 
-  // --- NUEVOS ESTADOS PARA REPORTE MAESTRO DE EGRESOS ---
+  // --- ESTADOS PARA REPORTE MAESTRO DE EGRESOS ---
   const [panelReporteOpen, setPanelReporteOpen] = useState(false);
   const [datosReporte, setDatosReporte] = useState([]);
   const [resumenReporte, setResumenReporte] = useState({ total_pagado: 0, total_pendiente: 0, gran_total: 0, presupuesto_ingreso: 0 });
   const [mesFiltro, setMesFiltro] = useState(new Date().getMonth() + 1);
   const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear());
+  
+  // NUEVO: ESTADOS PARA PAGINACIÓN DEL REPORTE
+  const [currentPageReporte, setCurrentPageReporte] = useState(1);
+  const itemsPerPageReporte = 5;
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -63,7 +67,7 @@ function Proveedores() {
     } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
-  // --- NUEVA FUNCIÓN: TRAER REPORTE MAESTRO ---
+  // --- FUNCIÓN: TRAER REPORTE MAESTRO ---
   const fetchReporteMaestro = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
@@ -73,6 +77,7 @@ function Proveedores() {
         if (data.success) {
             setDatosReporte(data.data);
             setResumenReporte(prev => ({ ...data.resumen, presupuesto_ingreso: prev.presupuesto_ingreso }));
+            setCurrentPageReporte(1); // Regresamos a la página 1 cuando cambiamos de mes
             setPanelReporteOpen(true);
         }
     } catch (error) { 
@@ -82,7 +87,6 @@ function Proveedores() {
     }
   };
 
-  // Efecto para recargar el reporte si el usuario cambia el mes/año dentro del panel
   useEffect(() => {
       if (panelReporteOpen) {
           fetchReporteMaestro();
@@ -125,9 +129,7 @@ function Proveedores() {
         const data = await response.json();
         alert(data.message); 
         
-        if (data.success) {
-            fetchProveedores(); 
-        }
+        if (data.success) fetchProveedores(); 
     } catch (error) {
         alert("Hubo un problema de conexión al importar.");
     } finally {
@@ -170,30 +172,13 @@ function Proveedores() {
     if (formData.telefono && formData.telefono.length !== 10) { setFormError('El teléfono debe tener exactamente 10 dígitos.'); return false; } 
     
     if (formData.rfc) {
-      if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { 
-        setFormError('Has seleccionado Persona Física, el RFC debe tener 13 caracteres.'); 
-        return false; 
-      }
-      if (formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { 
-        setFormError('Has seleccionado Persona Moral, el RFC debe tener 12 caracteres.'); 
-        return false; 
-      }
+      if (formData.tipo_persona === 'FISICA' && formData.rfc.length !== 13) { setFormError('Persona Física: RFC de 13 caracteres.'); return false; }
+      if (formData.tipo_persona === 'MORAL' && formData.rfc.length !== 12) { setFormError('Persona Moral: RFC de 12 caracteres.'); return false; }
     }
 
-    if (formData.numero_cuenta && formData.numero_cuenta.length !== 10) {
-      setFormError('El Número de Cuenta debe tener exactamente 10 dígitos.');
-      return false;
-    }
-
-    if (formData.clabe_bancaria && formData.clabe_bancaria.length !== 18) {
-      setFormError('La CLABE Interbancaria debe tener exactamente 18 dígitos.');
-      return false;
-    }
-
-    if ((formData.numero_cuenta || formData.clabe_bancaria) && !formData.banco) {
-      setFormError('Debes seleccionar un Banco Destino si ingresas una cuenta o CLABE.');
-      return false;
-    }
+    if (formData.numero_cuenta && formData.numero_cuenta.length !== 10) { setFormError('El Número de Cuenta debe tener exactamente 10 dígitos.'); return false; }
+    if (formData.clabe_bancaria && formData.clabe_bancaria.length !== 18) { setFormError('La CLABE Interbancaria debe tener exactamente 18 dígitos.'); return false; }
+    if ((formData.numero_cuenta || formData.clabe_bancaria) && !formData.banco) { setFormError('Debes seleccionar un Banco Destino si ingresas una cuenta o CLABE.'); return false; }
 
     return true; 
   };
@@ -209,27 +194,11 @@ function Proveedores() {
     try { 
       const res = await fetch(url, { method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formData) }); 
       if (handleAuthError(res.status)) return; 
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch(parseErr) {
-        setFormError(`El backend no respondió de forma correcta. Revisa tu terminal de Node.`);
-        setIsLoading(false);
-        return;
-      }
-      
-      if (data.success) { 
-        setIsModalOpen(false); 
-        fetchProveedores(); 
-      } else { 
-        setFormError(data.message || "Error al intentar guardar en la base de datos."); 
-      } 
-    } catch (error) { 
-      setFormError(`Falla de Red. Asegúrate de que el backend en el puerto 3001 esté encendido.`); 
-    } finally { 
-      setIsLoading(false); 
-    } 
+      const data = await res.json();
+      if (data.success) { setIsModalOpen(false); fetchProveedores(); } 
+      else { setFormError(data.message || "Error al intentar guardar en la base de datos."); } 
+    } catch (error) { setFormError(`Falla de Red. Asegúrate de que el backend en el puerto 3001 esté encendido.`); } 
+    finally { setIsLoading(false); } 
   };
   
   const cambiarEstatus = async (id_persona, estatus_actual) => { 
@@ -294,11 +263,8 @@ function Proveedores() {
       const data = await res.json();
       if (data.success) fetchPagos(provActivo.id); 
       else alert(data.message);
-    } catch (error) {
-      alert('Error de conexión con el servidor.');
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (error) { alert('Error de conexión con el servidor.'); } 
+    finally { setIsLoading(false); }
   };
 
   const proveedoresFiltrados = proveedores.filter(p => 
@@ -313,6 +279,12 @@ function Proveedores() {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = proveedoresFiltrados.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(proveedoresFiltrados.length / itemsPerPage);
+
+  // LÓGICA PAGINACIÓN REPORTE MAESTRO
+  const indexOfLastReporte = currentPageReporte * itemsPerPageReporte;
+  const indexOfFirstReporte = indexOfLastReporte - itemsPerPageReporte;
+  const currentReportes = datosReporte.slice(indexOfFirstReporte, indexOfLastReporte);
+  const totalPagesReporte = Math.ceil(datosReporte.length / itemsPerPageReporte);
 
   return (
     <div className="inversores-container">
@@ -365,11 +337,11 @@ function Proveedores() {
             <table className="data-table">
                 <thead>
                     <tr>
-                        <th style={{ width: '35%' }}>Razón Social</th>
-                        <th style={{ width: '25%' }}>Contacto / Servicio</th>
-                        <th style={{ width: '20%' }}>Datos de Pago</th>
-                        <th style={{ width: '10%' }}>Estatus</th>
-                        <th style={{ width: '10%', textAlign: 'right' }}>Acciones</th>
+                        <th style={{ width: '30%' }}>Razón Social</th>
+                        <th style={{ width: '20%' }}>Contacto / Servicio</th>
+                        <th style={{ width: '22%' }}>Datos de Pago</th>
+                        <th style={{ width: '13%' }}>Estatus</th>
+                        <th style={{ width: '15%', textAlign: 'right' }}>Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -400,12 +372,12 @@ function Proveedores() {
                                 </div>
                             </td>
                             <td>
-                                <button className={`badge-estatus-select ${p.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatus(p.id, p.estatus_activo)} style={{ padding: '6px 12px' }}>
+                                <button className={`badge-estatus-select ${p.estatus_activo ? 'badge-activo' : 'badge-inactivo'}`} onClick={() => cambiarEstatus(p.id, p.estatus_activo)} style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>
                                     {p.estatus_activo ? 'Vigente' : 'Suspendido'}
                                 </button>
                             </td>
-                            <td style={{ textAlign: 'right' }}>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'nowrap' }}>
                                     <button className="btn-icon-edit" onClick={() => abrirPanelPagos(p)} title="Pagos y CXC">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                                     </button>
@@ -441,14 +413,15 @@ function Proveedores() {
         </div>
       </div>
 
-      {/* --- PANEL ANCHO: REPORTE MAESTRO DE EGRESOS --- */}
+      {/* --- PANEL ANCHO: REPORTE MAESTRO DE EGRESOS CON SCROLL Y PAGINACIÓN --- */}
       {panelReporteOpen && (
         <div className="modal-overlay" onClick={() => setPanelReporteOpen(false)}>
-          <div className="master-panel fade-in-right" style={{ maxWidth: '1000px', width: '90vw', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <div className="master-panel fade-in-right" style={{ maxWidth: '1100px', width: '90vw', maxHeight: '95vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            
             <div className="panel-header" style={{backgroundColor: '#eff6ff', borderBottom: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <div>
                 <h2 style={{color: '#1e40af'}}> Reporte Maestro de Egresos</h2>
-                <p className="client-badge" style={{backgroundColor: '#dbeafe', color: '#1e3a8a'}}>Operativos (Proveedores) e Inversores (Rendimientos)</p>
+                <p className="client-badge" style={{backgroundColor: '#dbeafe', color: '#1e3a8a'}}>Visualización de pagos operativos, inversores y vencimientos</p>
               </div>
               
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -475,7 +448,7 @@ function Proveedores() {
               </div>
             </div>
             
-            <div className="panel-body" style={{ padding: '24px', backgroundColor: '#f8fafc' }}>
+            <div className="panel-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: '#f8fafc' }}>
                 
                 {/* TARJETAS DE SUMATORIA */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
@@ -493,28 +466,54 @@ function Proveedores() {
                     </div>
                 </div>
 
-                {/* TABLA DE EXCEL (REPORTES) */}
-                <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                    <table className="data-table">
-                        <thead style={{ backgroundColor: '#f1f5f9' }}>
+                {/* TABLA MEJORADA CON PAGINACIÓN Y MÍNIMO 5 FILAS */}
+                <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowX: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '380px', justifyContent: 'space-between' }}>
+                    <table className="data-table" style={{ flex: 1 }}>
+                        <thead style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontSize: '12px' }}>
                             <tr>
-                                <th>FECHA RECEPCIÓN</th>
-                                <th>TIPO GASTO / ORIGEN</th>
-                                <th>PROVEEDOR / ACREEDOR</th>
-                                <th>CONCEPTO</th>
-                                <th style={{ textAlign: 'right' }}>MONTO</th>
-                                <th style={{ textAlign: 'center' }}>ESTATUS</th>
+                                <th style={{ width: '15%' }}>FECHA LÍMITE</th>
+                                <th style={{ width: '20%' }}>TIPO GASTO / ORIGEN</th>
+                                <th style={{ width: '25%' }}>PROVEEDOR / ACREEDOR</th>
+                                <th style={{ width: '20%' }}>CONCEPTO</th>
+                                <th style={{ width: '10%', textAlign: 'right' }}>MONTO</th>
+                                <th style={{ width: '10%', textAlign: 'center' }}>ESTATUS</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {datosReporte.length > 0 ? datosReporte.map((fila, index) => {
+                            {currentReportes.length > 0 ? currentReportes.map((fila, index) => {
                                 const isPagado = fila.estatus_pago === 'PAGADO';
-                                const rowStyle = isPagado ? { backgroundColor: '#f0fdf4' } : { backgroundColor: '#fffbeb' };
-                                const textStyle = isPagado ? { color: '#166534' } : { color: '#92400e' };
+                                
+                                let badgeBg = '#f1f5f9';
+                                let badgeColor = '#64748b';
+                                let statusText = fila.estatus_pago;
+                                let timeText = '';
+
+                                if (isPagado) {
+                                    badgeBg = '#dcfce3'; 
+                                    badgeColor = '#16a34a';
+                                } else if (fila.fecha_recepcion) {
+                                    const today = new Date();
+                                    today.setHours(0,0,0,0);
+                                    
+                                    const target = new Date(fila.fecha_recepcion);
+                                    target.setMinutes(target.getMinutes() + target.getTimezoneOffset());
+                                    target.setHours(0,0,0,0);
+                                    
+                                    const diasRestantes = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+
+                                    if (diasRestantes > 5) {
+                                        badgeBg = '#d1fae5'; badgeColor = '#059669'; statusText = 'Pendiente'; timeText = `(Faltan ${diasRestantes} días)`;
+                                    } else if (diasRestantes > 0 && diasRestantes <= 5) {
+                                        badgeBg = '#fef3c7'; badgeColor = '#d97706'; statusText = 'Por Vencer'; timeText = `(Faltan ${diasRestantes} días)`;
+                                    } else {
+                                        badgeBg = '#fee2e2'; badgeColor = '#dc2626'; statusText = 'Vencido'; 
+                                        timeText = diasRestantes === 0 ? '(Vence hoy)' : `(Retraso de ${Math.abs(diasRestantes)} días)`;
+                                    }
+                                }
 
                                 return (
-                                <tr key={index} style={rowStyle}>
-                                    <td style={{ fontWeight: '500', color: '#475569' }}>
+                                <tr key={index} style={{ backgroundColor: isPagado ? '#f8fafc' : '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ fontWeight: '600', color: '#475569' }}>
                                         {fila.fecha_recepcion ? new Date(fila.fecha_recepcion).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'S/N'}
                                     </td>
                                     <td>
@@ -525,34 +524,46 @@ function Proveedores() {
                                     </td>
                                     <td style={{ fontWeight: '700', color: '#0f172a' }}>{fila.proveedor}</td>
                                     <td style={{ fontSize: '12px', color: '#475569' }}>{fila.concepto}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{formatMoney(fila.monto)}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>{formatMoney(fila.monto)}</td>
                                     <td style={{ textAlign: 'center' }}>
-                                        <span style={{
-                                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
-                                            backgroundColor: isPagado ? '#bbf7d0' : '#fde68a',
-                                            color: textStyle.color
-                                        }}>
-                                            {fila.estatus_pago}
-                                        </span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                            <span style={{
+                                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
+                                                backgroundColor: badgeBg, color: badgeColor, whiteSpace: 'nowrap'
+                                            }}>
+                                                {statusText}
+                                            </span>
+                                            {!isPagado && timeText && (
+                                                <span style={{ fontSize: '10px', color: badgeColor, fontWeight: '600', whiteSpace: 'nowrap' }}>
+                                                    {timeText}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             )}) : (
                                 <tr>
-                                    <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#64748b', height: '300px' }}>
                                         No hay movimientos programados para este mes.
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
+
+                    {/* PAGINACIÓN DEL REPORTE */}
+                    {totalPagesReporte > 1 && (
+                        <div className="pagination-container" style={{ padding: '16px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: 'auto' }}>
+                            <button className="btn-page" onClick={() => setCurrentPageReporte(prev => Math.max(prev - 1, 1))} disabled={currentPageReporte === 1}>&laquo; Anterior</button>
+                            <span className="page-info" style={{alignSelf: 'center'}}>Página {currentPageReporte} de {totalPagesReporte}</span>
+                            <button className="btn-page" onClick={() => setCurrentPageReporte(prev => Math.min(prev + 1, totalPagesReporte))} disabled={currentPageReporte === totalPagesReporte}>Siguiente &raquo;</button>
+                        </div>
+                    )}
                 </div>
 
                 {/* --- DASHBOARD FINANCIERO (Presupuesto vs Realidad) --- */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '32px' }}>
-                    
-                    {/* Columna Izquierda: Ingresos y Márgenes */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', backgroundColor: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                             <tbody>
                                 <tr>
@@ -604,21 +615,17 @@ function Proveedores() {
                         </table>
                     </div>
 
-                    {/* Columna Derecha: Desglose por Categoría */}
                     <div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #cbd5e1', backgroundColor: 'white' }}>
                             <tbody>
                                 {datosReporte.length > 0 ? Array.from(new Set(datosReporte.map(item => item.tipo_gasto || 'OTROS'))).map((categoria, idx) => {
-                                    // Asignamos colores como en tu Excel
-                                    let bg = '#93c5fd'; // Azul base
-                                    if(categoria.includes('ADMINISTRACION')) bg = '#bbf7d0'; // Verde
-                                    if(categoria.includes('CAPITAL')) bg = '#fef08a'; // Amarillo
-                                    if(categoria.includes('PASIVOS')) bg = '#fdba74'; // Naranja
-                                    if(categoria.includes('INTERES')) bg = '#e879f9'; // Morado
+                                    let bg = '#93c5fd'; 
+                                    if(categoria.includes('ADMINISTRACION')) bg = '#bbf7d0'; 
+                                    if(categoria.includes('CAPITAL')) bg = '#fef08a'; 
+                                    if(categoria.includes('PASIVOS')) bg = '#fdba74'; 
+                                    if(categoria.includes('INTERES')) bg = '#e879f9'; 
 
-                                    // Calcular la suma de esta categoría
                                     const sumaCat = datosReporte.filter(d => d.tipo_gasto === categoria).reduce((s, item) => s + parseFloat(item.monto), 0);
-
                                     return (
                                         <tr key={idx}>
                                             <td style={{ backgroundColor: bg, padding: '6px 12px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>{categoria}</td>
@@ -635,7 +642,6 @@ function Proveedores() {
                             </tbody>
                         </table>
                     </div>
-
                 </div>
 
             </div>
@@ -643,7 +649,7 @@ function Proveedores() {
         </div>
       )}
 
-      {/* --- PANEL DE HISTORIAL DEL PROVEEDOR (Existente) --- */}
+      {/* --- PANEL DE HISTORIAL DEL PROVEEDOR --- */}
       {panelOpen && provActivo && (
         <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -664,7 +670,7 @@ function Proveedores() {
                   </div>
                   
                   {pagos.length > 0 ? (
-                    <div className="movimientos-list">
+                    <div className="movimientos-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {pagos.map(pago => {
                         let estatusColor = '#64748b'; 
                         let estatusBg = '#f1f5f9';
@@ -676,46 +682,67 @@ function Proveedores() {
                         const rolUsuario = localStorage.getItem('rol'); 
 
                         return (
-                          <div className="movimiento-item" key={pago.id} style={{ borderLeft: `4px solid ${estatusColor}` }}>
-                            <div className="mov-icon" style={{backgroundColor: estatusBg, color: estatusColor}}>
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                          <div className="movimiento-item" key={pago.id} style={{ 
+                              borderLeft: `4px solid ${estatusColor}`,
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'space-between',
+                              padding: '16px', 
+                              backgroundColor: 'white', 
+                              borderRadius: '8px', 
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                              gap: '16px'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                                <div className="mov-icon" style={{
+                                    backgroundColor: estatusBg, color: estatusColor,
+                                    minWidth: '42px', height: '42px', borderRadius: '50%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '20px'}}><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                                </div>
+                                
+                                <div className="mov-detalles" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>{pago.concepto}</strong>
+                                  <span style={{ fontSize: '12px', color: '#64748b' }}>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleDateString()}</span>
+                                  <span style={{
+                                    fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, 
+                                    padding: '4px 10px', borderRadius: '12px', width: 'fit-content', fontWeight: '800', marginTop: '2px'
+                                  }}>
+                                    {pago.estatus ? pago.estatus.replace(/_/g, ' ') : 'PENDIENTE VALIDACION'}
+                                  </span>
+                                </div>
                             </div>
-                            <div className="mov-detalles">
-                              <strong>{pago.concepto}</strong>
-                              <span>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleDateString()}</span>
-                              <span style={{
-                                fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, 
-                                padding: '2px 8px', borderRadius: '12px', width: 'fit-content', fontWeight: '800', marginTop: '4px'
+
+                            <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
+                              <span className="mov-monto" style={{
+                                  color: (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') ? '#ef4444' : '#64748b',
+                                  fontSize: '16px', fontWeight: 'bold'
                               }}>
-                                {pago.estatus ? pago.estatus.replace(/_/g, ' ') : 'PENDIENTE VALIDACION'}
-                              </span>
-                            </div>
-                            <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                              <span className="mov-monto" style={{color: (pago.estatus === 'AUTORIZADO' || pago.estatus === 'PAGADO') ? '#ef4444' : '#64748b'}}>
                                 {pago.estatus === 'RECHAZADO' ? '$0.00' : `-${formatMoney(pago.monto_pago)}`}
                               </span>
                               
-                              <div style={{ display: 'flex', gap: '6px' }}>
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                 {(pago.estatus === 'PENDIENTE_VALIDACION' || pago.estatus === 'PENDIENTE') && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
-                                  <button className="btn-view" style={{ borderColor: '#d97706', color: '#d97706' }} onClick={() => avanzarWorkflowPago(pago.id, 'VALIDAR')} title="Validar Factura">
+                                  <button className="btn-view" style={{ borderColor: '#d97706', color: '#d97706', padding: '4px 10px', fontSize: '12px' }} onClick={() => avanzarWorkflowPago(pago.id, 'VALIDAR')} title="Validar Factura">
                                     Validar
                                   </button>
                                 )}
                                 
                                 {pago.estatus === 'PENDIENTE_AUTORIZACION' && rolUsuario === 'ADMIN' && (
-                                  <button className="btn-view" style={{ borderColor: '#2563eb', color: '#2563eb' }} onClick={() => avanzarWorkflowPago(pago.id, 'AUTORIZAR')} title="Autorizar Pago">
+                                  <button className="btn-view" style={{ borderColor: '#2563eb', color: '#2563eb', padding: '4px 10px', fontSize: '12px' }} onClick={() => avanzarWorkflowPago(pago.id, 'AUTORIZAR')} title="Autorizar Pago">
                                     Autorizar
                                   </button>
                                 )}
 
                                 {pago.estatus !== 'AUTORIZADO' && pago.estatus !== 'PAGADO' && pago.estatus !== 'RECHAZADO' && (rolUsuario === 'CONTADOR' || rolUsuario === 'ADMIN') && (
-                                  <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444' }} onClick={() => avanzarWorkflowPago(pago.id, 'RECHAZAR')} title="Rechazar Pago">
+                                  <button className="btn-view" style={{ borderColor: '#ef4444', color: '#ef4444', padding: '4px 10px', fontSize: '12px' }} onClick={() => avanzarWorkflowPago(pago.id, 'RECHAZAR')} title="Rechazar Pago">
                                     ✕
                                   </button>
                                 )}
 
                                 {pago.url_comprobante_pago && ( 
-                                  <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" title="Ver Factura/XML">Doc</a> 
+                                  <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" style={{ padding: '4px 10px', fontSize: '12px' }} title="Ver Factura/XML">Doc</a> 
                                 )}
                               </div>
                             </div>

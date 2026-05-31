@@ -6,7 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
-const xlsx = require('xlsx'); // Importamos la nueva librería
+const xlsx = require('xlsx');
 
 const uploadDir = path.join(__dirname, '../uploads');
 const storage = multer.diskStorage({
@@ -18,7 +18,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// Configuramos un multer en memoria para el Excel (no se guarda en disco)
 const uploadExcel = multer({ storage: multer.memoryStorage() });
 
 function numeroALetras(num) {
@@ -55,26 +54,8 @@ function numeroALetras(num) {
     return `${textoFinal.toUpperCase()} PESOS ${centavos.toString().padStart(2, '0')}/100 M.N.`;
 }
 
-// =====================================================================
-// CEREBRO DE AUTORIZACIONES (Reglas Estrictas)
-// =====================================================================
-function calcularNivelesRequeridos(monto) {
-    return parseFloat(monto) > 100000 ? 3 : 2; 
-}
-
-function obtenerRolEsperado(monto, nivelActual) {
-    if (nivelActual === 0) return 'REVISOR';
-    if (nivelActual === 1) return 'AUTORIZADOR_1';
-    if (nivelActual === 2 && parseFloat(monto) > 100000) return 'AUTORIZADOR_2';
-    return null;
-}
-
-function formatMoney(n) {
-    return '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 // ==========================================
-// RUTAS DE AUTORIZACIÓN (ADMIN) - VISTA GENERAL
+// RUTAS DE AUTORIZACIÓN DE PAGOS DIRECTOS
 // ==========================================
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
@@ -213,7 +194,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
-    // 1. GASTOS OPERATIVOS (Proveedores)
     const queryOperativos = `
         SELECT 
             s.fecha_limite_pago AS fecha_recepcion,
@@ -234,7 +214,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
         if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos: ' + err.message });
 
-        // 2. FONDEADORES + HISTORIAL DE PAGOS REALES
         const queryFondeadores = `
             SELECT 
                 ci.id AS id_contrato, 
@@ -253,11 +232,9 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
 
             let fondeadoresCalculados = [];
 
-            // Analizamos cada contrato para extraer las cuotas de su JSON
             resContratos.forEach(contrato => {
                 const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
 
-                // Extraer del Plan Regular
                 if (contrato.plan_json) {
                     try {
                         const plan = JSON.parse(contrato.plan_json);
@@ -278,10 +255,9 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                                 }
                             }
                         });
-                    } catch(e) { console.error("Error leyendo JSON Plan"); }
+                    } catch(e) {}
                 }
 
-                // Extraer de Pagos Irregulares (Inyecciones/Retiros)
                 if (contrato.pagos_irregulares_json) {
                     try {
                         const irregulares = JSON.parse(contrato.pagos_irregulares_json);
@@ -301,14 +277,12 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                                 }
                             }
                         });
-                    } catch(e) { console.error("Error leyendo JSON Irregulares"); }
+                    } catch(e) {}
                 }
             });
 
-            // 3. FUSIONAR Y ORDENAR POR FECHA
             const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
 
-            // 4. CALCULAR SUMATORIAS Y DESGLOSE POR CATEGORÍA
             const resumen = {
                 total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
                 total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
@@ -517,35 +491,6 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
                 registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
             }
             res.json({ success: true });
-        });
-    });
-});
-
-router.post('/crear', verificarToken, (req, res) => {
-    const { concepto_id, unidad_negocio, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
-    const solicitante_id = req.usuario.id;
-    const montoNum = parseFloat(monto) || 0;
-    const niveles = calcularNivelesRequeridos(montoNum);
-
-    const anio = new Date().getFullYear();
-    const folioBase = `SAC-TSR-RCS-${anio}`;
-
-    const query = `
-        INSERT INTO solicitudes_recursos 
-        (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
-         id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?)
-    `;
-
-    db.query(query, [
-        solicitante_id, concepto_id, descripcion, montoNum,
-        unidad_negocio, id_proveedor || null, forma_pago || 'TRANSFERENCIA', niveles, fecha_limite_pago || null
-    ], (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.sqlMessage });
-        const solicitudId = result.insertId;
-        const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
-        db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
-            res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada' });
         });
     });
 });
