@@ -128,6 +128,7 @@ const Solicitud = () => {
         forma_pago: 'TRANSFERENCIA',
         monto: '',
         descripcion: '',
+        fecha_limite_pago: '', // <-- NUEVO CAMPO
     });
 
     // ─── Efecto para cargar proveedores al abrir la pantalla ───
@@ -179,8 +180,6 @@ const Solicitud = () => {
 
     const conceptoSeleccionado = CONCEPTOS.find((c) => c.id === formData.concepto_id);
     const unidadSeleccionada = UNIDADES_NEGOCIO.find((u) => u.id === formData.unidad_negocio);
-    
-    // CORREGIDO: Buscar por id_persona (que es la llave en la tabla de proveedores)
     const proveedorSeleccionado = proveedoresDB.find((p) => String(p.id_persona || p.id) === String(formData.id_proveedor));
 
     return (
@@ -243,7 +242,6 @@ const Solicitud = () => {
                                 <select name="id_proveedor" className="form-select" value={formData.id_proveedor} onChange={handleChange} required>
                                     <option value="">Seleccione al destinatario...</option>
                                     {proveedoresDB.map((p) => (
-                                        // CORREGIDO: Usar id_persona y nombre_razon_social
                                         <option key={p.id_persona || p.id} value={p.id_persona || p.id}>
                                             {p.nombre_razon_social || p.nombre} {p.banco ? `(${p.banco})` : ''}
                                         </option>
@@ -259,17 +257,31 @@ const Solicitud = () => {
                             </div>
                         </div>
 
-                        {/* Monto */}
-                        <div className="form-group">
-                            <label className="form-label">Monto Solicitado</label>
-                            <div className="input-monto-wrapper">
-                                <span className="input-monto-prefix">$</span>
+                        {/* ── FILA: Monto + Fecha Límite de Pago ── */}
+                        <div className="form-row-2">
+                            <div className="form-group">
+                                <label className="form-label">Monto Solicitado</label>
+                                <div className="input-monto-wrapper">
+                                    <span className="input-monto-prefix">$</span>
+                                    <input
+                                        type="text"
+                                        className="form-input-monto"
+                                        placeholder="  0.00"
+                                        value={montoDisplay}
+                                        onChange={handleMontoChange}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Fecha Límite de Pago</label>
                                 <input
-                                    type="text"
-                                    className="form-input-monto"
-                                    placeholder="  0.00"
-                                    value={montoDisplay}
-                                    onChange={handleMontoChange}
+                                    type="date"
+                                    name="fecha_limite_pago"
+                                    className="form-select"
+                                    style={{ paddingLeft: '12px' }}
+                                    value={formData.fecha_limite_pago}
+                                    onChange={handleChange}
                                     required
                                 />
                             </div>
@@ -359,7 +371,7 @@ const Solicitud = () => {
                             }
                         </div>
 
-                        {/* Proveedor Resumen CORREGIDO */}
+                        {/* Proveedor Resumen */}
                         <div className="resumen-row">
                             <div className="resumen-row-label">Destinatario / Proveedor</div>
                             {proveedorSeleccionado
@@ -369,6 +381,17 @@ const Solicitud = () => {
                                         <span style={{fontSize: '11px', color: '#64748b'}}>{proveedorSeleccionado.banco || 'Sin banco registrado'}</span>
                                     </div>
                                 )
+                                : <div className="resumen-row-empty">Sin seleccionar</div>
+                            }
+                        </div>
+
+                        {/* Fecha Límite Resumen */}
+                        <div className="resumen-row">
+                            <div className="resumen-row-label">Vencimiento</div>
+                            {formData.fecha_limite_pago
+                                ? <div className="resumen-row-value" style={{color: '#dc2626', fontWeight: 'bold'}}>
+                                    {new Date(formData.fecha_limite_pago).toLocaleDateString('es-MX', {timeZone: 'UTC'})}
+                                  </div>
                                 : <div className="resumen-row-empty">Sin seleccionar</div>
                             }
                         </div>

@@ -189,10 +189,119 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// NUEVA RUTA: REPORTES DE PAGOS POR VENCER
+// RUTAS DE REPORTES
 // ==========================================
+
+// REPORTE MAESTRO DE EGRESOS (OPERATIVOS + FONDEADORES EN JSON)
+router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
+    const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
+    const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
+
+    // 1. OBTENER GASTOS OPERATIVOS
+    const queryOperativos = `
+        SELECT 
+            s.fecha_limite_pago AS fecha_recepcion,
+            cp.descripcion AS tipo_gasto,
+            COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
+            s.descripcion AS concepto,
+            s.monto AS monto,
+            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'OPERATIVO' AS origen_dato
+        FROM solicitudes_recursos s
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
+        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
+        WHERE MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?
+        AND s.estatus != 'RECHAZADO'
+    `;
+
+    db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos: ' + err.message });
+
+        // 2. OBTENER FONDEADORES Y EXTRAER JSON
+        const queryFondeadores = `
+            SELECT 
+                ci.plan_json, 
+                ci.pagos_irregulares_json, 
+                p.nombre_razon_social AS proveedor
+            FROM contratos_inversion ci
+            JOIN inversores i ON ci.id_inversor = i.id_persona
+            JOIN personas p ON i.id_persona = p.id
+            WHERE ci.estatus = 'ACTIVO'
+        `;
+
+        db.query(queryFondeadores, (err2, resContratos) => {
+            if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
+
+            let fondeadoresCalculados = [];
+
+            // Analizamos cada contrato para extraer las cuotas de su JSON
+            resContratos.forEach(contrato => {
+                
+                // Extraer del Plan Regular
+                if (contrato.plan_json) {
+                    try {
+                        const plan = JSON.parse(contrato.plan_json);
+                        plan.forEach(cuota => {
+                            if (cuota.fecha && cuota.abono) {
+                                const [year, month] = cuota.fecha.split('-');
+                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
+                                    fondeadoresCalculados.push({
+                                        fecha_recepcion: cuota.fecha,
+                                        tipo_gasto: 'PAGOS INTERES DE CRED',
+                                        proveedor: contrato.proveedor,
+                                        concepto: `Pago Rendimiento (Cuota ${cuota.numero || '-'})`,
+                                        monto: parseFloat(cuota.abono) || 0,
+                                        estatus_pago: 'PENDIENTE',
+                                        origen_dato: 'FONDEADOR'
+                                    });
+                                }
+                            }
+                        });
+                    } catch(e) { console.error("Error leyendo JSON Plan"); }
+                }
+
+                // Extraer de Pagos Irregulares (Inyecciones/Retiros)
+                if (contrato.pagos_irregulares_json) {
+                    try {
+                        const irregulares = JSON.parse(contrato.pagos_irregulares_json);
+                        irregulares.forEach(cuota => {
+                            if (cuota.fecha && cuota.monto) {
+                                const [year, month] = cuota.fecha.split('-');
+                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
+                                    fondeadoresCalculados.push({
+                                        fecha_recepcion: cuota.fecha,
+                                        tipo_gasto: 'RETIRO / PAGO ESPECIAL',
+                                        proveedor: contrato.proveedor,
+                                        concepto: 'Pago Irregular / Capital',
+                                        monto: parseFloat(cuota.monto) || 0,
+                                        estatus_pago: 'PENDIENTE',
+                                        origen_dato: 'FONDEADOR'
+                                    });
+                                }
+                            }
+                        });
+                    } catch(e) { console.error("Error leyendo JSON Irregulares"); }
+                }
+            });
+
+            // 3. FUSIONAR Y ORDENAR POR FECHA
+            const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
+
+            // 4. CALCULAR SUMATORIAS
+            const resumen = {
+                total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
+                total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
+            };
+            resumen.gran_total = resumen.total_pagado + resumen.total_pendiente;
+
+            res.json({ success: true, data: dataFinal, resumen });
+        });
+    });
+});
+
+// REPORTE LEGACY (Solo Pagos a Proveedores)
 router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
-    // Calculamos el vencimiento: Fecha de Solicitud + Días de Crédito del proveedor
     const query = `
         SELECT 
             pp.id AS id_pago,
@@ -398,7 +507,6 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
     });
 });
 
-
 // ==========================================
 // RUTA PARA IMPORTAR PROVEEDORES DESDE EXCEL
 // ==========================================
@@ -408,12 +516,10 @@ router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), as
     }
 
     try {
-        // Leer el archivo de Excel cargado en memoria
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0]; // Usar la primera hoja
+        const sheetName = workbook.SheetNames[0]; 
         const sheet = workbook.Sheets[sheetName];
         
-        // Convertir la hoja a formato JSON
         const data = xlsx.utils.sheet_to_json(sheet);
         
         if (data.length === 0) {
@@ -423,24 +529,20 @@ router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), as
         let procesados = 0;
         let errores = 0;
 
-        // Recorrer cada fila del Excel
         for (const row of data) {
-            // Validar que las columnas existan en el excel tal y como me las diste
             const rfc_original = row['RFC'] ? row['RFC'].toString().trim().toUpperCase() : null;
             const nombre = row['NOMBRE'] ? row['NOMBRE'].toString().trim() : null;
 
             if (!rfc_original || !nombre) {
                 errores++;
-                continue; // Saltar si falta algún dato crítico
+                continue; 
             }
 
-            // Calcular Tipo de Persona: Moral (12 caracteres) Física (13 caracteres)
             let tipo_persona = 'MORAL';
             if (rfc_original.length === 13) {
                 tipo_persona = 'FISICA';
             }
 
-            // Intentar guardarlo (Si falla porque el RFC ya existe, lo contamos como error pero seguimos)
             try {
                 await new Promise((resolve, reject) => {
                     db.beginTransaction(err => {
@@ -466,7 +568,6 @@ router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), as
                 });
                 procesados++;
             } catch (err) {
-                // Posiblemente RFC duplicado
                 errores++;
             }
         }

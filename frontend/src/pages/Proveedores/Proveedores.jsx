@@ -31,9 +31,12 @@ function Proveedores() {
   const [formPago, setFormPago] = useState({ concepto: '', monto_pago: '', num_factura_ref: '' });
   const [fileComprobante, setFileComprobante] = useState(null);
 
-  // --- NUEVOS ESTADOS PARA PAGOS POR VENCER ---
-  const [panelVencimientosOpen, setPanelVencimientosOpen] = useState(false);
-  const [pagosPorVencer, setPagosPorVencer] = useState([]);
+  // --- NUEVOS ESTADOS PARA REPORTE MAESTRO DE EGRESOS ---
+  const [panelReporteOpen, setPanelReporteOpen] = useState(false);
+  const [datosReporte, setDatosReporte] = useState([]);
+  const [resumenReporte, setResumenReporte] = useState({ total_pagado: 0, total_pendiente: 0, gran_total: 0 });
+  const [mesFiltro, setMesFiltro] = useState(new Date().getMonth() + 1);
+  const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear());
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -60,18 +63,31 @@ function Proveedores() {
     } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
-  // --- NUEVA FUNCIÓN PARA TRAER PAGOS POR VENCER ---
-  const fetchPagosPorVencer = async () => {
+  // --- NUEVA FUNCIÓN: TRAER REPORTE MAESTRO ---
+  const fetchReporteMaestro = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
+    setIsLoading(true);
     try {
-        const response = await fetch('http://localhost:3001/api/proveedores/reportes/pagos-por-vencer', { headers });
+        const response = await fetch(`http://localhost:3001/api/proveedores/reportes/pagos-del-mes?mes=${mesFiltro}&anio=${anioFiltro}`, { headers });
         const data = await response.json();
         if (data.success) {
-            setPagosPorVencer(data.data);
-            setPanelVencimientosOpen(true);
+            setDatosReporte(data.data);
+            setResumenReporte(data.resumen);
+            setPanelReporteOpen(true);
         }
-    } catch (error) { console.error("Error al cargar vencimientos:", error); }
+    } catch (error) { 
+        console.error("Error al cargar reporte maestro:", error); 
+    } finally {
+        setIsLoading(false);
+    }
   };
+
+  // Efecto para recargar el reporte si el usuario cambia el mes/año dentro del panel
+  useEffect(() => {
+      if (panelReporteOpen) {
+          fetchReporteMaestro();
+      }
+  }, [mesFiltro, anioFiltro]);
 
   useEffect(() => { fetchProveedores(); }, []);
 
@@ -302,18 +318,19 @@ function Proveedores() {
     <div className="inversores-container">
       <div className="page-header stagger-1 fade-in-up">
         <div>
-          <h1>Proveedores</h1>
-          <p>Directorio de proveedores y servicios contratados</p>
+          <h1>Proveedores y Egresos</h1>
+          <p>Directorio de proveedores y reporte maestro de flujos de efectivo</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           
-          {/* NUEVO BOTÓN: Pagos por Vencer */}
+          {/* NUEVO BOTÓN: Reporte Maestro */}
           <button 
              className="btn-view" 
-             style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 'bold' }}
-             onClick={fetchPagosPorVencer}
+             style={{ borderColor: '#2563eb', color: '#2563eb', fontWeight: 'bold' }}
+             onClick={() => { setMesFiltro(new Date().getMonth() + 1); setAnioFiltro(new Date().getFullYear()); fetchReporteMaestro(); }}
           >
-             Pagos por Vencer
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', marginRight: '6px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+             Reporte de Egresos
           </button>
 
           <input 
@@ -425,67 +442,112 @@ function Proveedores() {
         </div>
       </div>
 
-      {/* --- PANEL LATERAL DE PAGOS POR VENCER (EL NUEVO SEMÁFORO) --- */}
-      {panelVencimientosOpen && (
-        <div className="modal-overlay" onClick={() => setPanelVencimientosOpen(false)}>
-          <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
-            <div className="panel-header" style={{backgroundColor: '#fffbeb', borderBottom: '1px solid #fde68a'}}>
+      {/* --- NUEVO PANEL ANCHO: REPORTE MAESTRO DE EGRESOS --- */}
+      {panelReporteOpen && (
+        <div className="modal-overlay" onClick={() => setPanelReporteOpen(false)}>
+          <div className="master-panel fade-in-right" style={{ maxWidth: '1000px', width: '90vw' }} onClick={(e) => e.stopPropagation()}>
+            <div className="panel-header" style={{backgroundColor: '#eff6ff', borderBottom: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <div>
-                <h2 style={{color: '#d97706'}}> Pagos por Vencer</h2>
-                <p className="client-badge" style={{backgroundColor: '#fef3c7', color: '#b45309'}}>Cuentas pendientes organizadas por urgencia</p>
+                <h2 style={{color: '#1e40af'}}> Reporte Maestro de Egresos</h2>
+                <p className="client-badge" style={{backgroundColor: '#dbeafe', color: '#1e3a8a'}}>Operativos (Proveedores) e Inversores (Rendimientos)</p>
               </div>
-              <button className="btn-close" onClick={() => setPanelVencimientosOpen(false)}>×</button>
+              
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select className="custom-select" style={{ width: 'auto', minWidth: '120px' }} value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)}>
+                    <option value="1">Enero</option>
+                    <option value="2">Febrero</option>
+                    <option value="3">Marzo</option>
+                    <option value="4">Abril</option>
+                    <option value="5">Mayo</option>
+                    <option value="6">Junio</option>
+                    <option value="7">Julio</option>
+                    <option value="8">Agosto</option>
+                    <option value="9">Septiembre</option>
+                    <option value="10">Octubre</option>
+                    <option value="11">Noviembre</option>
+                    <option value="12">Diciembre</option>
+                </select>
+                <select className="custom-select" style={{ width: 'auto' }} value={anioFiltro} onChange={(e) => setAnioFiltro(e.target.value)}>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                </select>
+                <button className="btn-close" onClick={() => setPanelReporteOpen(false)}>×</button>
+              </div>
             </div>
             
-            <div className="panel-body">
-                {pagosPorVencer.length > 0 ? (
-                    <div className="movimientos-list">
-                        {pagosPorVencer.map(pago => {
-                            // LOGICA DEL SEMÁFORO
-                            let cardStyle = { borderLeft: '4px solid #10b981', background: '#ecfdf5', iconColor: '#059669', badgeBg: '#d1fae5', text: 'En tiempo' }; // Verde (A tiempo > 5 días)
-                            
-                            if(pago.dias_restantes <= 5 && pago.dias_restantes > 0) {
-                                cardStyle = { borderLeft: '4px solid #f59e0b', background: '#fffbeb', iconColor: '#d97706', badgeBg: '#fef3c7', text: 'Próximo a vencer' }; // Naranja
-                            } else if (pago.dias_restantes <= 0) {
-                                cardStyle = { borderLeft: '4px solid #ef4444', background: '#fef2f2', iconColor: '#dc2626', badgeBg: '#fee2e2', text: 'VENCIDO' }; // Rojo (Vencido)
-                            }
-
-                            return (
-                                <div className="movimiento-item" key={pago.id_pago} style={{ borderLeft: cardStyle.borderLeft, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
-                                    
-                                    <div style={{display: 'flex', justifyContent: 'space-between', width: '100%'}}>
-                                        <div>
-                                            <strong style={{fontSize: '15px'}}>{pago.proveedor}</strong>
-                                            <p style={{margin: '4px 0', fontSize: '13px', color: 'var(--text-muted)'}}>{pago.concepto}</p>
-                                        </div>
-                                        <div style={{textAlign: 'right'}}>
-                                            <strong style={{color: '#ef4444', fontSize: '16px'}}>{formatMoney(pago.monto_pago)}</strong>
-                                        </div>
-                                    </div>
-
-                                    <div style={{display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '8px', borderTop: '1px dashed var(--border-light)', paddingTop: '8px'}}>
-                                        <div style={{fontSize: '12px', color: 'var(--text-muted)'}}>
-                                            Solicitado: {new Date(pago.fecha_solicitud).toLocaleDateString()} <br/>
-                                            <strong style={{color: 'var(--text-main)'}}>Límite: {new Date(pago.fecha_vencimiento).toLocaleDateString()}</strong>
-                                        </div>
-                                        <div style={{
-                                            backgroundColor: cardStyle.badgeBg, color: cardStyle.iconColor, 
-                                            padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold'
-                                        }}>
-                                            {pago.dias_restantes > 0 ? `Faltan ${pago.dias_restantes} días` : `Tiene ${Math.abs(pago.dias_restantes)} días de retraso`}
-                                        </div>
-                                    </div>
-
-                                </div>
-                            )
-                        })}
+            <div className="panel-body" style={{ padding: '24px', backgroundColor: '#f8fafc' }}>
+                
+                {/* TARJETAS DE SUMATORIA */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #f59e0b', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                        <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>PENDIENTE DE PAGO</span>
+                        <div style={{ fontSize: '24px', color: '#d97706', fontWeight: '800', marginTop: '4px' }}>{formatMoney(resumenReporte.total_pendiente)}</div>
                     </div>
-                ) : (
-                    <div className="empty-state">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '32px', marginBottom: '10px', color: '#10b981'}}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                      <p>¡Todo al día! No hay cuentas pendientes por vencer.</p>
-                    </div> 
-                )}
+                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #10b981', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                        <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>PAGADO</span>
+                        <div style={{ fontSize: '24px', color: '#059669', fontWeight: '800', marginTop: '4px' }}>{formatMoney(resumenReporte.total_pagado)}</div>
+                    </div>
+                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #3b82f6', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                        <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>GRAN TOTAL DEL MES</span>
+                        <div style={{ fontSize: '24px', color: '#1d4ed8', fontWeight: '900', marginTop: '4px' }}>{formatMoney(resumenReporte.gran_total)}</div>
+                    </div>
+                </div>
+
+                {/* TABLA DE EXCEL (REPORTES) */}
+                <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                    <table className="data-table">
+                        <thead style={{ backgroundColor: '#f1f5f9' }}>
+                            <tr>
+                                <th>FECHA RECEPCIÓN</th>
+                                <th>TIPO GASTO / ORIGEN</th>
+                                <th>PROVEEDOR / ACREEDOR</th>
+                                <th>CONCEPTO</th>
+                                <th style={{ textAlign: 'right' }}>MONTO</th>
+                                <th style={{ textAlign: 'center' }}>ESTATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {datosReporte.length > 0 ? datosReporte.map((fila, index) => {
+                                const isPagado = fila.estatus_pago === 'PAGADO';
+                                const rowStyle = isPagado ? { backgroundColor: '#f0fdf4' } : { backgroundColor: '#fffbeb' };
+                                const textStyle = isPagado ? { color: '#166534' } : { color: '#92400e' };
+
+                                return (
+                                <tr key={index} style={rowStyle}>
+                                    <td style={{ fontWeight: '500', color: '#475569' }}>
+                                        {fila.fecha_recepcion ? new Date(fila.fecha_recepcion).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'S/N'}
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <strong style={{ fontSize: '12px', color: '#334155' }}>{fila.tipo_gasto}</strong>
+                                            <span style={{ fontSize: '10px', color: fila.origen_dato === 'FONDEADOR' ? '#2563eb' : '#8b5cf6', fontWeight: 'bold' }}>{fila.origen_dato}</span>
+                                        </div>
+                                    </td>
+                                    <td style={{ fontWeight: '700', color: '#0f172a' }}>{fila.proveedor}</td>
+                                    <td style={{ fontSize: '12px', color: '#475569' }}>{fila.concepto}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{formatMoney(fila.monto)}</td>
+                                    <td style={{ textAlign: 'center' }}>
+                                        <span style={{
+                                            padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
+                                            backgroundColor: isPagado ? '#bbf7d0' : '#fde68a',
+                                            color: textStyle.color
+                                        }}>
+                                            {fila.estatus_pago}
+                                        </span>
+                                    </td>
+                                </tr>
+                            )}) : (
+                                <tr>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                        No hay movimientos programados para este mes.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
             </div>
           </div>
         </div>

@@ -155,8 +155,27 @@ const DetalleSolicitud = () => {
         }
     };
 
-    const handleVerPDF = () => {
-        window.open(`${API_URL}/solicitudes/${id}/pdf`, '_blank');
+    const handleVerPDF = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            
+            // 1. Pedimos el PDF usando axios para poder enviar el token
+            // responseType: 'blob' es vital para decirle que es un archivo, no texto
+            const response = await axios.get(`${API_URL}/solicitudes/${id}/pdf`, {
+                headers: { Authorization: `Bearer ${token}` },
+                responseType: 'blob' 
+            });
+
+            // 2. Creamos un archivo temporal en la memoria del navegador
+            const fileURL = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+            
+            // 3. Abrimos ese archivo temporal en una pestaña nueva
+            window.open(fileURL, '_blank');
+
+        } catch (error) {
+            console.error('Error al descargar el PDF:', error);
+            alert('No se pudo generar el documento PDF.');
+        }
     };
 
     if (loading)   return <div className="detalle-container" style={{padding:'48px', textAlign:'center', color:'#64748b'}}>Cargando...</div>;
