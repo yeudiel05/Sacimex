@@ -38,9 +38,13 @@ function Proveedores() {
   const [mesFiltro, setMesFiltro] = useState(new Date().getMonth() + 1);
   const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear());
   
-  // NUEVO: ESTADOS PARA PAGINACIÓN DEL REPORTE
+  // ESTADOS PARA PAGINACIÓN DEL REPORTE
   const [currentPageReporte, setCurrentPageReporte] = useState(1);
   const itemsPerPageReporte = 5;
+
+  // --- NUEVO: ESTADOS PAGO FONDEADOR RÁPIDO ---
+  const [pagoFondeadorModal, setPagoFondeadorModal] = useState({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' });
+  const [fileFondeador, setFileFondeador] = useState(null);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -94,6 +98,35 @@ function Proveedores() {
   }, [mesFiltro, anioFiltro]);
 
   useEffect(() => { fetchProveedores(); }, []);
+
+  // --- NUEVA FUNCIÓN: ENVIAR PAGO DEL FONDEADOR ---
+  const handlePagarFondeador = async (e) => {
+      e.preventDefault();
+      const headers = getAuthHeaders();
+      setIsLoading(true);
+
+      const formDataUpload = new FormData();
+      formDataUpload.append('id_contrato', pagoFondeadorModal.id_contrato);
+      formDataUpload.append('monto', pagoFondeadorModal.monto);
+      if (fileFondeador) formDataUpload.append('comprobante', fileFondeador);
+
+      try {
+          const res = await fetch('http://localhost:3001/api/proveedores/pagos-fondeador', {
+              method: 'POST',
+              headers: { 'Authorization': headers.Authorization },
+              body: formDataUpload
+          });
+          const data = await res.json();
+          if (data.success) {
+              setPagoFondeadorModal({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' });
+              setFileFondeador(null);
+              fetchReporteMaestro(); // Recargar la tabla para que se pinte de verde
+          } else {
+              alert(data.message);
+          }
+      } catch (err) { console.error(err); } 
+      finally { setIsLoading(false); }
+  };
 
   const handleImportExcel = async (e) => {
     const file = e.target.files[0];
@@ -466,7 +499,7 @@ function Proveedores() {
                     </div>
                 </div>
 
-                {/* TABLA MEJORADA CON PAGINACIÓN Y MÍNIMO 5 FILAS */}
+                {/* TABLA MEJORADA CON PAGINACIÓN Y BOTÓN PAGO RÁPIDO */}
                 <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowX: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '380px', justifyContent: 'space-between' }}>
                     <table className="data-table" style={{ flex: 1 }}>
                         <thead style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontSize: '12px' }}>
@@ -537,6 +570,19 @@ function Proveedores() {
                                                 <span style={{ fontSize: '10px', color: badgeColor, fontWeight: '600', whiteSpace: 'nowrap' }}>
                                                     {timeText}
                                                 </span>
+                                            )}
+                                            {/* BOTÓN PAGO RÁPIDO PARA FONDEADORES PENDIENTES */}
+                                            {!isPagado && fila.origen_dato === 'FONDEADOR' && (
+                                                <button 
+                                                    className="btn-view" 
+                                                    style={{ borderColor: '#10b981', color: '#10b981', fontSize: '10px', padding: '2px 8px', marginTop: '4px', cursor: 'pointer' }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); 
+                                                        setPagoFondeadorModal({ isOpen: true, id_contrato: fila.id_contrato, proveedor: fila.proveedor, concepto: fila.concepto, monto: fila.monto });
+                                                    }}
+                                                >
+                                                    Pagar
+                                                </button>
                                             )}
                                         </div>
                                     </td>
@@ -645,6 +691,40 @@ function Proveedores() {
                 </div>
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- NUEVO MODAL: PAGO RÁPIDO DE FONDEADORES --- */}
+      {pagoFondeadorModal.isOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+          <div className="modal-content fade-in-down" style={{ maxWidth: '400px' }}>
+            <div className="modal-header">
+              <h2>Registrar Pago a Fondeador</h2>
+              <button className="btn-close" onClick={() => setPagoFondeadorModal({ isOpen: false, ...pagoFondeadorModal })}>×</button>
+            </div>
+            <form onSubmit={handlePagarFondeador} className="modal-form" style={{ padding: '24px' }}>
+                <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                    Estás a punto de registrar el pago de rendimiento para: <br/>
+                    <strong style={{ color: 'var(--text-main)' }}>{pagoFondeadorModal.proveedor}</strong>
+                </p>
+                <div className="form-group">
+                    <label>Concepto</label>
+                    <input type="text" value={pagoFondeadorModal.concepto} readOnly disabled className="form-input-disabled" style={{ backgroundColor: '#f1f5f9' }} />
+                </div>
+                <div className="form-group">
+                    <label>Monto a Pagar (MXN)</label>
+                    <input type="text" value={formatMoney(pagoFondeadorModal.monto)} readOnly disabled className="form-input-disabled" style={{ backgroundColor: '#f1f5f9', fontWeight: 'bold', color: '#dc2626' }} />
+                </div>
+                <div className="form-group">
+                    <label>Comprobante de Transferencia (Opcional)</label>
+                    <input type="file" className="file-input" onChange={e => setFileFondeador(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                    <button type="button" className="btn-cancel" onClick={() => setPagoFondeadorModal({ isOpen: false, ...pagoFondeadorModal })}>Cancelar</button>
+                    <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Confirmar Pago'}</button>
+                </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,13 +1,20 @@
 /* =====================================================
-   Solicitud.css — Estilo SACIMEX (mismo sistema que Inversores)
+   Solicitud.css — Estilo SACIMEX
    ===================================================== */
 
 .solicitud-container {
-    padding: 24px;
+    padding: 24px 32px;
     background-color: #f1f5f9;
     min-height: 100vh;
     font-family: 'Inter', sans-serif;
     width: 100%;
+    box-sizing: border-box;
+    animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* ── HEADER ── */
@@ -16,6 +23,8 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 32px;
+    flex-wrap: wrap;
+    gap: 16px;
 }
 
 .solicitud-header h1 {
@@ -52,20 +61,16 @@
 .btn-historial:hover {
     border-color: #10d440;
     color: #10d440;
+    background-color: #f0fdf4;
 }
 
 /* ── GRID PRINCIPAL ── */
 .solicitud-grid {
     display: grid;
-    grid-template-columns: 1fr 340px;
+    /* La columna izquierda toma el espacio restante, la derecha se queda fija en 360px */
+    grid-template-columns: 1fr 360px;
     gap: 24px;
     align-items: start;
-}
-
-@media (max-width: 1024px) {
-    .solicitud-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* ── TARJETA GENÉRICA ── */
@@ -106,14 +111,14 @@
 
 .card-header h3 {
     margin: 0;
-    font-size: 16px;
+    font-size: 18px;
     color: #0f172a;
     font-weight: 700;
 }
 
 .card-header p {
     margin: 2px 0 0;
-    font-size: 12px;
+    font-size: 13px;
     color: #64748b;
 }
 
@@ -127,19 +132,13 @@
 .form-row-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
-}
-
-@media (max-width: 640px) {
-    .form-row-2 {
-        grid-template-columns: 1fr;
-    }
+    gap: 20px; /* Suficiente aire entre los dos campos */
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
 }
 
 /* ── LABELS ── */
@@ -166,8 +165,8 @@
     background-color: #f8fafc;
     color: #0f172a;
     font-family: 'Inter', sans-serif;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    box-sizing: border-box;
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+    box-sizing: border-box; /* CLAVE para que no se desborden */
 }
 
 .form-input:focus,
@@ -176,6 +175,14 @@
     border-color: #10d440;
     box-shadow: 0 0 0 3px rgba(16, 212, 64, 0.1);
     background-color: white;
+}
+
+.form-select:disabled, 
+.form-input:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+    border-color: #e2e8f0;
 }
 
 /* Select con flecha custom */
@@ -196,19 +203,20 @@
     padding: 12px;
     resize: vertical;
     line-height: 1.6;
+    min-height: 100px;
 }
 
 /* Input monto (con prefijo $) */
 .input-monto-wrapper {
     position: relative;
+    display: flex;
+    align-items: center;
 }
 
 .input-monto-prefix {
     position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #94a3b8;
+    left: 14px;
+    color: #64748b;
     font-weight: 700;
     font-size: 15px;
     user-select: none;
@@ -252,7 +260,7 @@
 }
 
 .success-msg svg {
-    width: 18px;
+    width: 20px;
     flex-shrink: 0;
 }
 
@@ -261,9 +269,9 @@
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    padding-top: 8px;
+    padding-top: 24px;
     border-top: 1px solid #f1f5f9;
-    margin-top: 4px;
+    margin-top: 8px;
 }
 
 .btn-cancelar {
@@ -310,28 +318,13 @@
     box-shadow: none;
 }
 
-.btn-enviar svg {
-    width: 16px;
-}
-
-/* Spinner */
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-}
-
-.spinner {
-    width: 16px;
-    animation: spin 1s linear infinite;
-}
-
 /* ══════════════════════════════
    COLUMNA DERECHA — RESUMEN
    ══════════════════════════════ */
 .resumen-col {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
 }
 
 /* Tarjeta resumen pequeña */
@@ -346,7 +339,7 @@
 .resumen-card-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     margin-bottom: 20px;
     padding-bottom: 14px;
     border-bottom: 1px solid #f1f5f9;
@@ -361,20 +354,21 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .resumen-icon svg { width: 18px; }
 
 .resumen-card-header h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 15px;
     color: #0f172a;
     font-weight: 700;
 }
 
 .resumen-card-header p {
-    margin: 0;
-    font-size: 11px;
+    margin: 2px 0 0;
+    font-size: 12px;
     color: #64748b;
 }
 
@@ -384,27 +378,29 @@
     border-radius: 12px;
     padding: 20px;
     color: white;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 10px rgba(16, 212, 64, 0.2);
 }
 
 .monto-badge .monto-label {
     font-size: 11px;
     font-weight: 700;
-    opacity: 0.85;
+    opacity: 0.9;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
 .monto-badge .monto-valor {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 800;
     letter-spacing: -1px;
+    margin: 0;
 }
 
 /* Filas de info dentro del resumen */
 .resumen-row {
-    padding: 12px;
+    padding: 12px 14px;
     background-color: #f8fafc;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
@@ -417,17 +413,17 @@
 
 .resumen-row .resumen-row-label {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
 
 .resumen-row .resumen-row-value {
     font-size: 13px;
     color: #0f172a;
-    font-weight: 500;
+    font-weight: 600;
     line-height: 1.4;
 }
 
@@ -441,7 +437,7 @@
 .unidad-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
 
 .unidad-id-pill {
@@ -450,7 +446,7 @@
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 /* ══════════════════════════════
@@ -465,9 +461,9 @@
 }
 
 .flujo-card h4 {
-    margin: 0 0 16px 0;
-    font-size: 12px;
-    font-weight: 700;
+    margin: 0 0 20px 0;
+    font-size: 13px;
+    font-weight: 800;
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.8px;
@@ -476,12 +472,25 @@
 .flujo-step {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 14px;
+    margin-bottom: 20px;
+    position: relative;
 }
 
 .flujo-step:last-child {
     margin-bottom: 0;
+}
+
+/* Línea conectora entre los pasos */
+.flujo-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 32px;
+    bottom: -20px;
+    width: 2px;
+    background-color: #e2e8f0;
+    z-index: 0;
 }
 
 .flujo-num {
@@ -494,6 +503,7 @@
     font-size: 11px;
     font-weight: 800;
     flex-shrink: 0;
+    z-index: 1; /* Para que tape la línea */
 }
 
 .flujo-step-text {
@@ -508,8 +518,37 @@
 }
 
 .flujo-step-text span {
-    font-size: 11px;
+    font-size: 12px;
     color: #64748b;
-    margin-top: 1px;
+    margin-top: 2px;
     display: block;
+    line-height: 1.4;
+}
+
+/* =========================================================
+   RESPONSIVE DESIGN (Pantallas pequeñas)
+========================================================= */
+@media (max-width: 1024px) {
+    .solicitud-grid {
+        grid-template-columns: 1fr; /* Todo en una sola columna */
+    }
+    
+    .resumen-col {
+        flex-direction: row; /* En tablet, el resumen y flujo se ponen lado a lado */
+    }
+    
+    .resumen-card, .flujo-card {
+        flex: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .resumen-col {
+        flex-direction: column; /* En celular, vuelven a estar uno debajo del otro */
+    }
+    
+    .form-row-2 {
+        grid-template-columns: 1fr; /* Inputs de formulario a una sola columna */
+        gap: 16px;
+    }
 }

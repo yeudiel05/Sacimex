@@ -1,18 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import './Autorizaciones.css';
+import './Autorizaciones.css'; 
 
 function Autorizaciones() {
   const navigate = useNavigate();
-  const [pagos, setPagos] = useState([]);
+  const [solicitudes, setSolicitudes] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('VALIDAR'); // VALIDAR, AUTORIZAR, HISTORIAL
+  
+  const rolUsuario = (localStorage.getItem('rol') || '').trim().toUpperCase();
+
+  // 1. DETERMINAR LA PESTAÑA INICIAL SEGÚN EL ROL
+  const getInitialTab = () => {
+    if (rolUsuario === 'REVISOR') return 'VALIDAR';
+    if (rolUsuario.startsWith('AUTORIZADOR')) return 'AUTORIZAR';
+    if (rolUsuario === 'TESORERIA') return 'POR_PAGAR';
+    return 'VALIDAR'; // Por defecto para ADMIN
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab()); 
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroHistorial, setFiltroHistorial] = useState('TODOS');
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15; // Muestra 15 solicitudes por página
+  const itemsPerPage = 15;
 
-  const rolUsuario = localStorage.getItem('rol') || 'USER';
+  // Estados para el Modal
+  const [modalConfig, setModalConfig] = useState({ isOpen: false, tipo: '', id_solicitud: null, folio: '' });
+  const [comentario, setComentario] = useState('');
+  const [archivoFirma, setArchivoFirma] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -22,243 +39,297 @@ function Autorizaciones() {
 
   const handleAuthError = (status) => {
     if (status === 401 || status === 403) { 
-      localStorage.removeItem('token'); localStorage.removeItem('rol'); navigate('/'); return true; 
+      localStorage.clear(); navigate('/'); return true; 
     }
     return false;
   };
 
   const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
 
-  const fetchPagosPendientes = async () => {
+  const fetchSolicitudes = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/proveedores/autorizaciones/pendientes', { headers });
+      const res = await fetch('http://localhost:3001/api/solicitudes/', { headers });
       if (handleAuthError(res.status)) return;
       const data = await res.json();
-      if (data.success) setPagos(data.data);
+      if (data.success) setSolicitudes(data.data);
     } catch (error) { 
-      console.error("Error al cargar pagos:", error); 
+      console.error("Error al cargar solicitudes:", error); 
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => { fetchPagosPendientes(); }, []);
+  useEffect(() => { fetchSolicitudes(); }, []);
+  useEffect(() => { setCurrentPage(1); }, [activeTab, busqueda, filtroHistorial]);
 
-  // Resetea la página a 1 cuando cambias de pestaña
-  useEffect(() => { setCurrentPage(1); }, [activeTab]);
-
-  // Usamos el nuevo flujo de 3 niveles del backend
-  const procesarPago = async (id_pago, accion) => {
-    if (!window.confirm(`¿Estás seguro de ${accion.toLowerCase()} esta solicitud de pago?`)) return;
-    
-    const headers = getAuthHeaders();
-    setIsLoading(true);
-    try {
-      const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_pago}/autorizacion`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion })
-      });
-      const data = await res.json();
-      if (data.success) {
-        fetchPagosPendientes(); // Recargamos la lista
-      } else {
-        alert(data.message);
-      }
-    } catch (error) {
-      console.error(error); alert('Error de conexión.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const descargarSolicitud = async (id_pago) => {
+  const verPDFSeguro = async (id_solicitud) => {
     const headers = getAuthHeaders(); if (!headers) return;
-    setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/proveedores/autorizaciones/${id_pago}/pdf`, { headers });
+      const response = await fetch(`http://localhost:3001/api/solicitudes/${id_solicitud}/pdf`, { method: 'GET', headers: headers });
       if (handleAuthError(response.status)) return;
+      if (!response.ok) throw new Error("Error al obtener el PDF");
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url; 
-      link.download = `Solicitud_Recursos_Folio_${id_pago.toString().padStart(4, '0')}.pdf`; 
-      document.body.appendChild(link); link.click(); link.remove(); window.URL.revokeObjectURL(url);
-    } catch (error) { 
-      alert("Error al generar el documento."); 
-    } finally {
-      setIsLoading(false);
+      const fileURL = window.URL.createObjectURL(blob);
+      window.open(fileURL, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
+    } catch (error) {
+      console.error(error); alert("Error al intentar abrir el documento PDF.");
     }
   };
 
-  // Filtros por pestaña
-  const pagosPorValidar = pagos.filter(p => p.estatus === 'PENDIENTE_VALIDACION' || p.estatus === 'PENDIENTE');
-  const pagosPorAutorizar = pagos.filter(p => p.estatus === 'PENDIENTE_AUTORIZACION');
-  const pagosHistorial = pagos.filter(p => p.estatus === 'PAGADO' || p.estatus === 'RECHAZADO' || p.estatus === 'AUTORIZADO');
+  const abrirModal = (tipo, id_solicitud, folio) => {
+    setComentario(''); setArchivoFirma(null); setModalConfig({ isOpen: true, tipo, id_solicitud, folio });
+  };
 
-  const listaActual = activeTab === 'VALIDAR' ? pagosPorValidar : activeTab === 'AUTORIZAR' ? pagosPorAutorizar : pagosHistorial;
+  const cerrarModal = () => {
+    setModalConfig({ isOpen: false, tipo: '', id_solicitud: null, folio: '' }); setComentario(''); setArchivoFirma(null);
+  };
 
-  // Cálculo de Paginación
+  const ejecutarAccion = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('token');
+    setIsProcessing(true);
+
+    try {
+      let res;
+      if (modalConfig.tipo === 'PAGAR') {
+        if (!archivoFirma) { setIsProcessing(false); return alert("Debes adjuntar el comprobante de pago bancario."); }
+        const formData = new FormData(); formData.append('comprobante', archivoFirma);
+        res = await fetch(`http://localhost:3001/api/solicitudes/comprobante/${modalConfig.id_solicitud}`, {
+          method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
+        });
+      } else {
+        if (modalConfig.tipo === 'RECHAZAR' && !comentario.trim()) { setIsProcessing(false); return alert("Debes ingresar un motivo para el rechazo."); }
+        const endpoint = modalConfig.tipo === 'RECHAZAR' ? `http://localhost:3001/api/solicitudes/rechazar/${modalConfig.id_solicitud}` : `http://localhost:3001/api/solicitudes/autorizar/${modalConfig.id_solicitud}`;
+        const payload = modalConfig.tipo === 'RECHAZAR' ? { motivo: comentario } : { comentario: comentario || 'Aprobado' };
+        res = await fetch(endpoint, {
+          method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+      }
+      const data = await res.json();
+      if (data.success) { cerrarModal(); fetchSolicitudes(); } else { alert(data.message || "Error al procesar la solicitud."); }
+    } catch (error) {
+      console.error(error); alert('Error de conexión con el servidor.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 2. REGLAS DE ACCESO (PERMISOS)
+  const esAdmin = rolUsuario === 'ADMIN';
+  const puedeValidar = esAdmin || rolUsuario === 'REVISOR';
+  const esAutorizador = rolUsuario.startsWith('AUTORIZADOR');
+  const puedeAutorizar = esAdmin || esAutorizador;
+  const puedePagar = esAdmin || rolUsuario === 'TESORERIA';
+
+  // 3. FILTRADO INTELIGENTE DE SOLICITUDES
+  const porValidar = solicitudes.filter(s => s.estatus === 'PENDIENTE');
+  
+  const porAutorizar = solicitudes.filter(s => {
+    if (esAdmin) return s.estatus === 'AUTORIZADO_1' || s.estatus === 'AUTORIZADO_2' || s.estatus === 'AUTORIZADO_3';
+    // Si es AUTORIZADOR_1, solo ve AUTORIZADO_1. Si es AUTORIZADOR_2, solo ve AUTORIZADO_2, etc.
+    if (esAutorizador) return s.estatus === rolUsuario; 
+    return false;
+  });
+
+  const porPagar = solicitudes.filter(s => s.estatus === 'AUTORIZADO_FINAL'); 
+  const historial = solicitudes.filter(s => s.estatus === 'PAGADO' || s.estatus === 'RECHAZADO');
+
+  let listaBase = [];
+  if (activeTab === 'VALIDAR') listaBase = porValidar;
+  else if (activeTab === 'AUTORIZAR') listaBase = porAutorizar;
+  else if (activeTab === 'POR_PAGAR') listaBase = porPagar;
+  else {
+    listaBase = filtroHistorial === 'TODOS' ? historial : historial.filter(s => s.estatus === filtroHistorial);
+  }
+
+  const listaActual = listaBase.filter(s => {
+    if (!busqueda) return true;
+    const termino = busqueda.toLowerCase();
+    return ((s.folio && s.folio.toLowerCase().includes(termino)) || (s.solicitante_nombre && s.solicitante_nombre.toLowerCase().includes(termino)) || (s.unidad_negocio && s.unidad_negocio.toLowerCase().includes(termino)));
+  });
+
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = listaActual.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(listaActual.length / itemsPerPage);
 
-  // Cálculo de métricas
-  const totalMontoValidar = pagosPorValidar.reduce((acc, p) => acc + parseFloat(p.monto_pago), 0);
-  const totalMontoAutorizar = pagosPorAutorizar.reduce((acc, p) => acc + parseFloat(p.monto_pago), 0);
+  const totalMontoValidar = porValidar.reduce((acc, s) => acc + parseFloat(s.monto || 0), 0);
+  const totalMontoAutorizar = porAutorizar.reduce((acc, s) => acc + parseFloat(s.monto || 0), 0);
+  const totalMontoPorPagar = porPagar.reduce((acc, s) => acc + parseFloat(s.monto || 0), 0);
+
+  const getModalUI = (tipo) => {
+    switch(tipo) {
+      case 'VALIDAR': return { color: '#d97706', btnText: 'Firmar Validación', title: 'Validar Solicitud' };
+      case 'AUTORIZAR': return { color: '#2563eb', btnText: 'Firmar Autorización', title: `Autorizar Solicitud (${rolUsuario})` };
+      case 'PAGAR': return { color: '#059669', btnText: 'Subir y Marcar Pagado', title: 'Liquidar Solicitud' };
+      case 'RECHAZAR': return { color: '#dc2626', btnText: 'Confirmar Rechazo', title: 'Rechazar Solicitud' };
+      default: return { color: '#000', btnText: 'Confirmar', title: 'Procesar' };
+    }
+  };
+  const modalUI = getModalUI(modalConfig.tipo);
 
   return (
-    <div className="autorizar-container">
-      <div className="page-header stagger-1 fade-in-up">
-        <div>
-          <h1>Centro de Autorizaciones</h1>
-          <p>Firma digital para liberar pagos y transferencias a proveedores</p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={fetchPagosPendientes} disabled={isLoading}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', marginRight: '6px'}}><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            Refrescar
-          </button>
+    <div className="autorizar-container" style={{ paddingTop: '0px' }}>
+      
+      {/* TARJETAS DE MÉTRICAS CONDICIONALES */}
+      <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginTop: '0px' }}>
+        
+        {puedeValidar && (
+          <div className="metric-card warning" onClick={() => setActiveTab('VALIDAR')} style={{cursor: 'pointer', border: activeTab === 'VALIDAR' ? '2px solid #d97706' : '1px solid transparent'}}>
+            <div className="metric-data">
+              <span>1. Por Validar</span>
+              <h3>{porValidar.length} <span>({formatMoney(totalMontoValidar)})</span></h3>
+            </div>
+          </div>
+        )}
+        
+        {puedeAutorizar && (
+          <div className="metric-card primary" onClick={() => setActiveTab('AUTORIZAR')} style={{cursor: 'pointer', border: activeTab === 'AUTORIZAR' ? '2px solid #2563eb' : '1px solid transparent'}}>
+            <div className="metric-data">
+              <span>{esAdmin ? '2. Por Autorizar' : 'Bandeja de Firma'}</span>
+              <h3>{porAutorizar.length} <span>({formatMoney(totalMontoAutorizar)})</span></h3>
+            </div>
+          </div>
+        )}
+
+        {puedePagar && (
+          <div className="metric-card success" onClick={() => setActiveTab('POR_PAGAR')} style={{cursor: 'pointer', border: activeTab === 'POR_PAGAR' ? '2px solid #059669' : '1px solid transparent', backgroundColor: '#ecfdf5'}}>
+            <div className="metric-data">
+              <span style={{ color: '#059669' }}>3. Por Pagar (Tesor.)</span>
+              <h3 style={{ color: '#047857' }}>{porPagar.length} <span>({formatMoney(totalMontoPorPagar)})</span></h3>
+            </div>
+          </div>
+        )}
+
+        {/* El historial lo ven todos */}
+        <div className="metric-card" onClick={() => setActiveTab('HISTORIAL')} style={{cursor: 'pointer', border: activeTab === 'HISTORIAL' ? '2px solid #64748b' : '1px solid transparent', backgroundColor: '#f8fafc'}}>
+          <div className="metric-data">
+            <span>Historial</span>
+            <h3>{historial.length} <span>registros</span></h3>
+          </div>
         </div>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS (TABS) */}
-      <div className="metrics-grid stagger-2 fade-in-up">
-        <div className="metric-card warning" onClick={() => setActiveTab('VALIDAR')} style={{cursor: 'pointer', border: activeTab === 'VALIDAR' ? '2px solid #d97706' : '1px solid transparent'}}>
-          <div className="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
-          <div className="metric-data">
-            <span>Requieren Validación</span>
-            <h3>{pagosPorValidar.length} <span>({formatMoney(totalMontoValidar)})</span></h3>
-          </div>
-        </div>
-        <div className="metric-card primary" onClick={() => setActiveTab('AUTORIZAR')} style={{cursor: 'pointer', border: activeTab === 'AUTORIZAR' ? '2px solid #2563eb' : '1px solid transparent'}}>
-          <div className="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
-          <div className="metric-data">
-            <span>Requieren Autorización</span>
-            <h3>{pagosPorAutorizar.length} <span>({formatMoney(totalMontoAutorizar)})</span></h3>
-          </div>
-        </div>
-        <div className="metric-card success" onClick={() => setActiveTab('HISTORIAL')} style={{cursor: 'pointer', border: activeTab === 'HISTORIAL' ? '2px solid #10b981' : '1px solid transparent'}}>
-          <div className="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div>
-          <div className="metric-data">
-            <span>Historial Reciente</span>
-            <h3>{pagosHistorial.length} <span>solicitudes</span></h3>
-          </div>
-        </div>
-      </div>
-
-      {/* TABLA PRINCIPAL PAGINADA */}
-      <div className="table-responsive stagger-3 fade-in-up" style={{ marginTop: '24px' }}>
-        <div className="list-header" style={{ padding: '20px', borderBottom: '1px solid var(--border-light)' }}>
-          <h2>
-            {activeTab === 'VALIDAR' ? 'Bandeja de Validación (Nivel 1)' : 
-             activeTab === 'AUTORIZAR' ? 'Bandeja de Autorización Final (Nivel 2)' : 
-             'Historial de Solicitudes Procesadas'}
+      {/* TABLA PRINCIPAL */}
+      <div className="table-responsive" style={{ marginTop: '24px' }}>
+        <div className="list-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>
+            {activeTab === 'VALIDAR' ? 'Bandeja de Validación (Revisor)' : 
+             activeTab === 'AUTORIZAR' ? `Bandeja de Autorizaciones (${esAdmin ? 'Niveles 1, 2 y 3' : rolUsuario})` : 
+             activeTab === 'POR_PAGAR' ? 'Pendientes de Liquidación' : 'Historial General'}
           </h2>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input 
+              type="text" placeholder="Buscar folio o nombre..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+              style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '200px', fontSize: '13px' }}
+            />
+            {activeTab === 'HISTORIAL' && (
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button onClick={() => setFiltroHistorial('TODOS')} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer', background: filtroHistorial === 'TODOS' ? '#e2e8f0' : '#fff' }}>Todos</button>
+                <button onClick={() => setFiltroHistorial('PAGADO')} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #10b981', color: '#10b981', fontSize: '12px', cursor: 'pointer', background: filtroHistorial === 'PAGADO' ? '#d1fae5' : '#fff' }}>Pagados</button>
+                <button onClick={() => setFiltroHistorial('RECHAZADO')} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #ef4444', color: '#ef4444', fontSize: '12px', cursor: 'pointer', background: filtroHistorial === 'RECHAZADO' ? '#fee2e2' : '#fff' }}>Rechazados</button>
+              </div>
+            )}
+            <button className="btn-secondary" onClick={fetchSolicitudes} disabled={isLoading} style={{ padding: '6px 12px', fontSize: '13px' }}>Refrescar</button>
+          </div>
         </div>
 
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: '8%' }}>Folio</th>
-              <th style={{ width: '20%' }}>Solicitante / Fecha</th>
-              <th style={{ width: '22%' }}>Proveedor Destino</th>
-              <th style={{ width: '20%' }}>Concepto / Factura</th>
-              <th style={{ width: '12%' }}>Monto</th>
-              <th style={{ width: '18%', textAlign: 'right' }}>Acciones</th>
+              <th style={{ width: '15%' }}>Folio / Fecha</th>
+              <th style={{ width: '25%' }}>Solicitante</th>
+              <th style={{ width: '20%' }}>Unidad de Negocio</th>
+              <th style={{ width: '15%' }}>Monto</th>
+              <th style={{ width: '25%', textAlign: 'right' }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && currentItems.length === 0 ? (
-              <tr><td colSpan="6" style={{textAlign: 'center', padding: '30px'}}>Cargando...</td></tr>
+              <tr><td colSpan="5" style={{textAlign: 'center', padding: '30px'}}>Cargando solicitudes...</td></tr>
             ) : currentItems.length > 0 ? (
-              currentItems.map(pago => (
-                <tr key={pago.id}>
-                  <td><strong>#{pago.id.toString().padStart(4, '0')}</strong></td>
+              currentItems.map(sol => (
+                <tr key={sol.id}>
                   <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>{pago.solicitante}</strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleString('es-MX', {dateStyle: 'short', timeStyle: 'short'})}</span>
-                    </div>
+                    <strong style={{ display: 'block', color: '#0f172a', fontSize: '13px' }}>{sol.folio}</strong>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(sol.fecha_solicitud).toLocaleDateString('es-MX')}</span>
                   </td>
+                  <td><span style={{ color: 'var(--text-main)', fontSize: '14px', fontWeight: '500' }}>{sol.solicitante_nombre}</span></td>
+                  <td><span style={{ backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', color: '#475569', fontWeight: '600' }}>{sol.unidad_negocio || 'Corporativo'}</span></td>
                   <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <strong style={{ color: 'var(--brand-green)', fontSize: '13px' }}>{pago.proveedor || 'N/D'}</strong>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {pago.banco || 'Banco N/D'} • Cta: {pago.numero_cuenta || pago.clabe_bancaria || 'N/A'}
-                      </span>
-                    </div>
+                    <strong style={{ fontSize: '15px', color: sol.estatus === 'RECHAZADO' ? '#94a3b8' : '#0f172a' }}>{formatMoney(sol.monto)}</strong>
+                    {sol.estatus === 'RECHAZADO' && <span style={{display: 'block', fontSize: '11px', color: '#ef4444', fontWeight: '700'}}>RECHAZADO</span>}
+                    {sol.estatus === 'PAGADO' && <span style={{display: 'block', fontSize: '11px', color: '#10b981', fontWeight: '700'}}>PAGADO</span>}
                   </td>
-                  <td>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '13px', fontWeight: '500' }}>{pago.concepto}</span>
-                      {pago.num_factura_ref && <span style={{ fontSize: '11px', color: '#64748b' }}>Ref: {pago.num_factura_ref}</span>}
-                    </div>
-                  </td>
-                  <td>
-                    <strong style={{ fontSize: '15px', color: pago.estatus === 'RECHAZADO' ? 'var(--text-muted)' : 'var(--text-main)' }}>
-                      {formatMoney(pago.monto_pago)}
-                    </strong>
-                    {pago.estatus === 'RECHAZADO' && <span style={{display: 'block', fontSize: '11px', color: '#ef4444', fontWeight: '700'}}>RECHAZADO</span>}
-                    {pago.estatus === 'PAGADO' && <span style={{display: 'block', fontSize: '11px', color: '#10b981', fontWeight: '700'}}>PAGADO</span>}
-                  </td>
+                  
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
-                      
-                      {pago.url_comprobante_pago && (
-                        <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" title="Ver Factura Ajunta" style={{borderColor: '#64748b', color: '#64748b'}}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                        </a>
-                      )}
+                      <button onClick={() => verPDFSeguro(sol.id)} className="btn-view" style={{borderColor: '#cbd5e1', color: '#475569', backgroundColor: 'transparent', cursor: 'pointer'}}>Ver PDF</button>
 
-                      <button className="btn-view" onClick={() => descargarSolicitud(pago.id)} title="Descargar PDF" style={{borderColor: '#64748b', color: '#64748b'}}>
-                        PDF
-                      </button>
-
-                      {/* BOTONES DE VALIDACIÓN (Nivel 1) */}
-                      {activeTab === 'VALIDAR' && (rolUsuario === 'ADMIN' || rolUsuario === 'CONTADOR') && (
+                      {activeTab === 'VALIDAR' && puedeValidar && (
                         <>
-                          <button className="btn-view" onClick={() => procesarPago(pago.id, 'RECHAZAR')} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }} title="Rechazar">✕</button>
-                          <button className="btn-view" onClick={() => procesarPago(pago.id, 'VALIDAR')} style={{ borderColor: '#d97706', color: '#d97706', backgroundColor: '#fef3c7', fontWeight: 'bold' }}>Validar</button>
+                          <button className="btn-view" onClick={() => abrirModal('RECHAZAR', sol.id, sol.folio)} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }}>✕</button>
+                          <button className="btn-view" onClick={() => abrirModal('VALIDAR', sol.id, sol.folio)} style={{ borderColor: '#d97706', color: '#d97706', backgroundColor: '#fef3c7', fontWeight: 'bold' }}>Validar</button>
                         </>
                       )}
 
-                      {/* BOTONES DE AUTORIZACIÓN (Nivel 2) */}
-                      {activeTab === 'AUTORIZAR' && rolUsuario === 'ADMIN' && (
+                      {activeTab === 'AUTORIZAR' && puedeAutorizar && (
                         <>
-                          <button className="btn-view" onClick={() => procesarPago(pago.id, 'RECHAZAR')} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }} title="Rechazar">✕</button>
-                          <button className="btn-view" onClick={() => procesarPago(pago.id, 'AUTORIZAR')} style={{ borderColor: '#2563eb', color: '#ffffff', backgroundColor: '#2563eb', fontWeight: 'bold' }}>Autorizar</button>
+                          <button className="btn-view" onClick={() => abrirModal('RECHAZAR', sol.id, sol.folio)} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }}>✕</button>
+                          <button className="btn-view" onClick={() => abrirModal('AUTORIZAR', sol.id, sol.folio)} style={{ borderColor: '#2563eb', color: '#ffffff', backgroundColor: '#2563eb', fontWeight: 'bold' }}>Autorizar</button>
                         </>
+                      )}
+
+                      {activeTab === 'POR_PAGAR' && puedePagar && (
+                        <button className="btn-view" onClick={() => abrirModal('PAGAR', sol.id, sol.folio)} style={{ borderColor: '#059669', color: '#ffffff', backgroundColor: '#059669', fontWeight: 'bold' }}>Liquidar</button>
                       )}
                     </div>
                   </td>
                 </tr>
               ))
             ) : (
-              <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '40px' }}>
-                  <div className="empty-state" style={{ border: 'none', background: 'transparent' }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '40px', color: '#cbd5e1', marginBottom: '12px'}}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                    <h3>Bandeja Limpia</h3>
-                    <p>No hay solicitudes en esta sección por el momento.</p>
-                  </div>
-                </td>
-              </tr>
+              <tr><td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No hay registros en esta sección.</td></tr>
             )}
           </tbody>
         </table>
-
-        {/* CONTROLES DE PAGINACIÓN */}
         {totalPages > 1 && (
             <div className="pagination-container">
-                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>&laquo; Anterior</button>
-                <span className="page-info">Página {currentPage} de {totalPages}</span>
-                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>Siguiente &raquo;</button>
+                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>&laquo; Ant</button>
+                <span className="page-info">Pág {currentPage} de {totalPages}</span>
+                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>Sig &raquo;</button>
             </div>
         )}
       </div>
+
+      {modalConfig.isOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '400px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', color: modalUI.color }}>{modalUI.title}</h2>
+            <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: '#64748b' }}>Folio: <strong>{modalConfig.folio}</strong></p>
+            <form onSubmit={ejecutarAccion}>
+              {modalConfig.tipo === 'PAGAR' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Comprobante Bancario (Obligatorio)</label>
+                  <input type="file" accept=".pdf,.jpg,.png" onChange={(e) => setArchivoFirma(e.target.files[0])} required style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px' }} />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>{modalConfig.tipo === 'RECHAZAR' ? 'Motivo de Rechazo' : 'Comentarios (Opcional)'}</label>
+                  <textarea rows="3" required={modalConfig.tipo === 'RECHAZAR'} value={comentario} onChange={(e) => setComentario(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" onClick={cerrarModal} style={{ padding: '8px 16px', backgroundColor: 'white', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#475569', fontWeight: '600', cursor: 'pointer' }}>Cancelar</button>
+                <button type="submit" disabled={isProcessing} style={{ padding: '8px 16px', backgroundColor: modalUI.color, border: 'none', borderRadius: '8px', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>{isProcessing ? 'Procesando...' : modalUI.btnText}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

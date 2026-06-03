@@ -114,6 +114,11 @@ const IconSpinner = () => (
 // ─── Componente principal ─────────────────────────────────────────────
 const Solicitud = () => {
     const navigate = useNavigate();
+    
+    // Obtenemos rol y unidad del localStorage
+    const userRole = localStorage.getItem('rol') || 'AUXILIAR';
+    const userUnidad = localStorage.getItem('unidad_negocio') || '01.CRP - Corporativo';
+
     const [loading, setLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
     const [montoDisplay, setMontoDisplay] = useState('');
@@ -123,12 +128,13 @@ const Solicitud = () => {
 
     const [formData, setFormData] = useState({
         concepto_id: '',
-        unidad_negocio: '',
+        // Si es ADMIN, lo dejamos vacío para que elija. Si NO es ADMIN, se bloquea con su sucursal.
+        unidad_negocio: userRole === 'ADMIN' ? '' : userUnidad,
         id_proveedor: '', 
         forma_pago: 'TRANSFERENCIA',
         monto: '',
         descripcion: '',
-        fecha_limite_pago: '', // <-- NUEVO CAMPO
+        fecha_limite_pago: '',
     });
 
     // ─── Efecto para cargar proveedores al abrir la pantalla ───
@@ -224,14 +230,28 @@ const Solicitud = () => {
                                     ))}
                                 </select>
                             </div>
+                            
                             <div className="form-group">
-                                <label className="form-label">Unidad de Negocio</label>
-                                <select name="unidad_negocio" className="form-select" value={formData.unidad_negocio} onChange={handleChange} required>
+                                <label className="form-label">Unidad de Negocio (Sucursal)</label>
+                                <select 
+                                    name="unidad_negocio" 
+                                    className="form-select" 
+                                    value={formData.unidad_negocio} 
+                                    onChange={handleChange} 
+                                    required
+                                    disabled={userRole !== 'ADMIN'}
+                                    style={userRole !== 'ADMIN' ? { backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' } : {}}
+                                >
                                     <option value="">Seleccione...</option>
                                     {UNIDADES_NEGOCIO.map((u) => (
                                         <option key={u.id} value={u.id}>{u.label}</option>
                                     ))}
                                 </select>
+                                {userRole !== 'ADMIN' && (
+                                    <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px', fontWeight: '500' }}>
+                                        * Asignado automáticamente a tu sucursal.
+                                    </span>
+                                )}
                             </div>
                         </div>
 

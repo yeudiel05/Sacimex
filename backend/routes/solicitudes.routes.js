@@ -58,14 +58,18 @@ function numeroALetras(num) {
     return letras.trim() + ' PESOS ' + centavos.toString().padStart(2, '0') + '/100 M.N.';
 }
 
+// ACTUALIZACIÓN: Devuelve 4 niveles fijos para que pase por Revisor y 3 Autorizadores
+// Si tienes una regla por monto (ej. solo > 100,000 pasa por el 3), modifícalo aquí.
 function calcularNivelesRequeridos(monto) {
-    return parseFloat(monto) > 100000 ? 3 : 2; 
+    return 4; // Revisor(0) + Aut1(1) + Aut2(2) + Aut3(3)
 }
 
+// ACTUALIZACIÓN: Añadido el nivel 3 para icruz
 function obtenerRolEsperado(monto, nivelActual) {
     if (nivelActual === 0) return 'REVISOR';
     if (nivelActual === 1) return 'AUTORIZADOR_1';
-    if (nivelActual === 2 && parseFloat(monto) > 100000) return 'AUTORIZADOR_2';
+    if (nivelActual === 2) return 'AUTORIZADOR_2';
+    if (nivelActual === 3) return 'AUTORIZADOR_3';
     return null;
 }
 
@@ -93,7 +97,8 @@ router.get('/', verificarToken, (req, res) => {
         JOIN personas p ON e.id_persona = p.id
     `;
 
-    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(miRol)) {
+    // ACTUALIZACIÓN: Se agrega AUTORIZADOR_3 a los roles que pueden ver el directorio global
+    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'AUTORIZADOR_3', 'TESORERIA'].includes(miRol)) {
         query += ` WHERE s.solicitante_id = ${db.escape(miId)}`;
     }
     query += ' ORDER BY s.fecha_solicitud DESC';
@@ -106,7 +111,8 @@ router.get('/', verificarToken, (req, res) => {
 
 router.get('/pendientes', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
-    const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2 };
+    // ACTUALIZACIÓN: Se agrega la equivalencia para AUTORIZADOR_3
+    const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2, 'AUTORIZADOR_3': 3 };
     
     const nivelRol = rolANivel[miRol];
     if (nivelRol === undefined && miRol !== 'ADMIN') return res.json({ success: true, data: [] });
@@ -177,43 +183,65 @@ router.get('/:id', verificarToken, (req, res) => {
     });
 });
 
-// ─── RUTA CREAR (CON SOPORTE PARA FECHA LÍMITE) ───
+// ─── RUTA CREAR (BLINDADA POR ROL Y SUCURSAL) ───
 router.post('/crear', verificarToken, (req, res) => {
     try {
-        const { concepto_id, unidad_negocio, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
+        const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
         
         const solicitante_id = req.usuario.id;
+        const miRol = req.usuario.rol;
         const montoNum = parseFloat(monto) || 0;
         const niveles = calcularNivelesRequeridos(montoNum);
 
         const anio = new Date().getFullYear();
         const folioBase = `SAC-TSR-RCS-${anio}`;
 
-        // Si id_proveedor está vacío, lo forzamos a nulo para evitar errores en BD
         const idProvFinal = (id_proveedor === '' || id_proveedor === null) ? null : id_proveedor;
         const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null) ? null : fecha_limite_pago;
 
-        const query = `
-            INSERT INTO solicitudes_recursos 
-            (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
-             id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?)
-        `;
-
-        db.query(query, [
-            solicitante_id, concepto_id, descripcion, montoNum,
-            unidad_negocio, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal
-        ], (err, result) => {
-            if (err) {
-                console.error("Error BD en Crear Solicitud:", err);
-                return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
+        // 1. BUSCAR LA UNIDAD DE NEGOCIO REAL DEL USUARIO EN LA BASE DE DATOS
+        db.query(`
+            SELECT e.unidad_negocio 
+            FROM usuarios u 
+            JOIN empleados e ON u.id_empleado = e.id_persona 
+            WHERE u.id = ?
+        `, [solicitante_id], (errUsuario, rowsUsuario) => {
+            if (errUsuario || rowsUsuario.length === 0) {
+                return res.status(500).json({ success: false, message: 'No se pudo verificar tu unidad de negocio.' });
             }
+
+            const unidadRealDelEmpleado = rowsUsuario[0].unidad_negocio;
+
+            // 2. APLICAR LA REGLA DE NEGOCIO
+            let unidad_negocio_final = req.body.unidad_negocio;
             
-            const solicitudId = result.insertId;
-            const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
-            
-            db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
-                res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
+            if (miRol !== 'ADMIN') {
+                unidad_negocio_final = unidadRealDelEmpleado || '01.CRP - Corporativo'; 
+            }
+
+            // 3. GUARDAR EN LA BASE DE DATOS
+            const query = `
+                INSERT INTO solicitudes_recursos 
+                (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
+                 id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?)
+            `;
+
+            db.query(query, [
+                solicitante_id, concepto_id, descripcion, montoNum,
+                unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal
+            ], (err, result) => {
+                if (err) {
+                    console.error("Error BD en Crear Solicitud:", err);
+                    return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
+                }
+                
+                const solicitudId = result.insertId;
+                const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
+                
+                db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
+                    res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
+                });
             });
         });
 
@@ -229,22 +257,28 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
     const miUsuarioId = req.usuario.id;
 
-    db.query('SELECT monto, nivel_actual, estatus FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
+    db.query('SELECT monto, nivel_actual, estatus, niveles_requeridos FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
         if (err || rows.length === 0) return res.status(404).json({ success: false, message: "No encontrada" });
 
         const sol = rows[0];
         if (['PAGADO', 'RECHAZADO'].includes(sol.estatus)) return res.status(400).json({ success: false, message: "Ya procesada" });
 
         const rolEsperado = obtenerRolEsperado(sol.monto, sol.nivel_actual);
-        if (!rolEsperado) return res.status(400).json({ success: false, message: 'Ya firmada' });
+        if (!rolEsperado) return res.status(400).json({ success: false, message: 'Ya firmada en todos los niveles' });
 
         if (miRol !== 'ADMIN' && miRol !== rolEsperado) {
             return res.status(403).json({ success: false, message: `Se requiere rol: ${rolEsperado}` });
         }
 
         const nuevoNivel = sol.nivel_actual + 1;
-        const siguienteRol = obtenerRolEsperado(sol.monto, nuevoNivel);
-        const nuevoEstatus = siguienteRol ? `AUTORIZADO_${nuevoNivel}` : 'AUTORIZADO_FINAL';
+        
+        // ACTUALIZACIÓN: Comprueba si ya alcanzó el nivel máximo requerido para declararlo AUTORIZADO_FINAL
+        let nuevoEstatus;
+        if (nuevoNivel >= sol.niveles_requeridos) {
+            nuevoEstatus = 'AUTORIZADO_FINAL';
+        } else {
+            nuevoEstatus = `AUTORIZADO_${nuevoNivel}`;
+        }
 
         db.beginTransaction(err3 => {
             if (err3) return res.status(500).json({ success: false });
@@ -504,49 +538,56 @@ function generarPDFSolicitud(res, sol, firmas) {
     doc.rect(LEFT + 292, y+14, 260, 40).stroke(C_VERDE_CAJA);
     doc.fillColor(C_ROJO).font('Helvetica-Oblique').text(isCheque ? '' : 'PÓLIZA CHEQUE NO APLICA EN TRANSFERENCIA', LEFT + 292, y + 30, {width: 260, align: 'center'});
 
+    // =====================================================================
+    // ACTUALIZACIÓN: BLOQUES DE FIRMAS (Ajustados para soportar 4 columnas)
+    // =====================================================================
     y += 90; 
-    let fy = y + 50; 
-    const fw = 160; 
-    const gap = (W - (fw * 3)) / 2; 
+    let fy1 = y + 50; 
+    const fw = 120; // Reducimos un poco el ancho para que quepan 4 firmas
+    const gap = (W - (fw * 4)) / 3; 
 
     const drawSignatureBlock = (px, py, title, name, role, firmImgPath, extraTitle) => {
-        doc.fillColor('#000').font('Helvetica-Bold').fontSize(8).text(title, px, py - 45, { width: fw, align: 'center' });
+        doc.fillColor('#000').font('Helvetica-Bold').fontSize(7).text(title, px, py - 45, { width: fw, align: 'center' });
         
         if (firmImgPath) {
             const absPath = path.join(__dirname, '../', firmImgPath);
             if (fs.existsSync(absPath)) {
-                doc.image(absPath, px + (fw/2) - 35, py - 38, { width: 70, height: 35 });
+                doc.image(absPath, px + (fw/2) - 25, py - 35, { width: 50, height: 25 });
             }
         }
 
         doc.moveTo(px, py).lineTo(px + fw, py).stroke('#000');
         
-        doc.fillColor(C_AZUL).font('Helvetica-Bold').fontSize(7).text(name || '---', px, py + 4, { width: fw, align: 'center' }); 
-        doc.fillColor('#000').font('Helvetica').fontSize(7).text(role || '---', px, py + 14, { width: fw, align: 'center' }); 
-        if (extraTitle) doc.text(extraTitle, px, py + 24, { width: fw, align: 'center' });
+        doc.fillColor(C_AZUL).font('Helvetica-Bold').fontSize(6).text(name || '---', px, py + 4, { width: fw, align: 'center' }); 
+        doc.fillColor('#000').font('Helvetica').fontSize(6).text(role || '---', px, py + 12, { width: fw, align: 'center' }); 
+        if (extraTitle) doc.fontSize(5).text(extraTitle, px, py + 20, { width: fw, align: 'center' });
     };
 
     const getFirma = (rolBuscado) => firmas.find(f => f.etapa_firma === rolBuscado && f.accion === 'APROBADO') || {};
 
-    drawSignatureBlock(LEFT, fy, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'Servicios integrados EXDAN SA DE CV');
-    drawSignatureBlock(LEFT + fw + gap, fy, 'VISTO BUENO (SI APLICA)', '---', '---', null, '');
+    // PRIMERA FILA DE FIRMAS: Solicitante | Visto Bueno | Tesorería (PAGADO)
+    drawSignatureBlock(LEFT, fy1, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'EXDAN SA DE CV');
+    drawSignatureBlock(LEFT + fw + gap, fy1, 'VISTO BUENO', '---', '---', null, '');
     
     const pagado = getFirma('PAGADO');
     const pagoName = sol.estatus === 'PAGADO' ? (pagado.aprobador || 'C. BEATRIZ CRUZ CANO') : '---';
-    const pagoRol  = sol.estatus === 'PAGADO' ? (pagado.aprobador_puesto || 'TSR - Coordinador(a) de Tesorería') : '---';
-    const firmaTesorera = sol.estatus === 'PAGADO' ? (pagado.ruta_firma_png || null) : null;
-    drawSignatureBlock(LEFT + (fw + gap)*2, fy, 'PAGADO POR', pagoName, pagoRol, firmaTesorera, sol.estatus === 'PAGADO' ? 'Servicios integrados EXDAN SA DE CV' : '');
+    const pagoRol  = sol.estatus === 'PAGADO' ? (pagado.aprobador_puesto || 'Coordinador(a) de Tesorería') : '---';
+    drawSignatureBlock(LEFT + (fw + gap)*2, fy1, 'PAGADO POR', pagoName, pagoRol, sol.estatus === 'PAGADO' ? pagado.ruta_firma_png : null, sol.estatus === 'PAGADO' ? 'EXDAN SA DE CV' : '');
 
-    fy += 120; 
+    // SEGUNDA FILA DE FIRMAS: Revisor | Aut1 | Aut2 | Aut3
+    let fy2 = fy1 + 100; 
     
     const rev = getFirma('REVISOR');
-    drawSignatureBlock(LEFT, fy, 'REVISADO POR', rev.aprobador, rev.aprobador_puesto, rev.ruta_firma_png, rev.aprobador ? 'Servicios integrados EXDAN SA DE CV' : '');
+    drawSignatureBlock(LEFT, fy2, 'REVISADO POR', rev.aprobador, rev.aprobador_puesto, rev.ruta_firma_png, rev.aprobador ? 'EXDAN SA DE CV' : '');
 
     const aut1 = getFirma('AUTORIZADOR_1');
-    drawSignatureBlock(LEFT + fw + gap, fy, 'AUTORIZACIÓN NIVEL 1', aut1.aprobador, aut1.aprobador_puesto, aut1.ruta_firma_png, aut1.aprobador ? 'Servicios integrados EXDAN SA DE CV' : '');
+    drawSignatureBlock(LEFT + fw + gap, fy2, 'AUTORIZACIÓN NIVEL 1', aut1.aprobador, aut1.aprobador_puesto, aut1.ruta_firma_png, aut1.aprobador ? 'EXDAN SA DE CV' : '');
 
     const aut2 = getFirma('AUTORIZADOR_2');
-    drawSignatureBlock(LEFT + (fw + gap)*2, fy, 'AUTORIZACIÓN NIVEL 2', aut2.aprobador ? aut2.aprobador : 'N/A', aut2.aprobador ? aut2.aprobador_puesto : '---', aut2.ruta_firma_png, '');
+    drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACIÓN NIVEL 2', aut2.aprobador ? aut2.aprobador : 'N/A', aut2.aprobador ? aut2.aprobador_puesto : '---', aut2.ruta_firma_png, '');
+
+    const aut3 = getFirma('AUTORIZADOR_3');
+    drawSignatureBlock(LEFT + (fw + gap)*3, fy2, 'AUTORIZACIÓN FINAL', aut3.aprobador ? aut3.aprobador : 'N/A', aut3.aprobador ? aut3.aprobador_puesto : '---', aut3.ruta_firma_png, '');
 
     doc.end();
 }

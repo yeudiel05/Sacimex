@@ -13,7 +13,31 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// ==========================================
+// 0. OBTENER PERFIL PARA AUTO-LLENADO
+// ==========================================
+router.get('/perfil', verificarToken, (req, res) => {
+    const query = `
+        SELECT 
+            e.puesto, 
+            e.departamento, 
+            e.unidad_negocio AS ubicacion
+        FROM usuarios u
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        WHERE u.id = ?
+    `;
+    db.query(query, [req.usuario.id], (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error en BD' });
+        
+        // Si encontramos al empleado, mandamos sus datos. Si no, mandamos un objeto vacío.
+        const perfil = results.length > 0 ? results[0] : { puesto: '', departamento: '', ubicacion: '' };
+        res.json({ success: true, perfil });
+    });
+});
+
+// ==========================================
 // 1. CREAR NUEVA SOLICITUD
+// ==========================================
 router.post('/', verificarToken, (req, res) => {
     const id_usuario = req.usuario.id;
     const { 
@@ -36,7 +60,9 @@ router.post('/', verificarToken, (req, res) => {
     });
 });
 
-// 2. OBTENER
+// ==========================================
+// 2. OBTENER MIS SOLICITUDES
+// ==========================================
 router.get('/mis-solicitudes', verificarToken, (req, res) => {
     db.query('SELECT * FROM solicitudes_viaticos WHERE id_usuario = ? ORDER BY fecha_solicitud DESC', [req.usuario.id], (err, results) => {
         if (err) return res.status(500).json({ success: false });
@@ -44,7 +70,9 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
 // 3. OBTENER TODAS (Para la Bandeja de D.H.O)
+// ==========================================
 router.get('/todas', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false, message: 'Acceso denegado' });
     db.query('SELECT sv.*, u.username as solicitante_usuario FROM solicitudes_viaticos sv JOIN usuarios u ON sv.id_usuario = u.id ORDER BY sv.fecha_solicitud DESC', (err, results) => {
@@ -53,7 +81,9 @@ router.get('/todas', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
 // 4. AUTORIZAR / RECHAZAR (Por D.H.O)
+// ==========================================
 router.put('/:id/estatus', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false });
     db.query('UPDATE solicitudes_viaticos SET estatus = ? WHERE id = ?', [req.body.estatus, req.params.id], (err) => {
@@ -63,7 +93,9 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
 // 5. D.H.O SUBE COMPROBANTE DE TRANSFERENCIA
+// ==========================================
 router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No hay archivo.' });
     const urlArchivo = `uploads/${req.file.filename}`;
@@ -74,7 +106,9 @@ router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (r
     });
 });
 
+// ==========================================
 // 6. EMPLEADO SUBE SUS FACTURAS DE GASTOS
+// ==========================================
 router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobante_gastos'), (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No hay archivo.' });
     const urlArchivo = `uploads/${req.file.filename}`;

@@ -24,7 +24,11 @@ function Layout() {
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
-  const userRole = localStorage.getItem('rol') || 'AUXILIAR';
+  // ==============================================================
+  // 🛡️ LIMPIEZA EXTREMA DEL ROL (Para evitar fallos por saltos de línea \r o espacios en BD)
+  // ==========================================
+  const rawRole = localStorage.getItem('rol') || 'AUXILIAR';
+  const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
   const username = localStorage.getItem('username') || 'Usuario';
 
   const fetchNotificaciones = async () => {
@@ -98,11 +102,13 @@ function Layout() {
   };
 
   // --- MATRIZ DE PERMISOS POR ROL ---
+  const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
+
   const menuItems = [
     {
       path: '/dashboard',
       label: 'Dashboard',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'], 
+      rolesPermitidos: rolesGenerales, 
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
       )
@@ -134,7 +140,7 @@ function Layout() {
     {
       path: '/proveedores',
       label: 'Proveedores',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN'],
+      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'],
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
       )
@@ -142,7 +148,7 @@ function Layout() {
     {
       path: '/solicitudes/nueva',
       label: 'Solicitudes',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'],
+      rolesPermitidos: rolesGenerales,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -155,7 +161,7 @@ function Layout() {
     {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
-      rolesPermitidos: ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O'],
+      rolesPermitidos: rolesGenerales,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
@@ -166,7 +172,7 @@ function Layout() {
     {
       path: '/revision-viaticos',
       label: 'Bandeja D.H.O.',
-      rolesPermitidos: ['D.H.O'],
+      rolesPermitidos: ['D.H.O', 'ADMIN'],
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
       )
@@ -174,7 +180,7 @@ function Layout() {
     {
       path: '/autorizaciones',
       label: 'Autorizar Pagos',
-      rolesPermitidos: ['ADMIN'],
+      rolesPermitidos: ['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2'],
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
       )

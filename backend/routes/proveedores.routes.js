@@ -13,11 +13,10 @@ const storage = multer.diskStorage({
     destination: function (req, file, cb) { cb(null, uploadDir); },
     filename: function (req, file, cb) {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'prov-' + req.body.id_proveedor + '-' + uniqueSuffix + path.extname(file.originalname));
+        cb(null, 'prov-' + (req.body.id_proveedor || 'fondeo') + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 const upload = multer({ storage: storage });
-
 const uploadExcel = multer({ storage: multer.memoryStorage() });
 
 function numeroALetras(num) {
@@ -53,6 +52,25 @@ function numeroALetras(num) {
 
     return `${textoFinal.toUpperCase()} PESOS ${centavos.toString().padStart(2, '0')}/100 M.N.`;
 }
+
+// ==========================================
+// RUTA: PAGO RÁPIDO DE FONDEADOR DESDE REPORTE
+// ==========================================
+router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (req, res) => {
+    const { id_contrato, monto } = req.body;
+    let url = req.file ? `uploads/${req.file.filename}` : null;
+    
+    const query = `
+        INSERT INTO movimientos_inversion 
+        (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) 
+        VALUES (?, 'PAGO_INTERES', ?, ?, 'COMPLETADO')
+    `;
+    db.query(query, [id_contrato, monto, url], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        registrarBitacora(req.usuario.id, 'PAGO_FONDEADOR', `Registró pago de rendimiento desde Reporte al contrato #${id_contrato}`);
+        res.json({ success: true, message: 'Pago de inversor registrado exitosamente' });
+    });
+});
 
 // ==========================================
 // RUTAS DE AUTORIZACIÓN DE PAGOS DIRECTOS
@@ -188,7 +206,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// RUTAS DE REPORTES (CON MOTOR JSON + DASHBOARD)
+// REPORTE MAESTRO DE EGRESOS (CON MOTOR FINANCIERO)
 // ==========================================
 router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
@@ -212,18 +230,23 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
     `;
 
     db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos: ' + err.message });
+        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos' });
 
         const queryFondeadores = `
             SELECT 
                 ci.id AS id_contrato, 
                 ci.plan_json, 
                 ci.pagos_irregulares_json, 
+                ci.monto_inicial,
+                ci.fecha_inicio,
+                t.tasa_anual_esperada,
+                t.cobra_iva,
                 p.nombre_razon_social AS proveedor,
                 (SELECT GROUP_CONCAT(MONTH(fecha_movimiento)) FROM movimientos_inversion mi WHERE mi.id_contrato = ci.id AND mi.tipo = 'PAGO_INTERES' AND mi.estatus_movimiento = 'COMPLETADO' AND YEAR(fecha_movimiento) = ?) AS meses_pagados
             FROM contratos_inversion ci
             JOIN inversores i ON ci.id_inversor = i.id_persona
             JOIN personas p ON i.id_persona = p.id
+            JOIN catalogo_tasas t ON ci.id_tasa = t.id
             WHERE ci.estatus = 'ACTIVO'
         `;
 
@@ -232,55 +255,123 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
 
             let fondeadoresCalculados = [];
 
+            // Helpers para parsear fechas de forma segura y evitar UTC offsets
+            function parseDateStr(dateStr) {
+                const parts = dateStr.split('-');
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+            function dateFromDb(dbDate) {
+                if (!dbDate) return new Date();
+                if (typeof dbDate === 'string') return parseDateStr(dbDate.split('T')[0]);
+                const dt = new Date(dbDate);
+                return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
+            }
+
             resContratos.forEach(contrato => {
                 const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
-
+                
+                let saldo = parseFloat(contrato.monto_inicial) || 0;
+                const tasa = parseFloat(contrato.tasa_anual_esperada) || 0;
+                const cobraIva = contrato.cobra_iva === 1;
+                
+                let eventos = [];
+                
+                // 1. Extraer Cuotas del Plan
                 if (contrato.plan_json) {
                     try {
                         const plan = JSON.parse(contrato.plan_json);
-                        plan.forEach(cuota => {
-                            if (cuota.fecha && cuota.abono) {
-                                const [year, month] = cuota.fecha.split('-');
-                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
-                                    const yaSePago = mesesPagadosArray.includes(String(mesFiltro));
-                                    fondeadoresCalculados.push({
-                                        fecha_recepcion: cuota.fecha,
-                                        tipo_gasto: 'PAGOS INTERES DE CRED',
-                                        proveedor: contrato.proveedor,
-                                        concepto: `Pago Rendimiento (Cuota ${cuota.numero || '-'})`,
-                                        monto: parseFloat(cuota.abono) || 0,
-                                        estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
-                                        origen_dato: 'FONDEADOR'
-                                    });
-                                }
+                        plan.forEach(c => {
+                            if (c.fecha) {
+                                eventos.push({
+                                    tipo: 'CUOTA',
+                                    fecha: parseDateStr(c.fecha),
+                                    fechaStr: c.fecha,
+                                    abono: parseFloat(c.abono) || 0,
+                                    numero: c.numero
+                                });
                             }
                         });
                     } catch(e) {}
                 }
-
+                
+                // 2. Extraer Pagos Irregulares
                 if (contrato.pagos_irregulares_json) {
                     try {
-                        const irregulares = JSON.parse(contrato.pagos_irregulares_json);
-                        irregulares.forEach(cuota => {
-                            if (cuota.fecha && cuota.monto) {
-                                const [year, month] = cuota.fecha.split('-');
-                                if (parseInt(month) === mesFiltro && parseInt(year) === anioFiltro) {
-                                    fondeadoresCalculados.push({
-                                        fecha_recepcion: cuota.fecha,
-                                        tipo_gasto: 'RETIRO / PAGO ESPECIAL',
-                                        proveedor: contrato.proveedor,
-                                        concepto: 'Pago Irregular / Capital',
-                                        monto: parseFloat(cuota.monto) || 0,
-                                        estatus_pago: 'PENDIENTE',
-                                        origen_dato: 'FONDEADOR'
-                                    });
-                                }
+                        const irreg = JSON.parse(contrato.pagos_irregulares_json);
+                        irreg.forEach(c => {
+                            if (c.fecha) {
+                                eventos.push({
+                                    tipo: 'IRREGULAR',
+                                    fecha: parseDateStr(c.fecha),
+                                    fechaStr: c.fecha,
+                                    monto: parseFloat(c.monto) || 0
+                                });
                             }
                         });
                     } catch(e) {}
                 }
+                
+                // Ordenar la línea de tiempo
+                eventos.sort((a, b) => a.fecha - b.fecha);
+                
+                // 3. Recrear el Motor de Amortización Dinámico
+                let fechaAnterior = dateFromDb(contrato.fecha_inicio);
+                let interesAcumulado = 0;
+                
+                eventos.forEach(evt => {
+                    let dias = 0;
+                    if (evt.fecha > fechaAnterior) {
+                        dias = Math.round((evt.fecha - fechaAnterior) / (1000 * 60 * 60 * 24));
+                    }
+                    
+                    // Sumar intereses generados en este intervalo (Días Exactos / 360)
+                    interesAcumulado += (saldo * (tasa / 100) / 360) * dias;
+                    fechaAnterior = evt.fecha;
+                    
+                    const mesEvt = evt.fecha.getMonth() + 1;
+                    const anioEvt = evt.fecha.getFullYear();
+                    
+                    if (evt.tipo === 'CUOTA') {
+                        const ivaFinal = cobraIva ? (interesAcumulado * 0.16) : 0;
+                        const totalPago = evt.abono + interesAcumulado + ivaFinal;
+                        
+                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                            const yaSePago = mesesPagadosArray.includes(String(mesFiltro));
+                            fondeadoresCalculados.push({
+                                id_contrato: contrato.id_contrato,
+                                fecha_recepcion: evt.fechaStr,
+                                tipo_gasto: 'PAGOS INTERES DE CRED',
+                                proveedor: contrato.proveedor,
+                                concepto: `Pago Rendimiento (Cuota ${evt.numero || '-'}) Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
+                                monto: totalPago,
+                                estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
+                                origen_dato: 'FONDEADOR'
+                            });
+                        }
+                        
+                        saldo -= evt.abono; // Disminuir la deuda
+                        interesAcumulado = 0; // Reiniciar acumulador tras el cobro
+                        
+                    } else if (evt.tipo === 'IRREGULAR') {
+                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                            fondeadoresCalculados.push({
+                                id_contrato: contrato.id_contrato,
+                                fecha_recepcion: evt.fechaStr,
+                                tipo_gasto: 'RETIRO / PAGO ESPECIAL',
+                                proveedor: contrato.proveedor,
+                                concepto: `Pago Irregular / Capital Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
+                                monto: evt.monto,
+                                estatus_pago: 'PENDIENTE',
+                                origen_dato: 'FONDEADOR'
+                            });
+                        }
+                        // Las inyecciones irregulares afectan el saldo inmediatamente
+                        saldo -= evt.monto;
+                    }
+                });
             });
 
+            // 4. Fusión con Gastos Operativos y Construcción del Dashboard
             const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
 
             const resumen = {
@@ -319,7 +410,6 @@ router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
         WHERE pp.estatus NOT IN ('PAGADO', 'RECHAZADO')
         ORDER BY fecha_vencimiento ASC
     `;
-    
     db.query(query, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error de base de datos' });
         res.json({ success: true, data: results });
@@ -349,21 +439,16 @@ router.get('/', verificarToken, (req, res) => {
 
 router.post('/', verificarToken, (req, res) => {
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false, message: 'Fallo al iniciar transacción BD.' });
-        
         db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
         [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
-            
             const idNuevaPersona = resultPersona.insertId;
             const catLimpia = categoria || 'OTROS';
-            
             db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
             [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
-                
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
                     registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
@@ -377,16 +462,12 @@ router.post('/', verificarToken, (req, res) => {
 router.put('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false, message: 'Fallo en BD' });
-        
         db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
         [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
-            
             const catLimpia = categoria || 'OTROS';
-
             db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
             [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
@@ -496,78 +577,41 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
 });
 
 router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
-    }
-
+    if (!req.file) return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     try {
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0]; 
-        const sheet = workbook.Sheets[sheetName];
-        
-        const data = xlsx.utils.sheet_to_json(sheet);
-        
-        if (data.length === 0) {
-            return res.status(400).json({ success: false, message: 'El archivo Excel está vacío' });
-        }
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        if (data.length === 0) return res.status(400).json({ success: false, message: 'El archivo Excel está vacío' });
 
-        let procesados = 0;
-        let errores = 0;
-
+        let procesados = 0, errores = 0;
         for (const row of data) {
             const rfc_original = row['RFC'] ? row['RFC'].toString().trim().toUpperCase() : null;
             const nombre = row['NOMBRE'] ? row['NOMBRE'].toString().trim() : null;
-
-            if (!rfc_original || !nombre) {
-                errores++;
-                continue; 
-            }
-
-            let tipo_persona = 'MORAL';
-            if (rfc_original.length === 13) {
-                tipo_persona = 'FISICA';
-            }
+            if (!rfc_original || !nombre) { errores++; continue; }
+            let tipo_persona = rfc_original.length === 13 ? 'FISICA' : 'MORAL';
 
             try {
                 await new Promise((resolve, reject) => {
                     db.beginTransaction(err => {
                         if (err) return reject(err);
-
                         db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
                         [tipo_persona, nombre, rfc_original, '', '', ''], (err, resultPersona) => {
                             if (err) return db.rollback(() => reject(err));
-                            
-                            const idNuevaPersona = resultPersona.insertId;
-                            
                             db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-                            [idNuevaPersona, 'OTROS', '', '', '', 0], (err) => {
+                            [resultPersona.insertId, 'OTROS', '', '', '', 0], (err) => {
                                 if (err) return db.rollback(() => reject(err));
-                                
-                                db.commit(err => {
-                                    if (err) return db.rollback(() => reject(err));
-                                    resolve();
-                                });
+                                db.commit(err => { if (err) return db.rollback(() => reject(err)); resolve(); });
                             });
                         });
                     });
                 });
                 procesados++;
-            } catch (err) {
-                errores++;
-            }
+            } catch (err) { errores++; }
         }
-
         registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} con errores o duplicados.`);
-        
-        res.json({ 
-            success: true, 
-            message: `Proceso completado. Proveedores importados: ${procesados}. Errores/Duplicados omitidos: ${errores}.` 
-        });
-
-    } catch (error) {
-        console.error("Error al procesar Excel:", error);
-        res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' });
-    }
+        res.json({ success: true, message: `Proceso completado. Proveedores importados: ${procesados}. Errores/Duplicados omitidos: ${errores}.` });
+    } catch (error) { res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' }); }
 });
 
 module.exports = router;
