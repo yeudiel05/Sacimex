@@ -6,6 +6,54 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const nodemailer = require('nodemailer'); 
+
+// =====================================================================
+// 2. CONFIGURACIÓN DE NODEMAILER (¡AQUÍ CONFIGURAS TU CORREO!)
+// =====================================================================
+const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com', // Cambia esto si usas otro proveedor (ej. smtp.office365.com)
+    port: 465, // Puerto SMTP seguro
+    secure: true, 
+    auth: {
+        user: 'ordazruudvan@gmail.com', // <-- PON TU CORREO AQUÍ
+        pass: 'ejci wnas ugjg yans' // <-- PON TU CONTRASEÑA AQUÍ
+    }
+});
+
+// Función central para enviar correos
+const enviarCorreo = async (destinatario, asunto, mensajeHTML) => {
+    if (!destinatario) return; 
+    try {
+        await transporter.sendMail({
+            from: '"Sistema de Recursos" <ordazruudvan@gmail.com>', // Mismo correo de arriba
+            to: destinatario,
+            subject: asunto,
+            html: mensajeHTML
+        });
+        console.log(`Correo enviado exitosamente a: ${destinatario}`);
+    } catch (error) {
+        console.error('Error al enviar correo:', error);
+    }
+};
+
+// Función para buscar en la BD el correo del usuario según su rol
+const getEmailByRol = (rolBuscado) => {
+    return new Promise((resolve) => {
+        const query = `
+            SELECT p.email_contacto 
+            FROM usuarios u 
+            JOIN empleados e ON u.id_empleado = e.id_persona 
+            JOIN personas p ON e.id_persona = p.id 
+            WHERE u.rol = ? LIMIT 1
+        `;
+        db.query(query, [rolBuscado], (err, results) => {
+            if (!err && results.length > 0) resolve(results[0].email_contacto);
+            else resolve(null);
+        });
+    });
+};
+// =====================================================================
 
 // ─── Multer para comprobante de pago ─────────────────────────────────
 const storage = multer.diskStorage({
@@ -58,18 +106,22 @@ function numeroALetras(num) {
     return letras.trim() + ' PESOS ' + centavos.toString().padStart(2, '0') + '/100 M.N.';
 }
 
-// ACTUALIZACIÓN: Devuelve 4 niveles fijos para que pase por Revisor y 3 Autorizadores
-// Si tienes una regla por monto (ej. solo > 100,000 pasa por el 3), modifícalo aquí.
+// =====================================================================
+// LÓGICA DE MATRIZ DE AUTORIZACIÓN CORREGIDA (HASTA NIVEL 2)
+// =====================================================================
 function calcularNivelesRequeridos(monto) {
-    return 4; // Revisor(0) + Aut1(1) + Aut2(2) + Aut3(3)
+    const m = parseFloat(monto) || 0;
+    // Si es $30,000 o menos, solo 2 firmas (Revisor y Aut1) -> Luego a Tesorería
+    if (m <= 30000) return 2;  
+    // Si es más de $30,000, 3 firmas (Revisor, Aut1 y Aut2 [Isaac]) -> Luego a Tesorería
+    return 3;                  
 }
 
-// ACTUALIZACIÓN: Añadido el nivel 3 para icruz
 function obtenerRolEsperado(monto, nivelActual) {
+    const m = parseFloat(monto) || 0;
     if (nivelActual === 0) return 'REVISOR';
     if (nivelActual === 1) return 'AUTORIZADOR_1';
-    if (nivelActual === 2) return 'AUTORIZADOR_2';
-    if (nivelActual === 3) return 'AUTORIZADOR_3';
+    if (nivelActual === 2 && m > 30000) return 'AUTORIZADOR_2';
     return null;
 }
 
@@ -97,8 +149,7 @@ router.get('/', verificarToken, (req, res) => {
         JOIN personas p ON e.id_persona = p.id
     `;
 
-    // ACTUALIZACIÓN: Se agrega AUTORIZADOR_3 a los roles que pueden ver el directorio global
-    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'AUTORIZADOR_3', 'TESORERIA'].includes(miRol)) {
+    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(miRol)) {
         query += ` WHERE s.solicitante_id = ${db.escape(miId)}`;
     }
     query += ' ORDER BY s.fecha_solicitud DESC';
@@ -111,8 +162,7 @@ router.get('/', verificarToken, (req, res) => {
 
 router.get('/pendientes', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
-    // ACTUALIZACIÓN: Se agrega la equivalencia para AUTORIZADOR_3
-    const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2, 'AUTORIZADOR_3': 3 };
+    const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2 };
     
     const nivelRol = rolANivel[miRol];
     if (nivelRol === undefined && miRol !== 'ADMIN') return res.json({ success: true, data: [] });
@@ -183,7 +233,6 @@ router.get('/:id', verificarToken, (req, res) => {
     });
 });
 
-// ─── RUTA CREAR (BLINDADA POR ROL Y SUCURSAL) ───
 router.post('/crear', verificarToken, (req, res) => {
     try {
         const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
@@ -199,7 +248,6 @@ router.post('/crear', verificarToken, (req, res) => {
         const idProvFinal = (id_proveedor === '' || id_proveedor === null) ? null : id_proveedor;
         const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null) ? null : fecha_limite_pago;
 
-        // 1. BUSCAR LA UNIDAD DE NEGOCIO REAL DEL USUARIO EN LA BASE DE DATOS
         db.query(`
             SELECT e.unidad_negocio 
             FROM usuarios u 
@@ -211,15 +259,12 @@ router.post('/crear', verificarToken, (req, res) => {
             }
 
             const unidadRealDelEmpleado = rowsUsuario[0].unidad_negocio;
-
-            // 2. APLICAR LA REGLA DE NEGOCIO
             let unidad_negocio_final = req.body.unidad_negocio;
             
             if (miRol !== 'ADMIN') {
                 unidad_negocio_final = unidadRealDelEmpleado || '01.CRP - Corporativo'; 
             }
 
-            // 3. GUARDAR EN LA BASE DE DATOS
             const query = `
                 INSERT INTO solicitudes_recursos 
                 (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
@@ -230,7 +275,7 @@ router.post('/crear', verificarToken, (req, res) => {
             db.query(query, [
                 solicitante_id, concepto_id, descripcion, montoNum,
                 unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal
-            ], (err, result) => {
+            ], async (err, result) => {
                 if (err) {
                     console.error("Error BD en Crear Solicitud:", err);
                     return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
@@ -239,8 +284,26 @@ router.post('/crear', verificarToken, (req, res) => {
                 const solicitudId = result.insertId;
                 const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
                 
-                db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], () => {
+                db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
                     res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
+                    
+                    // =====================================================
+                    // CORREO 1: AVISAR AL REVISOR QUE HAY UNA NUEVA SOLICITUD
+                    // =====================================================
+                    const emailRevisor = await getEmailByRol('REVISOR');
+                    if (emailRevisor) {
+                        const mensaje = `
+                            <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
+                            <p>Se ha generado una nueva solicitud de recursos en el sistema y está pendiente de tu validación (Revisor).</p>
+                            <ul>
+                                <li><strong>Folio:</strong> ${folio}</li>
+                                <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
+                                <li><strong>Unidad:</strong> ${unidad_negocio_final}</li>
+                            </ul>
+                            <p>Por favor, ingresa al sistema para revisarla.</p>
+                        `;
+                        enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
+                    }
                 });
             });
         });
@@ -257,7 +320,7 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
     const miUsuarioId = req.usuario.id;
 
-    db.query('SELECT monto, nivel_actual, estatus, niveles_requeridos FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
+    db.query('SELECT folio, monto, nivel_actual, estatus, niveles_requeridos FROM solicitudes_recursos WHERE id = ?', [id], (err, rows) => {
         if (err || rows.length === 0) return res.status(404).json({ success: false, message: "No encontrada" });
 
         const sol = rows[0];
@@ -272,12 +335,16 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
 
         const nuevoNivel = sol.nivel_actual + 1;
         
-        // ACTUALIZACIÓN: Comprueba si ya alcanzó el nivel máximo requerido para declararlo AUTORIZADO_FINAL
         let nuevoEstatus;
+        let rolNotificar = ''; // Para saber a quién avisarle por correo
+
         if (nuevoNivel >= sol.niveles_requeridos) {
             nuevoEstatus = 'AUTORIZADO_FINAL';
+            rolNotificar = 'TESORERIA'; // Si ya acabó de firmar, se avisa a tesorería
         } else {
             nuevoEstatus = `AUTORIZADO_${nuevoNivel}`;
+            if (nuevoNivel === 1) rolNotificar = 'AUTORIZADOR_1';
+            if (nuevoNivel === 2) rolNotificar = 'AUTORIZADOR_2';
         }
 
         db.beginTransaction(err3 => {
@@ -292,10 +359,35 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
                 if (err4) return db.rollback(() => res.status(500).json({ success: false }));
                 db.query('UPDATE solicitudes_recursos SET estatus = ?, nivel_actual = ? WHERE id = ?', [nuevoEstatus, nuevoNivel, id], (err5) => {
                     if (err5) return db.rollback(() => res.status(500).json({ success: false }));
-                    db.commit(err6 => {
+                    db.commit(async err6 => {
                         if (err6) return db.rollback(() => res.status(500).json({ success: false }));
                         registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma nivel ${nuevoNivel} en sol #${id}`);
                         res.json({ success: true, nuevo_estatus: nuevoEstatus, message: 'Autorizado' });
+
+                        // =====================================================
+                        // CORREO 2: AVISAR AL SIGUIENTE EN LA CADENA O A TESORERÍA
+                        // =====================================================
+                        if (rolNotificar) {
+                            const emailSiguiente = await getEmailByRol(rolNotificar);
+                            if (emailSiguiente) {
+                                const isTeso = rolNotificar === 'TESORERIA';
+                                const titulo = isTeso ? 'Solicitud Lista para Pago' : 'Autorización Requerida';
+                                const cuerpo = isTeso 
+                                    ? 'Una solicitud ha completado todo el proceso de autorización y está lista para que subas el comprobante de liquidación.' 
+                                    : 'Una solicitud ha avanzado en el proceso y está esperando tu firma de autorización.';
+
+                                const mensaje = `
+                                    <h3 style="color: #2563eb;">${titulo}</h3>
+                                    <p>${cuerpo}</p>
+                                    <ul>
+                                        <li><strong>Folio:</strong> ${sol.folio}</li>
+                                        <li><strong>Monto:</strong> ${formatMoney(sol.monto)}</li>
+                                    </ul>
+                                    <p>Por favor, ingresa al sistema para continuar el flujo.</p>
+                                `;
+                                enviarCorreo(emailSiguiente, `${titulo} - Folio ${sol.folio}`, mensaje);
+                            }
+                        }
                     });
                 });
             });
@@ -340,12 +432,35 @@ router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (r
         db.query(queryFirma, [id, miUsuarioId], () => {
             registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud #${id}`);
             res.json({ success: true, message: 'Pago registrado' });
+
+            // =====================================================
+            // CORREO 3: AVISAR AL EMPLEADO SOLICITANTE QUE YA SE PAGÓ
+            // =====================================================
+            const querySol = `
+                SELECT s.folio, s.monto, p.email_contacto 
+                FROM solicitudes_recursos s
+                JOIN usuarios u ON s.solicitante_id = u.id
+                JOIN empleados e ON u.id_empleado = e.id_persona
+                JOIN personas p ON e.id_persona = p.id
+                WHERE s.id = ? LIMIT 1
+            `;
+            db.query(querySol, [id], (err, rows) => {
+                if (!err && rows.length > 0 && rows[0].email_contacto) {
+                    const solData = rows[0];
+                    const mensaje = `
+                        <h3 style="color: #10b981;">¡Solicitud Liquidada! ✅</h3>
+                        <p>Tu solicitud con folio <strong>${solData.folio}</strong> por <strong>${formatMoney(solData.monto)}</strong> ha sido pagada.</p>
+                        <p>Tesorería ha subido el comprobante bancario. Puedes descargar el PDF con todas las firmas y el comprobante ingresando a tu panel de solicitudes.</p>
+                    `;
+                    enviarCorreo(solData.email_contacto, `Tu Solicitud ha sido Pagada: ${solData.folio}`, mensaje);
+                }
+            });
         });
     });
 });
 
 // =====================================================================
-// GENERADOR PDF (CLON PERFECTO DE EXCEL)
+// GENERADOR PDF
 // =====================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const { id } = req.params;
@@ -539,12 +654,14 @@ function generarPDFSolicitud(res, sol, firmas) {
     doc.fillColor(C_ROJO).font('Helvetica-Oblique').text(isCheque ? '' : 'PÓLIZA CHEQUE NO APLICA EN TRANSFERENCIA', LEFT + 292, y + 30, {width: 260, align: 'center'});
 
     // =====================================================================
-    // ACTUALIZACIÓN: BLOQUES DE FIRMAS (Ajustados para soportar 4 columnas)
+    // BLOQUES DE FIRMAS Y AUTORIZACIÓN DINÁMICA
     // =====================================================================
     y += 90; 
     let fy1 = y + 50; 
-    const fw = 120; // Reducimos un poco el ancho para que quepan 4 firmas
-    const gap = (W - (fw * 4)) / 3; 
+    
+    // Ancho y espacio ajustado para 3 bloques perfectos y centrados
+    const fw = 160; 
+    const gap = (W - (fw * 3)) / 2; 
 
     const drawSignatureBlock = (px, py, title, name, role, firmImgPath, extraTitle) => {
         doc.fillColor('#000').font('Helvetica-Bold').fontSize(7).text(title, px, py - 45, { width: fw, align: 'center' });
@@ -565,29 +682,40 @@ function generarPDFSolicitud(res, sol, firmas) {
 
     const getFirma = (rolBuscado) => firmas.find(f => f.etapa_firma === rolBuscado && f.accion === 'APROBADO') || {};
 
-    // PRIMERA FILA DE FIRMAS: Solicitante | Visto Bueno | Tesorería (PAGADO)
-    drawSignatureBlock(LEFT, fy1, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'EXDAN SA DE CV');
-    drawSignatureBlock(LEFT + fw + gap, fy1, 'VISTO BUENO', '---', '---', null, '');
+    // ---------------------------------------------------------
+    // PRIMERA FILA DE FIRMAS: Solicitante | Visto Bueno | Tesorería
+    // ---------------------------------------------------------
+    drawSignatureBlock(LEFT, fy1, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'Servicios integrados EXDAN SA DE CV');
+    
+    drawSignatureBlock(LEFT + fw + gap, fy1, 'VISTO BUENO (SI APLICA)', '---', '---', null, '');
     
     const pagado = getFirma('PAGADO');
     const pagoName = sol.estatus === 'PAGADO' ? (pagado.aprobador || 'C. BEATRIZ CRUZ CANO') : '---';
-    const pagoRol  = sol.estatus === 'PAGADO' ? (pagado.aprobador_puesto || 'Coordinador(a) de Tesorería') : '---';
-    drawSignatureBlock(LEFT + (fw + gap)*2, fy1, 'PAGADO POR', pagoName, pagoRol, sol.estatus === 'PAGADO' ? pagado.ruta_firma_png : null, sol.estatus === 'PAGADO' ? 'EXDAN SA DE CV' : '');
+    const pagoRol  = sol.estatus === 'PAGADO' ? (pagado.aprobador_puesto || 'TSR - Coordinador(a) de Tesorería') : '---';
+    drawSignatureBlock(LEFT + (fw + gap)*2, fy1, 'PAGADO POR', pagoName, pagoRol, sol.estatus === 'PAGADO' ? pagado.ruta_firma_png : null, '');
 
-    // SEGUNDA FILA DE FIRMAS: Revisor | Aut1 | Aut2 | Aut3
+    // ---------------------------------------------------------
+    // SEGUNDA FILA DE FIRMAS: Revisor | Nivel 1 | Nivel 2
+    // ---------------------------------------------------------
     let fy2 = fy1 + 100; 
+    const reqNiveles = calcularNivelesRequeridos(sol.monto);
     
+    // 1. REVISOR (Siempre aplica)
     const rev = getFirma('REVISOR');
-    drawSignatureBlock(LEFT, fy2, 'REVISADO POR', rev.aprobador, rev.aprobador_puesto, rev.ruta_firma_png, rev.aprobador ? 'EXDAN SA DE CV' : '');
+    drawSignatureBlock(LEFT, fy2, 'REVISADO POR', rev.aprobador || 'LIC C.P. MARIAM ITZEL RAMIREZ CARRASCO', rev.aprobador_puesto || 'AsCNT - Asistente Contable', rev.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
 
+    // 2. AUTORIZACIÓN NIVEL 1 (Siempre aplica)
     const aut1 = getFirma('AUTORIZADOR_1');
-    drawSignatureBlock(LEFT + fw + gap, fy2, 'AUTORIZACIÓN NIVEL 1', aut1.aprobador, aut1.aprobador_puesto, aut1.ruta_firma_png, aut1.aprobador ? 'EXDAN SA DE CV' : '');
+    drawSignatureBlock(LEFT + fw + gap, fy2, 'AUTORIZACIÓN NIVEL 1', aut1.aprobador || 'C.P TRINIDAD LISBETH REYES RUIZ', aut1.aprobador_puesto || 'GA - Gerente de Administración (2020)', aut1.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
 
-    const aut2 = getFirma('AUTORIZADOR_2');
-    drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACIÓN NIVEL 2', aut2.aprobador ? aut2.aprobador : 'N/A', aut2.aprobador ? aut2.aprobador_puesto : '---', aut2.ruta_firma_png, '');
-
-    const aut3 = getFirma('AUTORIZADOR_3');
-    drawSignatureBlock(LEFT + (fw + gap)*3, fy2, 'AUTORIZACIÓN FINAL', aut3.aprobador ? aut3.aprobador : 'N/A', aut3.aprobador ? aut3.aprobador_puesto : '---', aut3.ruta_firma_png, '');
+    // 3. AUTORIZACIÓN NIVEL 2 (Aplica si es > 30,000)
+    if (reqNiveles >= 3) {
+        const aut2 = getFirma('AUTORIZADOR_2');
+        drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACIÓN NIVEL 2', aut2.aprobador || 'MBA.CP ISAAC CRUZ CANO', aut2.aprobador_puesto || 'DIRECTOR GENERAL', aut2.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
+    } else {
+        // Si no aplica, el título se queda, pero los datos dicen N/A
+        drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACIÓN NIVEL 2', 'N/A', 'N/A', null, '');
+    }
 
     doc.end();
 }
