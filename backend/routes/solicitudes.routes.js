@@ -16,8 +16,8 @@ const transporter = nodemailer.createTransport({
     port: 465, // Puerto SMTP seguro
     secure: true, 
     auth: {
-        user: 'ordazruudvan@gmail.com', // <-- PON TU CORREO AQUÍ
-        pass: 'ejci wnas ugjg yans' // <-- PON TU CONTRASEÑA AQUÍ
+        user: 'ordazruudvan@gmail.com', 
+        pass: 'ejci wnas ugjg yans' 
     }
 });
 
