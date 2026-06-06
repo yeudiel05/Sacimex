@@ -919,11 +919,18 @@ function Proveedores() {
                   <div className="form-group">
                     <label>Categoría de Servicio</label>
                     <select className="custom-select" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})}>
-                        <option value="AGRICOLA">Agrícola</option>
-                        <option value="INSUMOS">Insumos y Papelería</option>
-                        <option value="MAQUINARIA">Maquinaria y Equipo</option>
-                        <option value="SERVICIOS">Servicios Profesionales</option>
-                        <option value="OTROS">Otro General</option>
+                      <option value="EQUIPO_TRANSPORTE">Equipo de Transporte</option>
+                      <option value="LIMPIEZA">Limpieza</option>
+                      <option value="SEGUROS_VEHICULOS">Seguros de Vehículos</option>
+                      <option value="SEGUROS_EMPRESARIALES">Seguros Empresariales</option>
+                      <option value="INTERESES_CREDITOS">Intereses de Créditos</option>
+                      <option value="MANTENIMIENTO">Mantenimiento (Inmuebles, Muebles, etc.)</option>
+                      <option value="ACCESORIOS_COMPUTO">Accesorios de Cómputo</option>
+                      <option value="EQUIPO_COMPUTO">Equipo de Cómputo</option>
+                      <option value="ADQUISICION_MOBILIARIO">Adquisición de Mobiliario</option>
+                      <option value="INSUMOS">Insumos y Papelería</option>
+                      <option value="OTROS">Otro General</option>
+
                     </select>
                   </div>
                   <div className="form-group">
