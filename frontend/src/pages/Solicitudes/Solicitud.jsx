@@ -90,6 +90,13 @@ const IconSpinner = () => (
     </svg>
 );
 
+const IconSearch = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}>
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+);
+
 // ─── Componente principal ─────────────────────────────────────────────
 const Solicitud = () => {
     const navigate = useNavigate();
@@ -104,6 +111,9 @@ const Solicitud = () => {
     
     // Estado para guardar los proveedores traídos de la base de datos
     const [proveedoresDB, setProveedoresDB] = useState([]);
+    const [proveedoresFiltrados, setProveedoresFiltrados] = useState([]);
+    const [filtroProveedor, setFiltroProveedor] = useState('');
+    const [dropdownProveedorOpen, setDropdownProveedorOpen] = useState(false);
     
     const [unidadesNegocio, setUnidadesNegocio] = useState([]);
     const [loadingUnidades, setLoadingUnidades] = useState(true);
@@ -130,6 +140,7 @@ const Solicitud = () => {
                 });
                 if (proveedoresRes.data.success) {
                     setProveedoresDB(proveedoresRes.data.data);
+                    setProveedoresFiltrados(proveedoresRes.data.data);
                 }
             } catch (error) {
                 console.error("No se pudieron cargar los proveedores", error);
@@ -152,6 +163,22 @@ const Solicitud = () => {
         fetchData();
     }, []);
 
+    // ─── Efecto para filtrar proveedores cuando cambia el texto de búsqueda ───
+    useEffect(() => {
+        if (!filtroProveedor.trim()) {
+            setProveedoresFiltrados(proveedoresDB);
+        } else {
+            const termino = filtroProveedor.toLowerCase().trim();
+            const filtrados = proveedoresDB.filter(proveedor => {
+                const nombre = (proveedor.nombre_razon_social || proveedor.nombre || '').toLowerCase();
+                const rfc = (proveedor.rfc || '').toLowerCase();
+                const banco = (proveedor.banco || '').toLowerCase();
+                return nombre.includes(termino) || rfc.includes(termino) || banco.includes(termino);
+            });
+            setProveedoresFiltrados(filtrados);
+        }
+    }, [filtroProveedor, proveedoresDB]);
+
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
@@ -160,6 +187,12 @@ const Solicitud = () => {
         const raw = parseInputMonto(e.target.value);
         setMontoDisplay(formatInputMonto(raw));
         setFormData({ ...formData, monto: raw });
+    };
+
+    const handleSelectProveedor = (proveedorId) => {
+        setFormData({ ...formData, id_proveedor: String(proveedorId) });
+        setDropdownProveedorOpen(false);
+        setFiltroProveedor('');
     };
 
     const handleSubmit = async (e) => {
@@ -265,19 +298,144 @@ const Solicitud = () => {
                             </div>
                         </div>
 
-                        {/* ── FILA: Proveedor + Forma de Pago ── */}
+                        {/* ── FILA: Proveedor con filtro + Forma de Pago ── */}
                         <div className="form-row-2">
-                            <div className="form-group">
+                            <div className="form-group" style={{ position: 'relative' }}>
                                 <label className="form-label">Proveedor / Beneficiario</label>
-                                <select name="id_proveedor" className="form-select" value={formData.id_proveedor} onChange={handleChange} required>
-                                    <option value="">Seleccione al destinatario...</option>
-                                    {proveedoresDB.map((p) => (
-                                        <option key={p.id_persona || p.id} value={p.id_persona || p.id}>
-                                            {p.nombre_razon_social || p.nombre} {p.banco ? `(${p.banco})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
+                                
+                                {/* Selector personalizado con búsqueda */}
+                                <div 
+                                    className="custom-select-trigger"
+                                    onClick={() => setDropdownProveedorOpen(!dropdownProveedorOpen)}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        height: '44px',
+                                        padding: '0 12px',
+                                        backgroundColor: '#f8fafc',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: formData.id_proveedor ? '#0f172a' : '#94a3b8'
+                                    }}
+                                >
+                                    <span>
+                                        {proveedorSeleccionado 
+                                            ? (proveedorSeleccionado.nombre_razon_social || proveedorSeleccionado.nombre)
+                                            : 'Buscar proveedor...'}
+                                    </span>
+                                    <span style={{ fontSize: '12px', color: '#64748b' }}>▼</span>
+                                </div>
+
+                                {/* Dropdown con filtro */}
+                                {dropdownProveedorOpen && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        left: 0,
+                                        right: 0,
+                                        zIndex: 100,
+                                        backgroundColor: 'white',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        marginTop: '4px',
+                                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.02)',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {/* Campo de búsqueda */}
+                                        <div style={{ padding: '12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                backgroundColor: 'white',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                                padding: '0 8px'
+                                            }}>
+                                                <IconSearch />
+                                                <input
+                                                    type="text"
+                                                    autoFocus
+                                                    placeholder="Buscar por nombre, RFC o banco..."
+                                                    value={filtroProveedor}
+                                                    onChange={(e) => setFiltroProveedor(e.target.value)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    style={{
+                                                        flex: 1,
+                                                        height: '38px',
+                                                        border: 'none',
+                                                        outline: 'none',
+                                                        fontSize: '13px',
+                                                        backgroundColor: 'transparent'
+                                                    }}
+                                                />
+                                                {filtroProveedor && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setFiltroProveedor('')}
+                                                        style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            fontSize: '16px',
+                                                            cursor: 'pointer',
+                                                            color: '#94a3b8'
+                                                        }}
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Lista de proveedores filtrados */}
+                                        <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                                            {proveedoresFiltrados.length > 0 ? (
+                                                proveedoresFiltrados.map((proveedor) => (
+                                                    <div
+                                                        key={proveedor.id_persona || proveedor.id}
+                                                        onClick={() => handleSelectProveedor(proveedor.id_persona || proveedor.id)}
+                                                        style={{
+                                                            padding: '12px 16px',
+                                                            cursor: 'pointer',
+                                                            borderBottom: '1px solid #f1f5f9',
+                                                            transition: 'background-color 0.2s',
+                                                            backgroundColor: String(formData.id_proveedor) === String(proveedor.id_persona || proveedor.id) ? '#eff6ff' : 'white'
+                                                        }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                                        onMouseLeave={(e) => {
+                                                            if (String(formData.id_proveedor) !== String(proveedor.id_persona || proveedor.id)) {
+                                                                e.currentTarget.style.backgroundColor = 'white';
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div style={{ fontWeight: '500', fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>
+                                                            {proveedor.nombre_razon_social || proveedor.nombre}
+                                                        </div>
+                                                        <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', gap: '12px' }}>
+                                                            {proveedor.rfc && <span>RFC: {proveedor.rfc}</span>}
+                                                            {proveedor.banco && <span>🏦 {proveedor.banco}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                                    No se encontraron proveedores
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {!formData.id_proveedor && (
+                                    <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px', fontWeight: '500' }}>
+                                        * Debes seleccionar un proveedor o beneficiario.
+                                    </span>
+                                )}
                             </div>
+                            
                             <div className="form-group">
                                 <label className="form-label">Forma de Pago</label>
                                 <select name="forma_pago" className="form-select" value={formData.forma_pago} onChange={handleChange} required>

@@ -38,11 +38,20 @@ function Proveedores() {
   const [mesFiltro, setMesFiltro] = useState(new Date().getMonth() + 1);
   const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear());
   
+  // --- ESTADOS PARA LISTA DE GASTOS ---
+  const [panelListaGastosOpen, setPanelListaGastosOpen] = useState(false);
+  const [listaGastos, setListaGastos] = useState([]);
+  const [mesListaGastos, setMesListaGastos] = useState(new Date().getMonth() + 1);
+  const [anioListaGastos, setAnioListaGastos] = useState(new Date().getFullYear());
+  const [resumenListaGastos, setResumenListaGastos] = useState({ total_pendiente: 0, total_arrastrado: 0 });
+  const [currentPageLista, setCurrentPageLista] = useState(1);
+  const itemsPerPageLista = 10;
+
   // ESTADOS PARA PAGINACIÓN DEL REPORTE
   const [currentPageReporte, setCurrentPageReporte] = useState(1);
   const itemsPerPageReporte = 5;
 
-  // --- NUEVO: ESTADOS PAGO FONDEADOR RÁPIDO ---
+  // --- ESTADOS PAGO FONDEADOR RÁPIDO ---
   const [pagoFondeadorModal, setPagoFondeadorModal] = useState({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' });
   const [fileFondeador, setFileFondeador] = useState(null);
 
@@ -57,7 +66,7 @@ function Proveedores() {
     return false;
   };
 
-  const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
+  const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount || 0);
 
   const fetchProveedores = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
@@ -71,7 +80,6 @@ function Proveedores() {
     } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
-  // --- FUNCIÓN: TRAER REPORTE MAESTRO ---
   const fetchReporteMaestro = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
@@ -81,11 +89,35 @@ function Proveedores() {
         if (data.success) {
             setDatosReporte(data.data);
             setResumenReporte(prev => ({ ...data.resumen, presupuesto_ingreso: prev.presupuesto_ingreso }));
-            setCurrentPageReporte(1); // Regresamos a la página 1 cuando cambiamos de mes
+            setCurrentPageReporte(1);
             setPanelReporteOpen(true);
         }
     } catch (error) { 
         console.error("Error al cargar reporte maestro:", error); 
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  // Función para traer lista de gastos filtrada por mes
+  const fetchListaGastos = async () => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    setIsLoading(true);
+    try {
+        const response = await fetch(`http://localhost:3001/api/proveedores/reportes/lista-gastos?mes=${mesListaGastos}&anio=${anioListaGastos}`, { headers });
+        const data = await response.json();
+        if (data.success) {
+            setListaGastos(data.data);
+            setResumenListaGastos({
+                total_pendiente: data.resumen?.total_pendiente || 0,
+                total_arrastrado: data.resumen?.total_arrastrado || 0
+            });
+            setCurrentPageLista(1);
+            setPanelListaGastosOpen(true);
+        }
+    } catch (error) { 
+        console.error("Error al cargar lista de gastos:", error); 
+        alert("Error al cargar la lista de gastos");
     } finally {
         setIsLoading(false);
     }
@@ -99,7 +131,6 @@ function Proveedores() {
 
   useEffect(() => { fetchProveedores(); }, []);
 
-  // --- NUEVA FUNCIÓN: ENVIAR PAGO DEL FONDEADOR ---
   const handlePagarFondeador = async (e) => {
       e.preventDefault();
       const headers = getAuthHeaders();
@@ -120,7 +151,8 @@ function Proveedores() {
           if (data.success) {
               setPagoFondeadorModal({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' });
               setFileFondeador(null);
-              fetchReporteMaestro(); // Recargar la tabla para que se pinte de verde
+              fetchReporteMaestro();
+              if (panelListaGastosOpen) fetchListaGastos();
           } else {
               alert(data.message);
           }
@@ -313,11 +345,20 @@ function Proveedores() {
   const currentItems = proveedoresFiltrados.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(proveedoresFiltrados.length / itemsPerPage);
 
-  // LÓGICA PAGINACIÓN REPORTE MAESTRO
   const indexOfLastReporte = currentPageReporte * itemsPerPageReporte;
   const indexOfFirstReporte = indexOfLastReporte - itemsPerPageReporte;
   const currentReportes = datosReporte.slice(indexOfFirstReporte, indexOfLastReporte);
   const totalPagesReporte = Math.ceil(datosReporte.length / itemsPerPageReporte);
+
+  const indexOfLastLista = currentPageLista * itemsPerPageLista;
+  const indexOfFirstLista = indexOfLastLista - itemsPerPageLista;
+  const currentListaGastos = listaGastos.slice(indexOfFirstLista, indexOfLastLista);
+  const totalPagesLista = Math.ceil(listaGastos.length / itemsPerPageLista);
+
+  const getNombreMes = (mes) => {
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return meses[mes - 1];
+  };
 
   return (
     <div className="inversores-container">
@@ -335,6 +376,21 @@ function Proveedores() {
           >
              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', marginRight: '6px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
              Reporte de Egresos
+          </button>
+
+          <button 
+             className="btn-view" 
+             style={{ borderColor: '#8b5cf6', color: '#8b5cf6', fontWeight: 'bold', backgroundColor: '#f5f3ff' }}
+             onClick={() => { setMesListaGastos(new Date().getMonth() + 1); setAnioListaGastos(new Date().getFullYear()); fetchListaGastos(); }}
+          >
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px', marginRight: '6px'}}>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+                <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"></path>
+             </svg>
+             Lista de Gastos
           </button>
 
           <input 
@@ -359,10 +415,10 @@ function Proveedores() {
 
       <div className="inversores-list-container fade-in-up" style={{ marginTop: '20px' }}>
         <div className="list-header">
-            <h2>Catálogo de Proveedores</h2>
+            <h2>Catalogo de Proveedores</h2>
             <div className="search-bar" style={{ margin: 0, maxWidth: '350px' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                <input type="text" placeholder="Buscar por nombre, RFC o Categoría..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <input type="text" placeholder="Buscar por nombre, RFC o Categoria..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
         </div>
 
@@ -370,7 +426,7 @@ function Proveedores() {
             <table className="data-table">
                 <thead>
                     <tr>
-                        <th style={{ width: '30%' }}>Razón Social</th>
+                        <th style={{ width: '30%' }}>Razon Social</th>
                         <th style={{ width: '20%' }}>Contacto / Servicio</th>
                         <th style={{ width: '22%' }}>Datos de Pago</th>
                         <th style={{ width: '13%' }}>Estatus</th>
@@ -394,7 +450,7 @@ function Proveedores() {
                             <td>
                                 <div style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}>
                                     <strong style={{ color: 'var(--brand-green)' }}>{p.categoria || 'General'}</strong>
-                                    <span style={{ color: 'var(--text-muted)' }}>{p.telefono || 'Sin teléfono'}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>{p.telefono || 'Sin telefono'}</span>
                                 </div>
                             </td>
                             <td>
@@ -439,22 +495,242 @@ function Proveedores() {
             {totalPages > 1 && (
                 <div className="pagination-container">
                     <button className="btn-page" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>&laquo; Anterior</button>
-                    <span className="page-info">Página {currentPage} de {totalPages}</span>
+                    <span className="page-info">Pagina {currentPage} de {totalPages}</span>
                     <button className="btn-page" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>Siguiente &raquo;</button>
                 </div>
             )}
         </div>
       </div>
 
-      {/* --- PANEL ANCHO: REPORTE MAESTRO DE EGRESOS CON SCROLL Y PAGINACIÓN --- */}
+      {/* PANEL: LISTA DE GASTOS CON DISEÑO MEJORADO */}
+      {panelListaGastosOpen && (
+        <div className="modal-overlay" onClick={() => setPanelListaGastosOpen(false)}>
+          <div className="master-panel fade-in-right" style={{ maxWidth: '1300px', width: '90vw', maxHeight: '95vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            
+            <div className="panel-header" style={{backgroundColor: '#f5f3ff', borderBottom: '1px solid #ddd6fe', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <div>
+                <h2 style={{color: '#6d28d9'}}>Lista de Gastos</h2>
+                <p className="client-badge" style={{backgroundColor: '#ede9fe', color: '#5b21b6'}}>
+                  Pagos pendientes por mes - {getNombreMes(mesListaGastos)} {anioListaGastos}
+                </p>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select className="custom-select" style={{ width: 'auto', minWidth: '120px' }} value={mesListaGastos} onChange={(e) => { setMesListaGastos(parseInt(e.target.value)); setCurrentPageLista(1); }}>
+                    <option value="1">Enero</option>
+                    <option value="2">Febrero</option>
+                    <option value="3">Marzo</option>
+                    <option value="4">Abril</option>
+                    <option value="5">Mayo</option>
+                    <option value="6">Junio</option>
+                    <option value="7">Julio</option>
+                    <option value="8">Agosto</option>
+                    <option value="9">Septiembre</option>
+                    <option value="10">Octubre</option>
+                    <option value="11">Noviembre</option>
+                    <option value="12">Diciembre</option>
+                </select>
+                <select className="custom-select" style={{ width: 'auto' }} value={anioListaGastos} onChange={(e) => { setAnioListaGastos(parseInt(e.target.value)); setCurrentPageLista(1); }}>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                </select>
+                <button className="btn-view" style={{ borderColor: '#6d28d9', color: '#6d28d9', padding: '6px 12px' }} onClick={fetchListaGastos}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '14px'}}><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    Actualizar
+                </button>
+                <button className="btn-close" onClick={() => setPanelListaGastosOpen(false)}>×</button>
+              </div>
+            </div>
+            
+            <div className="panel-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: '#f8fafc' }}>
+                
+                {/* Tarjetas de resumen */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ backgroundColor: '#fef3c7', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #f59e0b' }}>
+                        <span style={{ fontSize: '13px', color: '#92400e', fontWeight: 'bold' }}>TOTAL PENDIENTE DEL MES</span>
+                        <div style={{ fontSize: '28px', color: '#d97706', fontWeight: '800', marginTop: '4px' }}>{formatMoney(resumenListaGastos.total_pendiente)}</div>
+                        <span style={{ fontSize: '11px', color: '#92400e' }}>Pagos por vencer este mes</span>
+                    </div>
+                    <div style={{ backgroundColor: '#fce7f3', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #ec4899' }}>
+                        <span style={{ fontSize: '13px', color: '#9d174d', fontWeight: 'bold' }}>GASTOS ARRASTRADOS</span>
+                        <div style={{ fontSize: '28px', color: '#db2777', fontWeight: '800', marginTop: '4px' }}>{formatMoney(resumenListaGastos.total_arrastrado)}</div>
+                        <span style={{ fontSize: '11px', color: '#9d174d' }}>Pagos pendientes de meses anteriores</span>
+                    </div>
+                </div>
+
+                {/* Tabla rediseñada con mejor distribución */}
+                <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowX: 'auto', display: 'flex', flexDirection: 'column' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ width: '15%', padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>FECHA / MES</th>
+                                <th style={{ width: '15%', padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>TIPO / ORIGEN</th>
+                                <th style={{ width: '25%', padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>PROVEEDOR</th>
+                                <th style={{ width: '20%', padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>CONCEPTO</th>
+                                <th style={{ width: '12%', padding: '14px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>MONTO</th>
+                                <th style={{ width: '13%', padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>ACCIONES</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {currentListaGastos.length > 0 ? currentListaGastos.map((item, index) => {
+                                const esArrastrado = item.mes_origen && item.mes_origen !== mesListaGastos;
+                                
+                                let statusColor = '';
+                                let statusText = '';
+                                let timeText = '';
+
+                                if (item.fecha_recepcion) {
+                                    const today = new Date();
+                                    today.setHours(0,0,0,0);
+                                    const target = new Date(item.fecha_recepcion);
+                                    target.setHours(0,0,0,0);
+                                    const diasRestantes = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+
+                                    if (diasRestantes > 5) {
+                                        statusColor = '#059669';
+                                        statusText = 'Pendiente';
+                                    } else if (diasRestantes > 0 && diasRestantes <= 5) {
+                                        statusColor = '#d97706';
+                                        statusText = 'Por vencer';
+                                        timeText = `Faltan ${diasRestantes} dias`;
+                                    } else if (diasRestantes === 0) {
+                                        statusColor = '#dc2626';
+                                        statusText = 'Vence hoy';
+                                    } else {
+                                        statusColor = '#dc2626';
+                                        statusText = 'Atrasado';
+                                        timeText = `${Math.abs(diasRestantes)} dias`;
+                                    }
+                                }
+
+                                return (
+                                    <tr 
+                                        key={index} 
+                                        style={{ 
+                                            borderBottom: '1px solid #f1f5f9',
+                                            borderLeft: esArrastrado ? '4px solid #ec4899' : '4px solid transparent',
+                                            backgroundColor: 'white'
+                                        }}
+                                    >
+                                        {/* Columna Fecha - Stack vertical */}
+                                        <td style={{ padding: '16px' }}>
+                                            <div>
+                                                <div style={{ fontWeight: '600', color: '#0f172a' }}>
+                                                    {item.fecha_recepcion ? new Date(item.fecha_recepcion).toLocaleDateString('es-MX') : 'S/N'}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: esArrastrado ? '#db2777' : '#64748b', marginTop: '4px' }}>
+                                                    {item.mes_origen && item.anio_origen 
+                                                        ? `${getNombreMes(item.mes_origen)} ${item.anio_origen}`
+                                                        : 'Mes actual'}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        
+                                        {/* Columna Tipo/Origen */}
+                                        <td style={{ padding: '16px' }}>
+                                            <div>
+                                                <div style={{ fontWeight: '600', fontSize: '13px', color: '#334155' }}>{item.tipo_gasto || 'Otros'}</div>
+                                                <div style={{ fontSize: '10px', color: item.origen_dato === 'FONDEADOR' ? '#2563eb' : '#8b5cf6', fontWeight: 'bold', marginTop: '4px' }}>
+                                                    {item.origen_dato}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        
+                                        {/* Columna Proveedor */}
+                                        <td style={{ padding: '16px' }}>
+                                            <div>
+                                                <div style={{ fontWeight: '700', color: '#0f172a' }}>{item.proveedor}</div>
+                                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                                                    {statusText}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        
+                                        {/* Columna Concepto */}
+                                        <td style={{ padding: '16px' }}>
+                                            <div style={{ fontSize: '12px', color: '#475569' }}>{item.concepto}</div>
+                                            {timeText && (
+                                                <div style={{ fontSize: '10px', color: statusColor, marginTop: '4px', fontWeight: '500' }}>
+                                                    {timeText}
+                                                </div>
+                                            )}
+                                        </td>
+                                        
+                                        {/* Columna Monto - Alineado a la derecha */}
+                                        <td style={{ padding: '16px', textAlign: 'right' }}>
+                                            <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '15px', whiteSpace: 'nowrap' }}>
+                                                {formatMoney(item.monto)}
+                                            </div>
+                                        </td>
+                                        
+                                        {/* Columna Acciones */}
+                                        <td style={{ padding: '16px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                                                {item.origen_dato === 'FONDEADOR' && item.estatus_pago !== 'PAGADO' && (
+                                                    <button 
+                                                        className="btn-view" 
+                                                        style={{ borderColor: '#10b981', color: '#10b981', fontSize: '11px', padding: '4px 12px', cursor: 'pointer' }}
+                                                        onClick={() => setPagoFondeadorModal({ 
+                                                            isOpen: true, 
+                                                            id_contrato: item.id_contrato, 
+                                                            proveedor: item.proveedor, 
+                                                            concepto: item.concepto, 
+                                                            monto: item.monto 
+                                                        })}
+                                                    >
+                                                        Pagar
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            }) : (
+                                <tr>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
+                                        No hay gastos pendientes para este mes.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+
+                    {/* Paginación */}
+                    {totalPagesLista > 1 && (
+                        <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                            <button className="btn-page" onClick={() => setCurrentPageLista(prev => Math.max(prev - 1, 1))} disabled={currentPageLista === 1}>&laquo; Anterior</button>
+                            <span style={{ alignSelf: 'center', fontSize: '13px', color: '#64748b' }}>Pagina {currentPageLista} de {totalPagesLista}</span>
+                            <button className="btn-page" onClick={() => setCurrentPageLista(prev => Math.min(prev + 1, totalPagesLista))} disabled={currentPageLista === totalPagesLista}>Siguiente &raquo;</button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Leyenda explicativa */}
+                <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f1f5f9', borderRadius: '8px', fontSize: '12px', color: '#475569' }}>
+                    <strong>¿Como funciona la lista de gastos?</strong>
+                    <ul style={{ marginTop: '8px', marginBottom: 0, paddingLeft: '20px' }}>
+                        <li>Los pagos que no se liquidaron en el mes correspondiente se <strong style={{ color: '#db2777' }}>arrastran automaticamente</strong> al siguiente mes.</li>
+                        <li>En la columna "FECHA / MES" puedes identificar si un gasto viene de meses anteriores (borde rosa).</li>
+                        <li>Selecciona un mes especifico para ver solo los pagos que vencen en ese periodo.</li>
+                        <li>Los pagos de Fondeadores pueden liquidarse directamente con el boton <strong style={{ color: '#10b981' }}>"Pagar"</strong>.</li>
+                    </ul>
+                </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- PANEL ANCHO: REPORTE MAESTRO DE EGRESOS --- */}
       {panelReporteOpen && (
         <div className="modal-overlay" onClick={() => setPanelReporteOpen(false)}>
           <div className="master-panel fade-in-right" style={{ maxWidth: '1100px', width: '90vw', maxHeight: '95vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
             
             <div className="panel-header" style={{backgroundColor: '#eff6ff', borderBottom: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <div>
-                <h2 style={{color: '#1e40af'}}> Reporte Maestro de Egresos</h2>
-                <p className="client-badge" style={{backgroundColor: '#dbeafe', color: '#1e3a8a'}}>Visualización de pagos operativos, inversores y vencimientos</p>
+                <h2 style={{color: '#1e40af'}}>Reporte Maestro de Egresos</h2>
+                <p className="client-badge" style={{backgroundColor: '#dbeafe', color: '#1e3a8a'}}>Visualizacion de pagos operativos, inversores y vencimientos</p>
               </div>
               
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -483,7 +759,6 @@ function Proveedores() {
             
             <div className="panel-body" style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: '#f8fafc' }}>
                 
-                {/* TARJETAS DE SUMATORIA */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
                     <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #f59e0b', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                         <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>PENDIENTE DE PAGO</span>
@@ -499,17 +774,16 @@ function Proveedores() {
                     </div>
                 </div>
 
-                {/* TABLA MEJORADA CON PAGINACIÓN Y BOTÓN PAGO RÁPIDO */}
-                <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowX: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '380px', justifyContent: 'space-between' }}>
-                    <table className="data-table" style={{ flex: 1 }}>
-                        <thead style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontSize: '12px' }}>
-                            <tr>
-                                <th style={{ width: '15%' }}>FECHA LÍMITE</th>
-                                <th style={{ width: '20%' }}>TIPO GASTO / ORIGEN</th>
-                                <th style={{ width: '25%' }}>PROVEEDOR / ACREEDOR</th>
-                                <th style={{ width: '20%' }}>CONCEPTO</th>
-                                <th style={{ width: '10%', textAlign: 'right' }}>MONTO</th>
-                                <th style={{ width: '10%', textAlign: 'center' }}>ESTATUS</th>
+                <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflowX: 'auto', display: 'flex', flexDirection: 'column' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ width: '15%', padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>FECHA LIMITE</th>
+                                <th style={{ width: '15%', padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>TIPO GASTO</th>
+                                <th style={{ width: '25%', padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>PROVEEDOR</th>
+                                <th style={{ width: '25%', padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>CONCEPTO</th>
+                                <th style={{ width: '10%', padding: '12px 16px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>MONTO</th>
+                                <th style={{ width: '10%', padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b' }}>ESTATUS</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -524,72 +798,65 @@ function Proveedores() {
                                 if (isPagado) {
                                     badgeBg = '#dcfce3'; 
                                     badgeColor = '#16a34a';
+                                    statusText = 'Pagado';
                                 } else if (fila.fecha_recepcion) {
                                     const today = new Date();
                                     today.setHours(0,0,0,0);
-                                    
                                     const target = new Date(fila.fecha_recepcion);
-                                    target.setMinutes(target.getMinutes() + target.getTimezoneOffset());
                                     target.setHours(0,0,0,0);
-                                    
                                     const diasRestantes = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
 
                                     if (diasRestantes > 5) {
-                                        badgeBg = '#d1fae5'; badgeColor = '#059669'; statusText = 'Pendiente'; timeText = `(Faltan ${diasRestantes} días)`;
+                                        badgeBg = '#d1fae5'; badgeColor = '#059669'; statusText = 'Pendiente';
                                     } else if (diasRestantes > 0 && diasRestantes <= 5) {
-                                        badgeBg = '#fef3c7'; badgeColor = '#d97706'; statusText = 'Por Vencer'; timeText = `(Faltan ${diasRestantes} días)`;
+                                        badgeBg = '#fef3c7'; badgeColor = '#d97706'; statusText = 'Por vencer';
+                                        timeText = `Faltan ${diasRestantes} dias`;
+                                    } else if (diasRestantes === 0) {
+                                        badgeBg = '#fee2e2'; badgeColor = '#dc2626'; statusText = 'Vence hoy';
                                     } else {
-                                        badgeBg = '#fee2e2'; badgeColor = '#dc2626'; statusText = 'Vencido'; 
-                                        timeText = diasRestantes === 0 ? '(Vence hoy)' : `(Retraso de ${Math.abs(diasRestantes)} días)`;
+                                        badgeBg = '#fee2e2'; badgeColor = '#dc2626'; statusText = 'Vencido';
+                                        timeText = `Retraso ${Math.abs(diasRestantes)} dias`;
                                     }
                                 }
 
                                 return (
-                                <tr key={index} style={{ backgroundColor: isPagado ? '#f8fafc' : '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ fontWeight: '600', color: '#475569' }}>
-                                        {fila.fecha_recepcion ? new Date(fila.fecha_recepcion).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : 'S/N'}
-                                    </td>
-                                    <td>
-                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <strong style={{ fontSize: '12px', color: '#334155' }}>{fila.tipo_gasto}</strong>
-                                            <span style={{ fontSize: '10px', color: fila.origen_dato === 'FONDEADOR' ? '#2563eb' : '#8b5cf6', fontWeight: 'bold' }}>{fila.origen_dato}</span>
-                                        </div>
-                                    </td>
-                                    <td style={{ fontWeight: '700', color: '#0f172a' }}>{fila.proveedor}</td>
-                                    <td style={{ fontSize: '12px', color: '#475569' }}>{fila.concepto}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: '800', color: '#0f172a', fontSize: '14px' }}>{formatMoney(fila.monto)}</td>
-                                    <td style={{ textAlign: 'center' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                            <span style={{
-                                                padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold',
-                                                backgroundColor: badgeBg, color: badgeColor, whiteSpace: 'nowrap'
-                                            }}>
-                                                {statusText}
-                                            </span>
-                                            {!isPagado && timeText && (
-                                                <span style={{ fontSize: '10px', color: badgeColor, fontWeight: '600', whiteSpace: 'nowrap' }}>
-                                                    {timeText}
+                                    <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '12px 16px', fontWeight: '500', color: '#475569' }}>
+                                            {fila.fecha_recepcion ? new Date(fila.fecha_recepcion).toLocaleDateString('es-MX') : 'S/N'}
+                                        </td>
+                                        <td style={{ padding: '12px 16px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '13px', fontWeight: '500', color: '#334155' }}>{fila.tipo_gasto || 'Otros'}</span>
+                                                <span style={{ fontSize: '10px', color: fila.origen_dato === 'FONDEADOR' ? '#2563eb' : '#8b5cf6', fontWeight: 'bold' }}>{fila.origen_dato}</span>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '12px 16px', fontWeight: '600', color: '#0f172a' }}>{fila.proveedor}</td>
+                                        <td style={{ padding: '12px 16px', fontSize: '12px', color: '#475569' }}>{fila.concepto}</td>
+                                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: '700', color: '#0f172a', whiteSpace: 'nowrap' }}>{formatMoney(fila.monto)}</td>
+                                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                                <span style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', backgroundColor: badgeBg, color: badgeColor, whiteSpace: 'nowrap' }}>
+                                                    {statusText}
                                                 </span>
-                                            )}
-                                            {/* BOTÓN PAGO RÁPIDO PARA FONDEADORES PENDIENTES */}
-                                            {!isPagado && fila.origen_dato === 'FONDEADOR' && (
-                                                <button 
-                                                    className="btn-view" 
-                                                    style={{ borderColor: '#10b981', color: '#10b981', fontSize: '10px', padding: '2px 8px', marginTop: '4px', cursor: 'pointer' }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation(); 
-                                                        setPagoFondeadorModal({ isOpen: true, id_contrato: fila.id_contrato, proveedor: fila.proveedor, concepto: fila.concepto, monto: fila.monto });
-                                                    }}
-                                                >
-                                                    Pagar
-                                                </button>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            )}) : (
+                                                {!isPagado && timeText && (
+                                                    <span style={{ fontSize: '10px', color: badgeColor, fontWeight: '500', whiteSpace: 'nowrap' }}>{timeText}</span>
+                                                )}
+                                                {!isPagado && fila.origen_dato === 'FONDEADOR' && (
+                                                    <button 
+                                                        className="btn-view" 
+                                                        style={{ borderColor: '#10b981', color: '#10b981', fontSize: '10px', padding: '2px 8px', marginTop: '4px', cursor: 'pointer' }}
+                                                        onClick={() => setPagoFondeadorModal({ isOpen: true, id_contrato: fila.id_contrato, proveedor: fila.proveedor, concepto: fila.concepto, monto: fila.monto })}
+                                                    >
+                                                        Pagar
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            }) : (
                                 <tr>
-                                    <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#64748b', height: '300px' }}>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
                                         No hay movimientos programados para este mes.
                                     </td>
                                 </tr>
@@ -597,17 +864,15 @@ function Proveedores() {
                         </tbody>
                     </table>
 
-                    {/* PAGINACIÓN DEL REPORTE */}
                     {totalPagesReporte > 1 && (
-                        <div className="pagination-container" style={{ padding: '16px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: 'auto' }}>
+                        <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', gap: '10px' }}>
                             <button className="btn-page" onClick={() => setCurrentPageReporte(prev => Math.max(prev - 1, 1))} disabled={currentPageReporte === 1}>&laquo; Anterior</button>
-                            <span className="page-info" style={{alignSelf: 'center'}}>Página {currentPageReporte} de {totalPagesReporte}</span>
+                            <span style={{ alignSelf: 'center', fontSize: '13px', color: '#64748b' }}>Pagina {currentPageReporte} de {totalPagesReporte}</span>
                             <button className="btn-page" onClick={() => setCurrentPageReporte(prev => Math.min(prev + 1, totalPagesReporte))} disabled={currentPageReporte === totalPagesReporte}>Siguiente &raquo;</button>
                         </div>
                     )}
                 </div>
 
-                {/* --- DASHBOARD FINANCIERO (Presupuesto vs Realidad) --- */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '32px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', backgroundColor: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
@@ -615,7 +880,7 @@ function Proveedores() {
                                 <tr>
                                     <td style={{ backgroundColor: '#93c5fd', padding: '8px', fontWeight: 'bold', width: '120px' }}>{new Date(anioFiltro, mesFiltro, 0).toLocaleDateString('es-MX')}</td>
                                     <td style={{ backgroundColor: '#bbf7d0', padding: '8px', fontWeight: 'bold' }}>PRESUPUESTO DE INGRESOS</td>
-                                    <td style={{ backgroundColor: '#fca5a5', padding: '8px', fontWeight: 'bold', textAlign: 'center' }}>PRESUPUESTO DE GASTOS ADMON Y FINANCIEROS</td>
+                                    <td style={{ backgroundColor: '#fca5a5', padding: '8px', fontWeight: 'bold', textAlign: 'center' }}>PRESUPUESTO DE GASTOS</td>
                                 </tr>
                                 <tr>
                                     <td style={{ backgroundColor: '#bfdbfe', padding: '8px' }}></td>
@@ -652,7 +917,7 @@ function Proveedores() {
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td style={{ padding: '8px' }}>margen ingresos vs gastos efectivamente pagado</td>
+                                    <td style={{ padding: '8px' }}>Margen ingresos vs gastos pagados</td>
                                     <td style={{ padding: '8px', textAlign: 'right', color: '#1e3a8a', fontWeight: 'bold' }}>
                                         {formatMoney((resumenReporte.presupuesto_ingreso || 0) - resumenReporte.total_pagado)}
                                     </td>
@@ -695,17 +960,17 @@ function Proveedores() {
         </div>
       )}
 
-      {/* --- NUEVO MODAL: PAGO RÁPIDO DE FONDEADORES --- */}
+      {/* Modal Pago Rápido de Fondeadores */}
       {pagoFondeadorModal.isOpen && (
         <div className="modal-overlay" style={{ zIndex: 1050 }}>
           <div className="modal-content fade-in-down" style={{ maxWidth: '400px' }}>
             <div className="modal-header">
               <h2>Registrar Pago a Fondeador</h2>
-              <button className="btn-close" onClick={() => setPagoFondeadorModal({ isOpen: false, ...pagoFondeadorModal })}>×</button>
+              <button className="btn-close" onClick={() => setPagoFondeadorModal({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' })}>×</button>
             </div>
             <form onSubmit={handlePagarFondeador} className="modal-form" style={{ padding: '24px' }}>
                 <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                    Estás a punto de registrar el pago de rendimiento para: <br/>
+                    Estas a punto de registrar el pago de rendimiento para: <br/>
                     <strong style={{ color: 'var(--text-main)' }}>{pagoFondeadorModal.proveedor}</strong>
                 </p>
                 <div className="form-group">
@@ -721,7 +986,7 @@ function Proveedores() {
                     <input type="file" className="file-input" onChange={e => setFileFondeador(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-                    <button type="button" className="btn-cancel" onClick={() => setPagoFondeadorModal({ isOpen: false, ...pagoFondeadorModal })}>Cancelar</button>
+                    <button type="button" className="btn-cancel" onClick={() => setPagoFondeadorModal({ isOpen: false, id_contrato: null, proveedor: '', concepto: '', monto: '' })}>Cancelar</button>
                     <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Registrando...' : 'Confirmar Pago'}</button>
                 </div>
             </form>
@@ -729,7 +994,7 @@ function Proveedores() {
         </div>
       )}
 
-      {/* --- PANEL DE HISTORIAL DEL PROVEEDOR --- */}
+      {/* Panel de Historial del Proveedor */}
       {panelOpen && provActivo && (
         <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
           <div className="master-panel fade-in-right" onClick={(e) => e.stopPropagation()}>
@@ -873,7 +1138,7 @@ function Proveedores() {
         </div>
       )}
 
-      {/* --- MODAL REGISTRAR / EDITAR PROVEEDOR --- */}
+      {/* Modal Registrar/Editar Proveedor */}
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content fade-in-down" style={{ maxWidth: '800px' }}>
@@ -886,14 +1151,14 @@ function Proveedores() {
               
               <div className="modal-form" style={{padding: '24px 32px', overflowY: 'auto'}}>
                 <h4 className="section-subtitle">Datos Empresariales</h4>
-                <div className="form-group"><label>Razón Social / Nombre Completo</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} /></div>
+                <div className="form-group"><label>Razon Social / Nombre Completo</label><input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} /></div>
                 
                 <div className="form-row">
                   <div className="form-group">
                     <label>Tipo de Entidad</label>
                     <select className="custom-select" value={formData.tipo_persona} onChange={(e) => { setFormData({...formData, tipo_persona: e.target.value, rfc: ''}); setFormError(''); }}>
                       <option value="MORAL">Persona Moral (Empresa)</option>
-                      <option value="FISICA">Persona Física</option>
+                      <option value="FISICA">Persona Fisica</option>
                     </select>
                   </div>
                   <div className="form-group">
@@ -917,30 +1182,29 @@ function Proveedores() {
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label>Categoría de Servicio</label>
+                    <label>Categoria de Servicio</label>
                     <select className="custom-select" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})}>
                       <option value="EQUIPO_TRANSPORTE">Equipo de Transporte</option>
                       <option value="LIMPIEZA">Limpieza</option>
-                      <option value="SEGUROS_VEHICULOS">Seguros de Vehículos</option>
+                      <option value="SEGUROS_VEHICULOS">Seguros de Vehiculos</option>
                       <option value="SEGUROS_EMPRESARIALES">Seguros Empresariales</option>
-                      <option value="INTERESES_CREDITOS">Intereses de Créditos</option>
-                      <option value="MANTENIMIENTO">Mantenimiento (Inmuebles, Muebles, etc.)</option>
-                      <option value="ACCESORIOS_COMPUTO">Accesorios de Cómputo</option>
-                      <option value="EQUIPO_COMPUTO">Equipo de Cómputo</option>
-                      <option value="ADQUISICION_MOBILIARIO">Adquisición de Mobiliario</option>
-                      <option value="INSUMOS">Insumos y Papelería</option>
+                      <option value="INTERESES_CREDITOS">Intereses de Creditos</option>
+                      <option value="MANTENIMIENTO">Mantenimiento</option>
+                      <option value="ACCESORIOS_COMPUTO">Accesorios de Computo</option>
+                      <option value="EQUIPO_COMPUTO">Equipo de Computo</option>
+                      <option value="ADQUISICION_MOBILIARIO">Adquisicion de Mobiliario</option>
+                      <option value="INSUMOS">Insumos y Papeleria</option>
                       <option value="OTROS">Otro General</option>
-
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Teléfono de Contacto</label>
-                    <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <label>Telefono de Contacto</label>
+                    <input type="text" maxLength="10" placeholder="10 digitos" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                 </div>
                 <div className="form-row">
-                  <div className="form-group"><label>Correo Electrónico</label><input type="email" placeholder="Opcional" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
-                  <div className="form-group"><label>Dirección Fiscal</label><input type="text" value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} /></div>
+                  <div className="form-group"><label>Correo Electronico</label><input type="email" placeholder="Opcional" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+                  <div className="form-group"><label>Direccion Fiscal</label><input type="text" value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} /></div>
                 </div>
                 
                 <h4 className="section-subtitle" style={{marginTop: '20px'}}>Cuentas y Pagos</h4>
@@ -963,17 +1227,17 @@ function Proveedores() {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label>Número de Cuenta</label>
-                    <input type="text" maxLength="10" placeholder="10 dígitos" value={formData.numero_cuenta} onChange={(e) => setFormData({...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <label>Numero de Cuenta</label>
+                    <input type="text" maxLength="10" placeholder="10 digitos" value={formData.numero_cuenta} onChange={(e) => setFormData({...formData, numero_cuenta: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label>CLABE Interbancaria (Opcional)</label>
-                    <input type="text" maxLength="18" placeholder="18 dígitos" value={formData.clabe_bancaria} onChange={(e) => setFormData({...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <input type="text" maxLength="18" placeholder="18 digitos" value={formData.clabe_bancaria} onChange={(e) => setFormData({...formData, clabe_bancaria: e.target.value.replace(/[^0-9]/g, '')})} />
                   </div>
                   <div className="form-group">
-                    <label>Días de Crédito Otorgados</label>
+                    <label>Dias de Credito Otorgados</label>
                     <input type="number" required min="0" placeholder="Ej. 15, 30, 0 para contado" value={formData.dias_credito} onChange={(e) => setFormData({...formData, dias_credito: e.target.value})} />
                   </div>
                 </div>
@@ -1004,7 +1268,7 @@ function Proveedores() {
             <h3>{confirmModal.title}</h3><p>{confirmModal.message}</p>
             <div className="confirm-actions">
               <button className="btn-confirm-cancel" onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}>Cancelar</button>
-              <button className="btn-confirm-delete" onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
+              <button className="btn-confirm-delete" onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Si, eliminar</button>
             </div>
           </div>
         </div>

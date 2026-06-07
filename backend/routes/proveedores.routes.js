@@ -73,6 +73,351 @@ router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (r
 });
 
 // ==========================================
+// NUEVA RUTA: LISTA DE GASTOS CON ARRASTRE DE PAGOS PENDIENTES
+// ==========================================
+router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
+    const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
+    const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
+
+    // 1. Obtener gastos operativos (solicitudes) del mes actual
+    const queryOperativos = `
+        SELECT 
+            s.id,
+            s.fecha_limite_pago AS fecha_recepcion,
+            cp.descripcion AS tipo_gasto,
+            COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
+            s.descripcion AS concepto,
+            s.monto AS monto,
+            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'OPERATIVO' AS origen_dato,
+            MONTH(s.fecha_limite_pago) AS mes_origen,
+            YEAR(s.fecha_limite_pago) AS anio_origen,
+            NULL AS id_contrato
+        FROM solicitudes_recursos s
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
+        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
+        WHERE s.estatus != 'RECHAZADO'
+        AND (MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?)
+    `;
+
+    // 2. Obtener gastos arrastrados de meses anteriores (no pagados)
+    const queryOperativosArrastrados = `
+        SELECT 
+            s.id,
+            s.fecha_limite_pago AS fecha_recepcion,
+            cp.descripcion AS tipo_gasto,
+            COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
+            s.descripcion AS concepto,
+            s.monto AS monto,
+            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'OPERATIVO' AS origen_dato,
+            MONTH(s.fecha_limite_pago) AS mes_origen,
+            YEAR(s.fecha_limite_pago) AS anio_origen,
+            NULL AS id_contrato
+        FROM solicitudes_recursos s
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
+        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
+        WHERE s.estatus NOT IN ('PAGADO', 'RECHAZADO')
+        AND (MONTH(s.fecha_limite_pago) < ? AND YEAR(s.fecha_limite_pago) <= ?)
+        AND NOT (MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?)
+    `;
+
+    // Función para parsear fechas
+    function parseDateStr(dateStr) {
+        if (!dateStr) return new Date();
+        const parts = dateStr.split('-');
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    function dateFromDb(dbDate) {
+        if (!dbDate) return new Date();
+        if (typeof dbDate === 'string') return parseDateStr(dbDate.split('T')[0]);
+        const dt = new Date(dbDate);
+        return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
+    }
+
+    // Ejecutar ambas consultas en paralelo
+    Promise.all([
+        new Promise((resolve, reject) => {
+            db.query(queryOperativos, [mesFiltro, anioFiltro], (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        }),
+        new Promise((resolve, reject) => {
+            db.query(queryOperativosArrastrados, [mesFiltro, anioFiltro, mesFiltro, anioFiltro], (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        })
+    ]).then(([operativosActuales, operativosArrastrados]) => {
+        
+        // 3. Obtener pagos de fondeadores (contratos de inversión)
+        const queryFondeadores = `
+            SELECT 
+                ci.id AS id_contrato,
+                ci.plan_json,
+                ci.pagos_irregulares_json,
+                ci.monto_inicial,
+                ci.fecha_inicio,
+                t.tasa_anual_esperada,
+                t.cobra_iva,
+                p.nombre_razon_social AS proveedor,
+                (SELECT GROUP_CONCAT(MONTH(fecha_movimiento)) 
+                 FROM movimientos_inversion mi 
+                 WHERE mi.id_contrato = ci.id 
+                 AND mi.tipo = 'PAGO_INTERES' 
+                 AND mi.estatus_movimiento = 'COMPLETADO' 
+                 AND YEAR(fecha_movimiento) = ?) AS meses_pagados
+            FROM contratos_inversion ci
+            JOIN inversores i ON ci.id_inversor = i.id_persona
+            JOIN personas p ON i.id_persona = p.id
+            JOIN catalogo_tasas t ON ci.id_tasa = t.id
+            WHERE ci.estatus = 'ACTIVO'
+        `;
+
+        db.query(queryFondeadores, [anioFiltro], (err2, resContratos) => {
+            if (err2) {
+                return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
+            }
+
+            let fondeadoresPendientes = [];
+            let fondeadoresArrastrados = [];
+
+            resContratos.forEach(contrato => {
+                const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
+                
+                let saldo = parseFloat(contrato.monto_inicial) || 0;
+                const tasa = parseFloat(contrato.tasa_anual_esperada) || 0;
+                const cobraIva = contrato.cobra_iva === 1;
+                
+                let eventos = [];
+                
+                // Extraer Cuotas del Plan
+                if (contrato.plan_json) {
+                    try {
+                        const plan = JSON.parse(contrato.plan_json);
+                        plan.forEach(c => {
+                            if (c.fecha) {
+                                eventos.push({
+                                    tipo: 'CUOTA',
+                                    fecha: parseDateStr(c.fecha),
+                                    fechaStr: c.fecha,
+                                    abono: parseFloat(c.abono) || 0,
+                                    numero: c.numero,
+                                    esIrregular: false
+                                });
+                            }
+                        });
+                    } catch(e) {}
+                }
+                
+                // Extraer Pagos Irregulares
+                if (contrato.pagos_irregulares_json) {
+                    try {
+                        const irreg = JSON.parse(contrato.pagos_irregulares_json);
+                        irreg.forEach(c => {
+                            if (c.fecha) {
+                                eventos.push({
+                                    tipo: 'IRREGULAR',
+                                    fecha: parseDateStr(c.fecha),
+                                    fechaStr: c.fecha,
+                                    monto: parseFloat(c.monto) || 0,
+                                    esIrregular: true
+                                });
+                            }
+                        });
+                    } catch(e) {}
+                }
+                
+                // Ordenar la línea de tiempo
+                eventos.sort((a, b) => a.fecha - b.fecha);
+                
+                // Recrear el Motor de Amortización Dinámico
+                let fechaAnterior = dateFromDb(contrato.fecha_inicio);
+                let interesAcumulado = 0;
+                
+                eventos.forEach(evt => {
+                    let dias = 0;
+                    if (evt.fecha > fechaAnterior) {
+                        dias = Math.round((evt.fecha - fechaAnterior) / (1000 * 60 * 60 * 24));
+                    }
+                    
+                    interesAcumulado += (saldo * (tasa / 100) / 360) * dias;
+                    fechaAnterior = evt.fecha;
+                    
+                    const mesEvt = evt.fecha.getMonth() + 1;
+                    const anioEvt = evt.fecha.getFullYear();
+                    
+                    if (evt.tipo === 'CUOTA') {
+                        const ivaFinal = cobraIva ? (interesAcumulado * 0.16) : 0;
+                        const totalPago = evt.abono + interesAcumulado + ivaFinal;
+                        const yaSePago = mesesPagadosArray.includes(String(mesEvt));
+                        
+                        const pagoItem = {
+                            id_contrato: contrato.id_contrato,
+                            fecha_recepcion: evt.fechaStr,
+                            tipo_gasto: 'PAGOS INTERES DE CRED',
+                            proveedor: contrato.proveedor,
+                            concepto: `Pago Rendimiento (Cuota ${evt.numero || '-'}) Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
+                            monto: totalPago,
+                            estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
+                            origen_dato: 'FONDEADOR',
+                            mes_origen: mesEvt,
+                            anio_origen: anioEvt
+                        };
+                        
+                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                            if (!yaSePago) fondeadoresPendientes.push(pagoItem);
+                        } else if (!yaSePago && (anioEvt < anioFiltro || (anioEvt === anioFiltro && mesEvt < mesFiltro))) {
+                            fondeadoresArrastrados.push(pagoItem);
+                        }
+                        
+                        saldo -= evt.abono;
+                        interesAcumulado = 0;
+                        
+                    } else if (evt.tipo === 'IRREGULAR') {
+                        const pagoItem = {
+                            id_contrato: contrato.id_contrato,
+                            fecha_recepcion: evt.fechaStr,
+                            tipo_gasto: 'RETIRO / PAGO ESPECIAL',
+                            proveedor: contrato.proveedor,
+                            concepto: `Pago Irregular / Capital Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
+                            monto: evt.monto,
+                            estatus_pago: 'PENDIENTE',
+                            origen_dato: 'FONDEADOR',
+                            mes_origen: mesEvt,
+                            anio_origen: anioEvt
+                        };
+                        
+                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                            fondeadoresPendientes.push(pagoItem);
+                        } else if (anioEvt < anioFiltro || (anioEvt === anioFiltro && mesEvt < mesFiltro)) {
+                            fondeadoresArrastrados.push(pagoItem);
+                        }
+                        
+                        saldo -= evt.monto;
+                    }
+                });
+            });
+
+            // Combinar todos los gastos
+            const gastosActuales = [...operativosActuales, ...fondeadoresPendientes];
+            const gastosArrastrados = [...operativosArrastrados, ...fondeadoresArrastrados];
+            
+            // Los gastos arrastrados se muestran primero, luego los actuales
+            const dataFinal = [...gastosArrastrados, ...gastosActuales].sort((a, b) => {
+                // Primero ordenar por fecha de vencimiento
+                const fechaA = a.fecha_recepcion ? new Date(a.fecha_recepcion) : new Date(0);
+                const fechaB = b.fecha_recepcion ? new Date(b.fecha_recepcion) : new Date(0);
+                return fechaA - fechaB;
+            });
+
+            const totalPendiente = dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0);
+            const totalArrastrado = gastosArrastrados.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0);
+
+            res.json({ 
+                success: true, 
+                data: dataFinal,
+                resumen: {
+                    total_pendiente: totalPendiente,
+                    total_arrastrado: totalArrastrado
+                }
+            });
+        });
+    }).catch(err => {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Error al procesar la lista de gastos' });
+    });
+});
+
+// ==========================================
+// NUEVA RUTA: POSTERGAR PAGO AL MES SIGUIENTE
+// ==========================================
+router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
+    const { id, tipo, nueva_fecha } = req.body;
+
+    if (!id || !tipo || !nueva_fecha) {
+        return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
+    }
+
+    if (tipo === 'OPERATIVO') {
+        // Actualizar la fecha límite de la solicitud de recursos
+        const query = `
+            UPDATE solicitudes_recursos 
+            SET fecha_limite_pago = ? 
+            WHERE id = ?
+        `;
+        db.query(query, [nueva_fecha, id], (err, result) => {
+            if (err) {
+                return res.status(500).json({ success: false, message: err.message });
+            }
+            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO', `Postergó el pago de la solicitud #${id} para la fecha ${nueva_fecha}`);
+            res.json({ success: true, message: 'Pago postergado correctamente' });
+        });
+    } 
+    else if (tipo === 'FONDEADOR') {
+        // Para fondeadores, necesitamos actualizar la fecha en el plan_json o pagos_irregulares_json
+        // Primero obtener el contrato y sus datos
+        const queryGetContrato = `
+            SELECT plan_json, pagos_irregulares_json FROM contratos_inversion WHERE id = ?
+        `;
+        
+        db.query(queryGetContrato, [id], (err, results) => {
+            if (err || results.length === 0) {
+                return res.status(500).json({ success: false, message: 'Contrato no encontrado' });
+            }
+            
+            let contrato = results[0];
+            let actualizado = false;
+            
+            // Intentar actualizar en pagos_irregulares_json
+            if (contrato.pagos_irregulares_json) {
+                try {
+                    let pagosIrregulares = JSON.parse(contrato.pagos_irregulares_json);
+                    // Buscar el pago pendiente más próximo y actualizar su fecha
+                    for (let pago of pagosIrregulares) {
+                        if (pago.estatus_pago !== 'PAGADO' && (!pago.fecha_postergada || pago.fecha_postergada !== true)) {
+                            pago.fecha = nueva_fecha;
+                            pago.fecha_postergada = true;
+                            pago.fecha_original = pago.fecha_original || pago.fecha;
+                            actualizado = true;
+                            break;
+                        }
+                    }
+                    
+                    if (actualizado) {
+                        const updateQuery = `
+                            UPDATE contratos_inversion 
+                            SET pagos_irregulares_json = ? 
+                            WHERE id = ?
+                        `;
+                        db.query(updateQuery, [JSON.stringify(pagosIrregulares), id], (err) => {
+                            if (err) {
+                                return res.status(500).json({ success: false, message: err.message });
+                            }
+                            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO_FONDEADOR', `Postergó el pago del fondeador contrato #${id} para la fecha ${nueva_fecha}`);
+                            res.json({ success: true, message: 'Pago de fondeador postergado correctamente' });
+                        });
+                    } else {
+                        res.json({ success: false, message: 'No se encontraron pagos pendientes para postergar' });
+                    }
+                } catch(e) {
+                    res.status(500).json({ success: false, message: 'Error al procesar los datos del contrato' });
+                }
+            } else {
+                res.json({ success: false, message: 'No se encontraron pagos pendientes para postergar' });
+            }
+        });
+    }
+    else {
+        res.status(400).json({ success: false, message: 'Tipo de pago no válido' });
+    }
+});
+
+// ==========================================
 // RUTAS DE AUTORIZACIÓN DE PAGOS DIRECTOS
 // ==========================================
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
@@ -220,7 +565,8 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
             s.descripcion AS concepto,
             s.monto AS monto,
             IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
-            'OPERATIVO' AS origen_dato
+            'OPERATIVO' AS origen_dato,
+            s.id AS id_contrato
         FROM solicitudes_recursos s
         LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
@@ -255,7 +601,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
 
             let fondeadoresCalculados = [];
 
-            // Helpers para parsear fechas de forma segura y evitar UTC offsets
             function parseDateStr(dateStr) {
                 const parts = dateStr.split('-');
                 return new Date(parts[0], parts[1] - 1, parts[2]);
@@ -276,7 +621,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                 
                 let eventos = [];
                 
-                // 1. Extraer Cuotas del Plan
                 if (contrato.plan_json) {
                     try {
                         const plan = JSON.parse(contrato.plan_json);
@@ -294,7 +638,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                     } catch(e) {}
                 }
                 
-                // 2. Extraer Pagos Irregulares
                 if (contrato.pagos_irregulares_json) {
                     try {
                         const irreg = JSON.parse(contrato.pagos_irregulares_json);
@@ -311,10 +654,8 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                     } catch(e) {}
                 }
                 
-                // Ordenar la línea de tiempo
                 eventos.sort((a, b) => a.fecha - b.fecha);
                 
-                // 3. Recrear el Motor de Amortización Dinámico
                 let fechaAnterior = dateFromDb(contrato.fecha_inicio);
                 let interesAcumulado = 0;
                 
@@ -324,7 +665,6 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                         dias = Math.round((evt.fecha - fechaAnterior) / (1000 * 60 * 60 * 24));
                     }
                     
-                    // Sumar intereses generados en este intervalo (Días Exactos / 360)
                     interesAcumulado += (saldo * (tasa / 100) / 360) * dias;
                     fechaAnterior = evt.fecha;
                     
@@ -349,8 +689,8 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                             });
                         }
                         
-                        saldo -= evt.abono; // Disminuir la deuda
-                        interesAcumulado = 0; // Reiniciar acumulador tras el cobro
+                        saldo -= evt.abono;
+                        interesAcumulado = 0;
                         
                     } else if (evt.tipo === 'IRREGULAR') {
                         if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
@@ -365,13 +705,11 @@ router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
                                 origen_dato: 'FONDEADOR'
                             });
                         }
-                        // Las inyecciones irregulares afectan el saldo inmediatamente
                         saldo -= evt.monto;
                     }
                 });
             });
 
-            // 4. Fusión con Gastos Operativos y Construcción del Dashboard
             const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
 
             const resumen = {
