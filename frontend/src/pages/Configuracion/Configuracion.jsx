@@ -6,17 +6,13 @@ function Configuracion() {
   const navigate = useNavigate();
   const [tasas, setTasas] = useState([]);
   
+  // --- ESTADOS PARA PRODUCTOS FINANCIEROS ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState('');
   
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
-
-  const [isBackingUp, setIsBackingUp] = useState(false);
-
-  // --- ESTADO ACTUALIZADO CON LOS NUEVOS CAMPOS ---
   const [formData, setFormData] = useState({
     nombre_tasa: '', 
     tipo_producto: 'FONDEO', 
@@ -26,12 +22,25 @@ function Configuracion() {
     descripcion: ''
   });
 
+  // --- ESTADOS PARA UNIDADES DE NEGOCIO ---
+  const [unidades, setUnidades] = useState([]);
+  const [isUnidadModalOpen, setIsUnidadModalOpen] = useState(false);
+  const [isEditingUnidad, setIsEditingUnidad] = useState(false);
+  const [editUnidadId, setEditUnidadId] = useState(null);
+  const [unidadFormData, setUnidadFormData] = useState({ nombre: '' });
+
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/'); return null; }
     return { 'Authorization': `Bearer ${token}` };
   };
 
+  // ==========================================
+  // APIS DE PRODUCTOS (TASAS)
+  // ==========================================
   const fetchTasas = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
@@ -41,7 +50,24 @@ function Configuracion() {
     } catch (error) { console.error(error); }
   };
 
-  useEffect(() => { fetchTasas(); }, []);
+  // ==========================================
+  // APIS DE UNIDADES DE NEGOCIO
+  // ==========================================
+  const fetchUnidades = async () => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res = await fetch('http://localhost:3001/api/unidades', { headers });
+      const data = await res.json();
+      if (data.success) {
+        setUnidades(data.data);
+      }
+    } catch (error) { console.error("Falta endpoint de unidades", error); }
+  };
+
+  useEffect(() => { 
+    fetchTasas(); 
+    fetchUnidades();
+  }, []);
 
   const handleBackup = async () => {
     if (!window.confirm('¿Deseas generar una copia de seguridad de toda la base de datos? Esto puede tardar unos segundos.')) return;
@@ -69,15 +95,14 @@ function Configuracion() {
     }
   };
 
+  // ==========================================
+  // CONTROLADORES DE MODALES (PRODUCTOS)
+  // ==========================================
   const openNewModal = () => {
     setIsEditing(false); setEditId(null); setFormError('');
     setFormData({ 
-      nombre_tasa: '', 
-      tipo_producto: 'FONDEO', 
-      tasa_anual_esperada: '', 
-      porcentaje_penalizacion: '', 
-      cobra_iva: true, 
-      descripcion: '' 
+      nombre_tasa: '', tipo_producto: 'FONDEO', tasa_anual_esperada: '', 
+      porcentaje_penalizacion: '', cobra_iva: true, descripcion: '' 
     });
     setIsModalOpen(true);
   };
@@ -85,12 +110,9 @@ function Configuracion() {
   const openEditModal = (tasa) => {
     setIsEditing(true); setEditId(tasa.id); setFormError('');
     setFormData({ 
-      nombre_tasa: tasa.nombre_tasa, 
-      tipo_producto: tasa.tipo_producto || 'FONDEO',
-      tasa_anual_esperada: tasa.tasa_anual_esperada, 
-      porcentaje_penalizacion: tasa.porcentaje_penalizacion || '', 
-      cobra_iva: tasa.cobra_iva === 1 || tasa.cobra_iva === true,
-      descripcion: tasa.descripcion || '' 
+      nombre_tasa: tasa.nombre_tasa, tipo_producto: tasa.tipo_producto || 'FONDEO',
+      tasa_anual_esperada: tasa.tasa_anual_esperada, porcentaje_penalizacion: tasa.porcentaje_penalizacion || '', 
+      cobra_iva: tasa.cobra_iva === 1 || tasa.cobra_iva === true, descripcion: tasa.descripcion || '' 
     });
     setIsModalOpen(true);
   };
@@ -98,31 +120,19 @@ function Configuracion() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
-    
-    if (Number(formData.tasa_anual_esperada) <= 0) {
-      return setFormError('El porcentaje de rendimiento debe ser mayor a 0.');
-    }
+    if (Number(formData.tasa_anual_esperada) <= 0) return setFormError('El porcentaje de rendimiento debe ser mayor a 0.');
 
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
 
     const url = isEditing ? `http://localhost:3001/api/tasas/${editId}` : 'http://localhost:3001/api/tasas';
     const method = isEditing ? 'PUT' : 'POST';
-
-    // Aseguramos de que el IVA se envíe como 1 o 0 para MySQL
-    const payload = {
-      ...formData,
-      cobra_iva: formData.cobra_iva ? 1 : 0
-    };
+    const payload = { ...formData, cobra_iva: formData.cobra_iva ? 1 : 0 };
 
     try {
-      const res = await fetch(url, { 
-        method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
-      });
+      const res = await fetch(url, { method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
-      if (data.success) {
-        setIsModalOpen(false); fetchTasas();
-      } else { setFormError(data.message); }
+      if (data.success) { setIsModalOpen(false); fetchTasas(); } else { setFormError(data.message); }
     } catch (error) { setFormError("Error de servidor."); } finally { setIsLoading(false); }
   };
 
@@ -139,8 +149,7 @@ function Configuracion() {
 
   const triggerEliminar = (id, nombre) => {
     setConfirmModal({
-      isOpen: true, 
-      title: 'Eliminar Producto Financiero', 
+      isOpen: true, title: 'Eliminar Producto Financiero', 
       message: `¿Estás seguro de eliminar "${nombre}"? Esta acción no se puede deshacer.`, 
       onConfirm: () => eliminarTasa(id)
     });
@@ -150,14 +159,61 @@ function Configuracion() {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
       const res = await fetch(`http://localhost:3001/api/tasas/${id}`, { method: 'DELETE', headers });
-      const data = await res.json();
-      if (data.success) {
-        fetchTasas();
-      } else {
-        alert(data.message);
-      }
+      if ((await res.json()).success) fetchTasas();
     } catch (error) { console.error(error); }
   };
+
+  // ==========================================
+  // CONTROLADORES DE MODALES (UNIDADES)
+  // ==========================================
+  const openNewUnidadModal = () => {
+    setIsEditingUnidad(false); setEditUnidadId(null);
+    setUnidadFormData({ nombre: '' });
+    setIsUnidadModalOpen(true);
+  };
+
+  const openEditUnidadModal = (unidad) => {
+    setIsEditingUnidad(true); setEditUnidadId(unidad.id);
+    setUnidadFormData({ nombre: unidad.nombre });
+    setIsUnidadModalOpen(true);
+  };
+
+  const handleUnidadSubmit = async (e) => {
+    e.preventDefault();
+    if(!unidadFormData.nombre.trim()) return alert("El nombre es requerido.");
+
+    const headers = getAuthHeaders(); if (!headers) return;
+    setIsLoading(true);
+
+    const url = isEditingUnidad ? `http://localhost:3001/api/unidades/${editUnidadId}` : 'http://localhost:3001/api/unidades';
+    const method = isEditingUnidad ? 'PUT' : 'POST';
+
+    try {
+      const res = await fetch(url, { method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(unidadFormData) });
+      const data = await res.json();
+      if (data.success) {
+        setIsUnidadModalOpen(false);
+        fetchUnidades();
+      } else alert(data.message);
+    } catch (error) { console.error(error); } finally { setIsLoading(false); }
+  };
+
+  const triggerEliminarUnidad = (id, nombre) => {
+    setConfirmModal({
+      isOpen: true, title: 'Eliminar Unidad de Negocio', 
+      message: `¿Estás seguro de eliminar "${nombre}"? Afectará a los usuarios asignados a ella.`, 
+      onConfirm: () => eliminarUnidad(id)
+    });
+  };
+
+  const eliminarUnidad = async (id) => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res = await fetch(`http://localhost:3001/api/unidades/${id}`, { method: 'DELETE', headers });
+      if ((await res.json()).success) fetchUnidades();
+    } catch (error) { console.error(error); }
+  };
+
 
   return (
     <div className="config-container">
@@ -176,7 +232,6 @@ function Configuracion() {
               <div className="tasa-card-header">
                 <div>
                   <h3 className="tasa-titulo">{tasa.nombre_tasa}</h3>
-                  {/* ETIQUETA VISUAL DEL TIPO DE PRODUCTO */}
                   <span style={{ display: 'inline-block', marginTop: '6px', fontSize: '11px', fontWeight: 'bold', padding: '4px 10px', borderRadius: '10px', backgroundColor: tasa.tipo_producto === 'FONDEO' ? '#ecfdf5' : '#eff6ff', color: tasa.tipo_producto === 'FONDEO' ? '#059669' : '#2563eb' }}>
                       {tasa.tipo_producto === 'FONDEO' ? 'Producto de Fondeo' : 'Producto de Crédito'}
                   </span>
@@ -200,7 +255,6 @@ function Configuracion() {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     <span>Penalización por retiro: <strong>{tasa.porcentaje_penalizacion || '0'}%</strong></span>
                   </div>
-                  {/* MOSTRAR ESTADO DEL IVA */}
                   <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'14px'}}><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                     <span>{tasa.cobra_iva === 1 ? 'Aplica 16% de IVA sobre interés' : 'Tasa exenta de IVA'}</span>
@@ -227,6 +281,46 @@ function Configuracion() {
         )}
       </div>
 
+      {/* ================================================================= */}
+      {/* NUEVA SECCIÓN: UNIDADES DE NEGOCIO                                */}
+      {/* ================================================================= */}
+      <div className="backup-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>Catálogo de Unidades de Negocio</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>Gestiona las sucursales, sedes corporativas y áreas operativas.</p>
+          </div>
+          <button className="btn-primary" onClick={openNewUnidadModal} style={{ backgroundColor: '#3b82f6' }}>+ Añadir Unidad</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+          {unidades.length > 0 ? (
+            unidades.map((unidad) => (
+              <div key={unidad.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-md)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#eff6ff', color: '#3b82f6', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                  </div>
+                  <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-main)' }}>{unidad.nombre}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button className="btn-icon-edit" onClick={() => openEditUnidadModal(unidad)} title="Editar Unidad">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  </button>
+                  <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminarUnidad(unidad.id, unidad.nombre)} title="Eliminar Unidad">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ gridColumn: '1 / -1', padding: '24px', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+              <p style={{ color: '#64748b', margin: 0, fontWeight: '500' }}>No hay unidades de negocio registradas en la base de datos.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* --- SECCIÓN DE RESPALDO --- */}
       <div className="backup-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
         <h2 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>Seguridad y Respaldo</h2>
@@ -234,7 +328,7 @@ function Configuracion() {
         
         <div className="backup-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-lg)', padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'var(--shadow-sm)' }}>
            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f0fdf4', color: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '24px', height: '24px' }}>
                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                    <polyline points="7 10 12 15 17 10"></polyline>
@@ -257,6 +351,9 @@ function Configuracion() {
         </div>
       </div>
 
+      {/* ================================================================= */}
+      {/* MODAL DE TASAS / PRODUCTOS                                        */}
+      {/* ================================================================= */}
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content fade-in-down" style={{maxWidth: '600px', maxHeight: '90vh', display: 'flex', flexDirection: 'column'}}>
@@ -274,7 +371,6 @@ function Configuracion() {
                     <label>Nombre del Producto Comercial</label>
                     <input type="text" required placeholder="Ej. Inversión Clásica 12 Meses" value={formData.nombre_tasa} onChange={(e) => setFormData({...formData, nombre_tasa: e.target.value})} />
                   </div>
-                  {/* NUEVO CAMPO: TIPO DE PRODUCTO */}
                   <div className="form-group">
                     <label>Tipo de Operación</label>
                     <select 
@@ -299,7 +395,6 @@ function Configuracion() {
                   </div>
                 </div>
 
-                {/* NUEVO CAMPO: COBRO DE IVA */}
                 <div className="form-group" style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', margin: 0, color: '#0f172a', textTransform: 'none', letterSpacing: 'normal', fontWeight: '600' }}>
                     <input 
@@ -334,6 +429,41 @@ function Configuracion() {
         </div>
       )}
 
+      {/* ================================================================= */}
+      {/* MODAL DE UNIDADES DE NEGOCIO                                      */}
+      {/* ================================================================= */}
+      {isUnidadModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+          <div className="modal-content fade-in-down" style={{maxWidth: '500px', borderRadius: '16px'}}>
+            <div className="modal-header">
+              <h2>{isEditingUnidad ? 'Editar Unidad' : 'Nueva Unidad de Negocio'}</h2>
+              <button className="btn-close" onClick={() => setIsUnidadModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleUnidadSubmit} style={{ padding: '24px' }}>
+              <div className="form-group">
+                <label>Nombre de la Unidad (Clave - Sede)</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="Ej. 19.OAX - Oaxaca Centro" 
+                  value={unidadFormData.nombre} 
+                  onChange={(e) => setUnidadFormData({ nombre: e.target.value })} 
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '32px' }}>
+                <button type="button" className="btn-cancel" onClick={() => setIsUnidadModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="btn-primary" style={{ backgroundColor: '#3b82f6' }} disabled={isLoading}>
+                  {isLoading ? 'Guardando...' : 'Guardar Unidad'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL CONFIRMACIÓN GLOBAL                                         */}
+      {/* ================================================================= */}
       {confirmModal.isOpen && (
         <div className="modal-overlay" style={{zIndex: 2000}}>
           <div className="confirm-modal-content fade-in-up" style={{ backgroundColor: 'var(--bg-card)', padding: '32px', borderRadius: '16px', textAlign: 'center', maxWidth: '400px' }}>
@@ -344,7 +474,7 @@ function Configuracion() {
             <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>{confirmModal.message}</p>
             <div className="confirm-actions" style={{ display: 'flex', gap: '12px' }}>
               <button className="btn-cancel" style={{ flex: 1 }} onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}>Cancelar</button>
-              <button className="btn-primary" style={{ flex: 1, backgroundColor: '#ef4444' }} onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
+              <button className="btn-primary" style={{ flex: 1, backgroundColor: '#ef4444', justifyContent: 'center' }} onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }}>Sí, eliminar</button>
             </div>
           </div>
         </div>

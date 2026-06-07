@@ -193,11 +193,11 @@
 .modal-form::-webkit-scrollbar-track { background: transparent; }
 .modal-form::-webkit-scrollbar-thumb { background-color: var(--border-focus); border-radius: 10px; }
 
-/* Grid dinámico para las 2 columnas del modal (Se adapta a móviles) */
 .form-grid-2-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 32px;
+  align-items: center; /* Centra verticalmente las columnas */
 }
 
 .section-subtitle { 

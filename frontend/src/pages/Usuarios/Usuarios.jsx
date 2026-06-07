@@ -6,6 +6,7 @@ function Usuarios() {
   const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [unidades, setUnidades] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [departamentoSeleccionado, setDepartamentoSeleccionado] = useState(null);
   
@@ -30,7 +31,7 @@ function Usuarios() {
   const [formData, setFormData] = useState({
     nombre: '', rfc: '', telefono: '', email: '', 
     puesto: '', departamento: '', unidad_negocio: '', username: '', password: '', rol: 'AUXILIAR', id_persona: null,
-    puede_solicitar: 0, nivel_autorizacion: 0 // Agregamos los permisos por defecto
+    puede_solicitar: 0, nivel_autorizacion: 0
   });
 
   const getAuthHeaders = () => {
@@ -59,16 +60,31 @@ function Usuarios() {
     } catch (error) { console.error(error); }
   };
 
+  // ✅ NUEVO: Función para obtener unidades de negocio
+  const fetchUnidades = async () => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res = await fetch('/api/unidades', { headers });
+      const data = await res.json();
+      if (data.success) {
+        setUnidades(data.data);
+      }
+    } catch (error) { 
+      console.error("Error al obtener unidades:", error); 
+    }
+  };
+
   useEffect(() => { 
     fetchUsuarios(); 
     fetchRoles();
+    fetchUnidades();
   }, []);
 
   const openNewModal = () => {
     setIsEditing(false);
     setEditId(null);
     setFormError('');
-    setArchivoFirma(null); // Reseteamos la firma
+    setArchivoFirma(null);
     setFormData({ nombre: '', rfc: '', telefono: '', email: '', puesto: '', departamento: departamentoSeleccionado || '', unidad_negocio: '', username: '', password: '', rol: '', id_persona: null, puede_solicitar: 0, nivel_autorizacion: 0 });
     setIsModalOpen(true);
   };
@@ -77,7 +93,7 @@ function Usuarios() {
     setIsEditing(true);
     setEditId(user.id_usuario);
     setFormError('');
-    setArchivoFirma(null); // Reseteamos la firma
+    setArchivoFirma(null);
     setFormData({ 
       nombre: user.nombre, rfc: user.rfc || '', telefono: user.telefono || '', email: user.email || '', 
       puesto: user.puesto, departamento: user.departamento, unidad_negocio: user.unidad_negocio || '',
@@ -89,7 +105,6 @@ function Usuarios() {
     setIsModalOpen(true);
   };
 
-  // 2. MODIFICACIÓN: Enviar como FormData para soportar archivos
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
@@ -105,7 +120,6 @@ function Usuarios() {
     const url = isEditing ? `/api/usuarios/${editId}` : '/api/usuarios';
     const method = isEditing ? 'PUT' : 'POST';
 
-    // Creamos el paquete FormData
     const formPayload = new FormData();
     for (const key in formData) {
       if (formData[key] !== null && formData[key] !== undefined) {
@@ -113,14 +127,11 @@ function Usuarios() {
       }
     }
     
-    // Si seleccionaron una firma, la agregamos
     if (archivoFirma) {
       formPayload.append('firma', archivoFirma);
     }
 
     try {
-      // OJO: Al usar FormData con fetch, NO debes poner el Content-Type. 
-      // El navegador lo pone automáticamente con el límite multiparte.
       const res = await fetch(url, { 
         method: method, 
         headers: { ...headers }, 
@@ -205,17 +216,13 @@ function Usuarios() {
     return depUsuario === departamentoSeleccionado;
   });
 
-  // 3. MAGIA: Lógica automática de perfiles y roles basada en las reglas de negocio
   const manejarCambioPuesto = (e) => {
     const puestoElegido = e.target.value;
     let deptoAuto = '';
     let nivelAuto = 0; 
-    let rolAuto = 'AUXILIAR'; // Rol base sin privilegios de firma
-    let puedeSoli = 0; // Por defecto no pueden solicitar
+    let rolAuto = 'AUXILIAR';
+    let puedeSoli = 0;
 
-    // ─── REGLAS DE NEGOCIO SACIMEX ───
-
-    // Los que participan en el proceso de revisión/autorización:
     if (puestoElegido === 'AUXILIAR CONTABLE') { 
         deptoAuto = 'Contabilidad y Finanzas'; 
         nivelAuto = 0; 
@@ -233,7 +240,6 @@ function Usuarios() {
         rolAuto = 'AUTORIZADOR_2'; 
         puedeSoli = 1;
     }
-    // El resto del personal (Se acomodan en sus departamentos, pero sin rol de autorizador):
     else if (puestoElegido === 'COORDINADOR DE CRÉDITO' || puestoElegido === 'GESTOR DE COBRANZA' || puestoElegido === 'ENCARGADO DE ALMACEN') { deptoAuto = 'Operaciones'; }
     else if (puestoElegido === 'COORDINADOR DE SUCURSAL' || puestoElegido === 'CAJERO' || puestoElegido === 'ENCARGADO DE SUCURSAL' || puestoElegido === 'ASESOR DE CRÉDITO') { deptoAuto = 'Sucursales'; }
     else if (puestoElegido === 'CAPACITADOR' || puestoElegido === 'COORDINADOR DE D.H.O.' || puestoElegido === 'ASISTENTE DE D.H.O.') { deptoAuto = 'Desarrollo Humano y Organizacional'; }
@@ -342,7 +348,7 @@ function Usuarios() {
                     </div>
                     <div className="user-actions" style={{display: 'flex', gap: '8px'}}>
                     <button className="btn-icon-edit" onClick={() => openEditModal(user)} title="Editar Usuario">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 9.5-9.5z"></path></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
                     <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminar(user.id_persona, user.nombre)} title="Eliminar Usuario">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -376,29 +382,22 @@ function Usuarios() {
                     <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value.replace(/[^0-9]/g, '')})} /></div>
                     <div className="form-group"><label>Correo Institucional</label><input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
                     
+                    {/* ✅ SELECTOR DINÁMICO DE UNIDADES DE NEGOCIO */}
                     <div className="form-group" style={{marginTop: '20px'}}>
                       <label style={{color: 'var(--brand-green)'}}>Unidad de Negocio (Asignación)</label>
                       <select className="custom-select" required value={formData.unidad_negocio} onChange={(e) => setFormData({...formData, unidad_negocio: e.target.value})}>
                         <option value="">Selecciona una unidad...</option>
-                        <option value="01.CRP - Corporativo">01.CRP - Corporativo</option>
-                        <option value="02.ETL - Etla">02.ETL - Etla</option>
-                        <option value="03.ANT - San Antonio">03.ANT - San Antonio</option>
-                        <option value="04.CNT - Centro">04.CNT - Centro</option>
-                        <option value="05.RCP - Recuperación">05.RCP - Recuperación</option>
-                        <option value="06.HTL - Huatulco">06.HTL - Huatulco</option>
-                        <option value="07.CCT - Cuicatlán">07.CCT - Cuicatlán</option>
-                        <option value="08.CNT - Central">08.CNT - Central</option>
-                        <option value="09.CTL - Cuautla">09.CTL - Cuautla</option>
-                        <option value="10.AJL - Ajalpan">10.AJL - Ajalpan</option>
-                        <option value="11.TCM - Tecamachalco">11.TCM - Tecamachalco</option>
-                        <option value="12.HCH - Huauchinango">12.HCH - Huauchinango</option>
-                        <option value="13.SLN - Salina Cruz">13.SLN - Salina Cruz</option>
-                        <option value="14.HJP - Huajuapan">14.HJP - Huajuapan</option>
-                        <option value="15.ONL - Virtual">15.ONL - Virtual</option>
-                        <option value="16.ESC - Puerto Escondido">16.ESC - Puerto Escondido</option>
-                        <option value="17.MHT - Miahutlán">17.MHT - Miahutlán</option>
-                        <option value="18.OCT - Ocotlán">18.OCT - Ocotlán</option>
+                        {unidades.map(unidad => (
+                          <option key={unidad.id} value={unidad.nombre}>
+                            {unidad.nombre}
+                          </option>
+                        ))}
                       </select>
+                      {unidades.length === 0 && (
+                        <small style={{color: '#ef4444', display: 'block', marginTop: '4px'}}>
+                          ⚠️ No hay unidades de negocio registradas. Ve a Configuración para agregarlas.
+                        </small>
+                      )}
                     </div>
                   </div>
 

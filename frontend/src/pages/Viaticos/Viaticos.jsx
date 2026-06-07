@@ -2,16 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import './Viaticos.css';
 
 // =========================================================
-// CATÁLOGOS DEL FORMULARIO
+// CATÁLOGOS DEL FORMULARIO (Mantener los que no vienen de BD)
 // =========================================================
-const UNIDADES_NEGOCIO = [
-  '01.CRP - Corporativo', '02.ETL - Etla', '03.ANT - San Antonio', '04.CNT - Centro', 
-  '05.RCP - Recuperación', '06.HTL - Huatulco', '07.CCT - Cuicatlán', '08.CNT - Central', 
-  '09.CTL - Cuautla', '10.AJL - Ajalpan', '11.TCM - Tecamachalco', '12.HCH - Huauchinango', 
-  '13.SLN - Salina Cruz', '14.HJP - Huajuapan', '15.ONL - Virtual', '16.ESC - Puerto Escondido', 
-  '17.MHT - Miahutlán', '18.OCT - Ocotlán'
-];
-
 const AREAS = ['NORMATIVA', 'OPERATIVA', 'ADMINISTRATIVA'];
 
 const DEPARTAMENTOS = [
@@ -48,7 +40,11 @@ function Viaticos() {
   const fileInputRefs = useRef({});
 
   const [mostrarCatalogo, setMostrarCatalogo] = useState(false);
-  const [destinoOtro, setDestinoOtro] = useState(''); 
+  const [destinoOtro, setDestinoOtro] = useState('');
+  
+  // ✅ NUEVO: Estado para unidades de negocio dinámicas
+  const [unidadesNegocio, setUnidadesNegocio] = useState([]);
+  const [loadingUnidades, setLoadingUnidades] = useState(true);
 
   const [formData, setFormData] = useState({
     solicitante_nombre: '', puesto: '', unidad_negocio: '', area: '', departamento: '', jefe_inmediato: '', 
@@ -59,6 +55,22 @@ function Viaticos() {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchUnidadesNegocio = async () => {
+    try {
+      const res = await fetch('http://localhost:3001/api/unidades', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUnidadesNegocio(data.data);
+      }
+    } catch (error) {
+      console.error("Error al cargar unidades de negocio:", error);
+    } finally {
+      setLoadingUnidades(false);
+    }
+  };
 
   // 1. AUTO-LLENADO DEL PERFIL
   useEffect(() => {
@@ -79,7 +91,10 @@ function Viaticos() {
         }
       } catch (error) { console.error("Error al cargar perfil."); }
     };
-    if (tabActiva === 'NUEVA') fetchPerfilEmpleado();
+    if (tabActiva === 'NUEVA') {
+      fetchPerfilEmpleado();
+      fetchUnidadesNegocio();
+    }
   }, [tabActiva]);
 
   // 2. CÁLCULO DE DÍAS
@@ -215,7 +230,7 @@ function Viaticos() {
             
             {/* --- LEYENDA DE ANTICIPACIÓN OBLIGATORIA --- */}
             <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '13px', color: '#b45309' }}>
-              <strong>⚠️ IMPORTANTE:</strong> Todas las solicitudes de viáticos deberán realizarse con al menos <strong>1 día de anticipación</strong> a su fecha de salida para poder ser gestionadas correctamente.
+              <strong>IMPORTANTE:</strong> Todas las solicitudes de viáticos deberán realizarse con al menos <strong>1 día de anticipación</strong> a su fecha de salida para poder ser gestionadas correctamente.
             </div>
 
             {/* ====== PASO 1: SOLICITANTE ====== */}
@@ -233,10 +248,25 @@ function Viaticos() {
               <div className="input-row-2">
                 <div className="form-field">
                   <label>Unidad de Negocio</label>
-                  <select name="unidad_negocio" required value={formData.unidad_negocio} onChange={handleChange}>
+                  {/* ✅ SELECTOR DINÁMICO DE UNIDADES DE NEGOCIO */}
+                  <select name="unidad_negocio" required value={formData.unidad_negocio} onChange={handleChange} disabled={loadingUnidades}>
                     <option value="" disabled>Seleccione unidad</option>
-                    {UNIDADES_NEGOCIO.map(u => <option key={u} value={u}>{u}</option>)}
+                    {unidadesNegocio.map(unidad => (
+                      <option key={unidad.id} value={unidad.nombre}>
+                        {unidad.nombre}
+                      </option>
+                    ))}
                   </select>
+                  {loadingUnidades && (
+                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>
+                      Cargando unidades...
+                    </span>
+                  )}
+                  {!loadingUnidades && unidadesNegocio.length === 0 && (
+                    <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px' }}>
+                      No hay unidades de negocio registradas. Contacta al administrador.
+                    </span>
+                  )}
                 </div>
                 <div className="form-field">
                   <label>Área a la que pertenece</label>
@@ -400,10 +430,9 @@ function Viaticos() {
             <div className="premium-card" style={{ textAlign: 'center', padding: '50px' }}><h3 style={{ color: '#64748b' }}>No ha realizado ninguna solicitud aún.</h3></div>
           ) : (
             misSolicitudes.map(sol => {
-              // --- LÓGICA DE 3 DÍAS LÍMITE PARA COMPROBACIÓN ---
               const fechaRegreso = new Date(sol.fecha_regreso);
               const hoy = new Date();
-              hoy.setHours(0, 0, 0, 0); // Normalizar a medianoche para evitar bugs de horas
+              hoy.setHours(0, 0, 0, 0);
               const diasPasados = Math.floor((hoy - fechaRegreso) / (1000 * 60 * 60 * 24));
               const limiteVencido = diasPasados > 3;
 
@@ -414,7 +443,6 @@ function Viaticos() {
                     <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
                     <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
                     
-                    {/* --- BOTÓN DE ACEPTADO VISUAL --- */}
                     {sol.estatus === 'AUTORIZADO' && (
                       <div style={{ marginTop: '12px', color: '#10b981', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width: '16px'}}><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -437,7 +465,7 @@ function Viaticos() {
                           ) : (
                             limiteVencido ? (
                               <div style={{ padding: '8px 12px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
-                                ⚠️ Plazo vencido (3 días). Ya no es posible subir documentos.
+                                Plazo vencido (3 días). Ya no es posible subir documentos.
                               </div>
                             ) : (
                               <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>

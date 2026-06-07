@@ -26,27 +26,6 @@ const CONCEPTOS = [
     { id: 'C-19', label: 'C-19: NOMINA REGISTRO PATRONAL SACIMEX' },
 ];
 
-const UNIDADES_NEGOCIO = [
-    { id: '01.CRP', label: '01.CRP - Corporativo' },
-    { id: '02.ETL', label: '02.ETL - Etla' },
-    { id: '03.ANT', label: '03.ANT - San Antonio' },
-    { id: '04.CNT', label: '04.CNT - Centro' },
-    { id: '05.RCP', label: '05.RCP - Recuperación' },
-    { id: '06.HTL', label: '06.HTL - Huatulco' },
-    { id: '07.CCT', label: '07.CCT - Cuicatlán' },
-    { id: '08.CNT', label: '08.CNT - Central' },
-    { id: '09.CTL', label: '09.CTL - Cuautla' },
-    { id: '10.AJL', label: '10.AJL - Ajalpan' },
-    { id: '11.TCM', label: '11.TCM - Tecamachalco' },
-    { id: '12.HCH', label: '12.HCH - Huauchinango' },
-    { id: '13.SLN', label: '13.SLN - Salina Cruz' },
-    { id: '14.HJP', label: '14.HJP - Huajuapan' },
-    { id: '15.ONL', label: '15.ONL - Virtual' },
-    { id: '16.ESC', label: '16.ESC - Puerto Escondido' },
-    { id: '17.MHT', label: '17.MHT - Miahutlán' },
-    { id: '18.OCT', label: '18.OCT - Ocotlán' },
-];
-
 // ─── Pasos del flujo ──────────────────────────────────────────────────
 const FLUJO_PASOS = [
     { paso: '01', titulo: 'Envío', desc: 'Tu solicitud queda en revisión', color: '#10d440', bg: '#f0fdf4' },
@@ -125,10 +104,12 @@ const Solicitud = () => {
     
     // Estado para guardar los proveedores traídos de la base de datos
     const [proveedoresDB, setProveedoresDB] = useState([]);
+    
+    const [unidadesNegocio, setUnidadesNegocio] = useState([]);
+    const [loadingUnidades, setLoadingUnidades] = useState(true);
 
     const [formData, setFormData] = useState({
         concepto_id: '',
-        // Si es ADMIN, lo dejamos vacío para que elija. Si NO es ADMIN, se bloquea con su sucursal.
         unidad_negocio: userRole === 'ADMIN' ? '' : userUnidad,
         id_proveedor: '', 
         forma_pago: 'TRANSFERENCIA',
@@ -137,22 +118,38 @@ const Solicitud = () => {
         fecha_limite_pago: '',
     });
 
-    // ─── Efecto para cargar proveedores al abrir la pantalla ───
+    // ─── Efecto para cargar proveedores y unidades al abrir la pantalla ───
     useEffect(() => {
-        const fetchProveedores = async () => {
+        const fetchData = async () => {
+            const token = localStorage.getItem('token');
+            
+            // Cargar proveedores
             try {
-                const token = localStorage.getItem('token');
-                const response = await api.get('/proveedores', {
+                const proveedoresRes = await api.get('/proveedores', {
                     headers: { Authorization: `Bearer ${token}` }
                 });
-                if (response.data.success) {
-                    setProveedoresDB(response.data.data);
+                if (proveedoresRes.data.success) {
+                    setProveedoresDB(proveedoresRes.data.data);
                 }
             } catch (error) {
                 console.error("No se pudieron cargar los proveedores", error);
             }
+            
+            try {
+                const unidadesRes = await api.get('/unidades', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (unidadesRes.data.success) {
+                    setUnidadesNegocio(unidadesRes.data.data);
+                }
+            } catch (error) {
+                console.error("No se pudieron cargar las unidades de negocio", error);
+            } finally {
+                setLoadingUnidades(false);
+            }
         };
-        fetchProveedores();
+        
+        fetchData();
     }, []);
 
     const handleChange = (e) => {
@@ -185,7 +182,7 @@ const Solicitud = () => {
     };
 
     const conceptoSeleccionado = CONCEPTOS.find((c) => c.id === formData.concepto_id);
-    const unidadSeleccionada = UNIDADES_NEGOCIO.find((u) => u.id === formData.unidad_negocio);
+    const unidadSeleccionada = unidadesNegocio.find((u) => u.nombre === formData.unidad_negocio);
     const proveedorSeleccionado = proveedoresDB.find((p) => String(p.id_persona || p.id) === String(formData.id_proveedor));
 
     return (
@@ -231,6 +228,7 @@ const Solicitud = () => {
                                 </select>
                             </div>
                             
+                            {/* DINÁMICO DE UNIDADES DE NEGOCIO */}
                             <div className="form-group">
                                 <label className="form-label">Unidad de Negocio (Sucursal)</label>
                                 <select 
@@ -239,17 +237,29 @@ const Solicitud = () => {
                                     value={formData.unidad_negocio} 
                                     onChange={handleChange} 
                                     required
-                                    disabled={userRole !== 'ADMIN'}
+                                    disabled={userRole !== 'ADMIN' || loadingUnidades}
                                     style={userRole !== 'ADMIN' ? { backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' } : {}}
                                 >
                                     <option value="">Seleccione...</option>
-                                    {UNIDADES_NEGOCIO.map((u) => (
-                                        <option key={u.id} value={u.id}>{u.label}</option>
+                                    {unidadesNegocio.map((unidad) => (
+                                        <option key={unidad.id} value={unidad.nombre}>
+                                            {unidad.nombre}
+                                        </option>
                                     ))}
                                 </select>
                                 {userRole !== 'ADMIN' && (
                                     <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px', fontWeight: '500' }}>
                                         * Asignado automáticamente a tu sucursal.
+                                    </span>
+                                )}
+                                {loadingUnidades && (
+                                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>
+                                        Cargando unidades...
+                                    </span>
+                                )}
+                                {!loadingUnidades && unidadesNegocio.length === 0 && (
+                                    <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px' }}>
+                                         No hay unidades de negocio registradas. Contacta al administrador.
                                     </span>
                                 )}
                             </div>
@@ -375,15 +385,14 @@ const Solicitud = () => {
                             }
                         </div>
 
-                        {/* Unidad */}
+                        {/* Unidad - Actualizado para mostrar correctamente */}
                         <div className="resumen-row">
                             <div className="resumen-row-label">Unidad de Negocio</div>
                             {unidadSeleccionada
                                 ? (
                                     <div className="resumen-row-value">
                                         <span className="unidad-badge">
-                                            <span className="unidad-id-pill">{unidadSeleccionada.id}</span>
-                                            {unidadSeleccionada.label.split(' - ')[1]}
+                                            {unidadSeleccionada.nombre}
                                         </span>
                                     </div>
                                 )
