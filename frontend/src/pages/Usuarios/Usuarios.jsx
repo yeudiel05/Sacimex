@@ -380,15 +380,24 @@ function Usuarios() {
                       <label style={{color: 'var(--brand-green)'}}>Unidad de Negocio (Asignación)</label>
                       <select className="custom-select" required value={formData.unidad_negocio} onChange={(e) => setFormData({...formData, unidad_negocio: e.target.value})}>
                         <option value="">Selecciona una unidad...</option>
-                        <option value="Corporativo">Corporativo</option>
-                        <option value="Centro">Centro</option>
-                        <option value="Cuicatlan">Cuicatlán</option>
-                        <option value="Etla">Etla</option>
-                        <option value="Huatulco">Huatulco</option>
-                        <option value="Huauchinango">Huauchinango</option>
-                        <option value="Salina Cruz">Salina Cruz</option>
-                        <option value="San Antonio">San Antonio</option>
-                        <option value="Tecamachalco">Tecamachalco</option>
+                        <option value="01.CRP - Corporativo">01.CRP - Corporativo</option>
+                        <option value="02.ETL - Etla">02.ETL - Etla</option>
+                        <option value="03.ANT - San Antonio">03.ANT - San Antonio</option>
+                        <option value="04.CNT - Centro">04.CNT - Centro</option>
+                        <option value="05.RCP - Recuperación">05.RCP - Recuperación</option>
+                        <option value="06.HTL - Huatulco">06.HTL - Huatulco</option>
+                        <option value="07.CCT - Cuicatlán">07.CCT - Cuicatlán</option>
+                        <option value="08.CNT - Central">08.CNT - Central</option>
+                        <option value="09.CTL - Cuautla">09.CTL - Cuautla</option>
+                        <option value="10.AJL - Ajalpan">10.AJL - Ajalpan</option>
+                        <option value="11.TCM - Tecamachalco">11.TCM - Tecamachalco</option>
+                        <option value="12.HCH - Huauchinango">12.HCH - Huauchinango</option>
+                        <option value="13.SLN - Salina Cruz">13.SLN - Salina Cruz</option>
+                        <option value="14.HJP - Huajuapan">14.HJP - Huajuapan</option>
+                        <option value="15.ONL - Virtual">15.ONL - Virtual</option>
+                        <option value="16.ESC - Puerto Escondido">16.ESC - Puerto Escondido</option>
+                        <option value="17.MHT - Miahutlán">17.MHT - Miahutlán</option>
+                        <option value="18.OCT - Ocotlán">18.OCT - Ocotlán</option>
                       </select>
                     </div>
                   </div>

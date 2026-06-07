@@ -7,8 +7,10 @@ function RevisionViaticos() {
   const [tabActiva, setTabActiva] = useState('PENDIENTES');
   const fileInputRefs = useRef({});
 
-  // Nuevo estado para controlar qué tarjetas están expandidas (para ver el detalle)
   const [expandidos, setExpandidos] = useState({});
+  
+  // --- ESTADO PARA EL REPORTE MENSUAL ---
+  const [mesReporte, setMesReporte] = useState('');
 
   const fetchSolicitudes = async () => {
     const token = localStorage.getItem('token');
@@ -27,6 +29,11 @@ function RevisionViaticos() {
 
   useEffect(() => {
     fetchSolicitudes();
+    
+    // Auto-establecer el mes actual en el input
+    const hoy = new Date();
+    const currentMonth = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    setMesReporte(currentMonth);
   }, []);
 
   const cambiarEstatus = async (id, nuevoEstatus) => {
@@ -76,9 +83,61 @@ function RevisionViaticos() {
     }
   };
 
+  // --- FUNCIÓN PARA DESCARGAR REPORTE MENSUAL EN EXCEL (CSV) ---
+  const generarReporteMensual = () => {
+    if (!mesReporte) return alert("Seleccione un mes para el reporte.");
+
+    // Filtrar solicitudes por mes y año según la fecha de salida
+    const solicitudesMes = solicitudes.filter(sol => {
+      const fecha = new Date(sol.fecha_salida);
+      const strMes = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+      return strMes === mesReporte;
+    });
+
+    if (solicitudesMes.length === 0) {
+      return alert("No hay solicitudes registradas en este mes.");
+    }
+
+    // Cabeceras del CSV
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "ID,Estatus,Solicitante,Departamento,Destino,Motivo,Transporte,Fecha Salida,Fecha Regreso,Alimentos,Hospedaje,Pasajes,Gasolina,Taxis,Otros,Total\n";
+
+    // Llenar filas
+    solicitudesMes.forEach(sol => {
+      const row = [
+        sol.id,
+        sol.estatus,
+        `"${sol.solicitante_usuario}"`,
+        `"${sol.departamento}"`,
+        `"${sol.destino}"`,
+        `"${sol.motivo.replace(/\n/g, " ")}"`,
+        sol.medio_transporte,
+        new Date(sol.fecha_salida).toLocaleDateString(),
+        new Date(sol.fecha_regreso).toLocaleDateString(),
+        sol.monto_alimentos || 0,
+        sol.monto_hospedaje || 0,
+        sol.monto_pasajes || 0,
+        sol.monto_gasolina || 0,
+        sol.monto_taxis || 0,
+        sol.monto_otros || 0,
+        sol.total_solicitado || 0
+      ].join(",");
+      
+      csvContent += row + "\n";
+    });
+
+    // Descargar el archivo
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Reporte_Viaticos_${mesReporte}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
 
-  // Función para alternar el detalle de una solicitud
   const toggleDetalle = (id) => {
     setExpandidos(prev => ({
       ...prev,
@@ -94,9 +153,30 @@ function RevisionViaticos() {
 
   return (
     <div className="viaticos-premium-wrapper fade-in-up">
-      <div className="viaticos-header-block" style={{ marginBottom: '20px' }}>
-        <h1>Bandeja D.H.O.</h1>
-        <p>Revisión y gestión de viáticos empresariales.</p>
+      <div className="viaticos-header-block" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Bandeja D.H.O.</h1>
+          <p>Revisión y gestión de viáticos empresariales.</p>
+        </div>
+        
+        {/* --- CONTROLES DE REPORTE MENSUAL --- */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <div>
+            <label style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Exportar Reporte</label>
+            <input 
+              type="month" 
+              value={mesReporte} 
+              onChange={(e) => setMesReporte(e.target.value)} 
+              style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }}
+            />
+          </div>
+          <button 
+            onClick={generarReporteMensual} 
+            style={{ marginTop: '18px', padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '14px'}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Excel
+          </button>
+        </div>
       </div>
 
       {/* --- PESTAÑAS (TABS) --- */}
@@ -124,7 +204,7 @@ function RevisionViaticos() {
           {solicitudesFiltradas.map(sol => (
             <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
               
-              {/* --- ENCABEZADO DE LA TARJETA (Siempre visible) --- */}
+              {/* --- ENCABEZADO DE LA TARJETA --- */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px' }}>
                 <div>
                   <span style={{ 
@@ -146,7 +226,6 @@ function RevisionViaticos() {
                   <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
                   
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    {/* Botón para abrir/cerrar detalles */}
                     <button 
                       onClick={() => toggleDetalle(sol.id)} 
                       style={{ padding: '6px 12px', border: '1px solid #cbd5e1', color: '#475569', background: '#f8fafc', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
@@ -175,7 +254,6 @@ function RevisionViaticos() {
                           </button>
                         )}
 
-                        {/* Si el empleado ya subió sus facturas de gastos */}
                         {sol.url_comprobante_gastos && (
                           <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
                             Ver Facturas
@@ -191,7 +269,6 @@ function RevisionViaticos() {
               {expandidos[sol.id] && (
                 <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', animation: 'fadeIn 0.2s' }}>
                   
-                  {/* Bloque Logística */}
                   <div>
                     <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Logística de la Comisión</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
@@ -206,7 +283,6 @@ function RevisionViaticos() {
                     </div>
                   </div>
 
-                  {/* Bloque Financiero */}
                   <div>
                     <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Desglose de Gastos Solicitados</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
@@ -233,8 +309,6 @@ function RevisionViaticos() {
 
                 </div>
               )}
-              {/* --- FIN SECCIÓN DETALLE --- */}
-
             </div>
           ))}
         </div>

@@ -60,7 +60,7 @@ function Viaticos() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. AUTO-LLENADO DEL PERFIL (Extrae el nombre también)
+  // 1. AUTO-LLENADO DEL PERFIL
   useEffect(() => {
     const fetchPerfilEmpleado = async () => {
       try {
@@ -92,7 +92,7 @@ function Viaticos() {
     }
   }, [formData.fecha_salida, formData.fecha_regreso]);
 
-  // 3. AUTO-LLENADO DEL TABULADOR (Multiplica por acompañantes)
+  // 3. AUTO-LLENADO DEL TABULADOR
   useEffect(() => {
     if (!formData.destino || formData.destino === 'Otro' || formData.dias_comision === 0) return;
     const tab = TABULADOR[formData.destino];
@@ -100,7 +100,7 @@ function Viaticos() {
 
     const dias = formData.dias_comision;
     const noches = Math.max(0, dias - 1);
-    const totalPersonas = 1 + parseInt(formData.num_acompanantes || 0); // Solicitante + Acompañantes
+    const totalPersonas = 1 + parseInt(formData.num_acompanantes || 0);
 
     let calcAlimentos = (tab.alimentos * dias) * totalPersonas;
     let calcHospedaje = (tab.hospedaje * noches) * totalPersonas;
@@ -125,10 +125,8 @@ function Viaticos() {
       monto_pasajes: calcPasajes > 0 ? calcPasajes : '',
       monto_gasolina: calcGasolina > 0 ? calcGasolina : '',
       monto_taxis: calcTaxis > 0 ? calcTaxis : '',
-      // Respetamos lo que el usuario ponga en "otros" (gastos de representación) o ponemos el peaje
       monto_otros: prev.monto_otros ? prev.monto_otros : (calcOtros > 0 ? calcOtros : '')
     }));
-
   }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes]);
 
   // 4. CÁLCULO DEL TOTAL
@@ -174,7 +172,6 @@ function Viaticos() {
       if (data.success) {
         alert("¡Solicitud enviada a D.H.O con éxito!");
         setTabActiva('MIS_SOLICITUDES');
-        // Limpiamos parcialmente, dejando sus datos fijos
         setFormData(prev => ({
           ...prev, origen: '', destino: '', motivo: '', fecha_salida: '', fecha_regreso: '', dias_comision: 0,
           num_acompanantes: '0', nombres_acompanantes: '', medio_transporte: '', observaciones: '',
@@ -216,6 +213,11 @@ function Viaticos() {
         <form onSubmit={handleSubmit} className="viaticos-grid-layout">
           <div className="viaticos-form-column">
             
+            {/* --- LEYENDA DE ANTICIPACIÓN OBLIGATORIA --- */}
+            <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '13px', color: '#b45309' }}>
+              <strong>⚠️ IMPORTANTE:</strong> Todas las solicitudes de viáticos deberán realizarse con al menos <strong>1 día de anticipación</strong> a su fecha de salida para poder ser gestionadas correctamente.
+            </div>
+
             {/* ====== PASO 1: SOLICITANTE ====== */}
             <div className="premium-card">
               <div className="card-title-box">
@@ -397,32 +399,62 @@ function Viaticos() {
           {cargandoSolicitudes ? <p>Cargando su historial...</p> : misSolicitudes.length === 0 ? (
             <div className="premium-card" style={{ textAlign: 'center', padding: '50px' }}><h3 style={{ color: '#64748b' }}>No ha realizado ninguna solicitud aún.</h3></div>
           ) : (
-            misSolicitudes.map(sol => (
-              <div key={sol.id} className="premium-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px' }}>
-                <div>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : sol.estatus === 'AUTORIZADO' ? '#dcfce7' : '#e0e7ff', color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : sol.estatus === 'AUTORIZADO' ? '#16a34a' : '#4f46e5' }}>{sol.estatus}</span>
-                  <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
-                  <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
-                  <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
-                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                    {sol.url_comprobante_transferencia && (<a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>)}
-                    {(sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO') && (
-                      <>
-                        <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
-                        {sol.url_comprobante_gastos ? (<a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>) : (<button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>)}
-                      </>
+            misSolicitudes.map(sol => {
+              // --- LÓGICA DE 3 DÍAS LÍMITE PARA COMPROBACIÓN ---
+              const fechaRegreso = new Date(sol.fecha_regreso);
+              const hoy = new Date();
+              hoy.setHours(0, 0, 0, 0); // Normalizar a medianoche para evitar bugs de horas
+              const diasPasados = Math.floor((hoy - fechaRegreso) / (1000 * 60 * 60 * 24));
+              const limiteVencido = diasPasados > 3;
+
+              return (
+                <div key={sol.id} className="premium-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px' }}>
+                  <div>
+                    <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : sol.estatus === 'AUTORIZADO' ? '#dcfce7' : '#e0e7ff', color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : sol.estatus === 'AUTORIZADO' ? '#16a34a' : '#4f46e5' }}>{sol.estatus}</span>
+                    <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
+                    
+                    {/* --- BOTÓN DE ACEPTADO VISUAL --- */}
+                    {sol.estatus === 'AUTORIZADO' && (
+                      <div style={{ marginTop: '12px', color: '#10b981', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width: '16px'}}><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        ¡Tu recurso ha sido aceptado y depositado!
+                      </div>
                     )}
                   </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
+                    <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {sol.url_comprobante_transferencia && (<a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>)}
+                      
+                      {(sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO') && (
+                        <>
+                          <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
+                          
+                          {sol.url_comprobante_gastos ? (
+                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
+                          ) : (
+                            limiteVencido ? (
+                              <div style={{ padding: '8px 12px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
+                                ⚠️ Plazo vencido (3 días). Ya no es posible subir documentos.
+                              </div>
+                            ) : (
+                              <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>
+                            )
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
 
+      {/* --- MODAL DEL CATÁLOGO --- */}
       {mostrarCatalogo && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, animation: 'fadeIn 0.2s' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', width: '95%', maxWidth: '950px', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
