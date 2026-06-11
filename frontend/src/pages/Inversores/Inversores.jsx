@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import './Inversores.css';
 
 // --- UTILERÍAS GLOBALES Y MATEMÁTICAS ---
@@ -20,7 +21,6 @@ const parseInputMonto = (val) => {
     return String(val).replace(/,/g, ''); 
 };
 
-// Limpiador robusto de fechas
 const cleanDateStr = (dateVal) => {
     if (!dateVal) return new Date().toISOString().split('T')[0];
     try {
@@ -35,17 +35,17 @@ const cleanDateStr = (dateVal) => {
     }
 };
 
-// --- ICONOS SVG LIMPIOS (SIN EMOJIS) ---
+// --- ICONOS SVG LIMPIOS ---
 const IconSave = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>;
 const IconDownload = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>;
 const IconMail = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>;
 const IconPlus = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
 const IconRefresh = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>;
 const IconClose = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
+const IconExcel = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" style={{ marginRight: '6px' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 14l4 4M14 14l-4 4"></path></svg>;
 
 // --- ESTILOS CONSTANTES ---
 const inputStyle = { width: '100%', height: '42px', padding: '0 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', transition: 'border-color 0.2s', backgroundColor: 'white', boxSizing: 'border-box' };
-const inputStyleBg = { ...inputStyle, backgroundColor: '#f8fafc' };
 const labelStyle = { display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' };
 
 // --- COMPONENTE: CONSTRUCTOR DE PLAN PERSONALIZADO ---
@@ -90,7 +90,7 @@ const PlanPersonalizadoBuilder = ({ plan = [], setPlan, montoAsignado, plazo, fe
         <div style={{ marginTop: '16px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
                 <h4 style={{ margin: 0, fontSize: '15px', color: '#1e293b', fontWeight: 'bold' }}>Ajuste Manual Institucional</h4>
-                <div style={{ fontSize: '13px', fontWeight: 'bold', color: totalCapital > parseFloat(montoAsignado || 0) ? '#ef4444' : totalCapital === parseFloat(montoAsignado || 0) ? 'var(--brand-green)' : '#f59e0b', backgroundColor: 'white', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '13px', fontWeight: 'bold', color: totalCapital > parseFloat(montoAsignado || 0) ? '#ef4444' : totalCapital === parseFloat(montoAsignado || 0) ? '#10b981' : '#f59e0b', backgroundColor: 'white', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
                     Capital Distribuido: {formatMoney(totalCapital)} / {formatMoney(montoAsignado || 0)}
                 </div>
             </div>
@@ -189,6 +189,8 @@ function Inversores() {
     
     const [beneficiarios, setBeneficiarios] = useState([]);
     const [formBeneficiario, setFormBeneficiario] = useState({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' });
+    const [ineFile, setIneFile] = useState(null);
+    const [inePreview, setInePreview] = useState(null);
     const [movimientos, setMovimientos] = useState([]);
     const [showNuevoMovimiento, setShowNuevoMovimiento] = useState(false);
     const [formMovimiento, setFormMovimiento] = useState({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' });
@@ -218,7 +220,7 @@ function Inversores() {
 
     useEffect(() => { fetchInversores(); fetchTasasActivas(); }, []);
 
-    // --- MOTOR CORE DE AMORTIZACIÓN (AQUÍ ESTÁ LA LÓGICA DEL CHECKBOX EXCLUIR DÍA) ---
+    // --- MOTOR CORE DE AMORTIZACIÓN ---
     const motorCalculoAmortizacion = (contratoObj, inyecciones = [], customAnticipos = {}) => {
         const m = parseFloat(contratoObj.monto_inicial) || 0;
         const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
@@ -267,7 +269,6 @@ function Inversores() {
 
         inyecciones.forEach(pago => {
             if (pago.fecha && parseFloat(parseInputMonto(pago.monto)) > 0) {
-                // AQUÍ INYECTAMOS LA REGLA DEL CHECKBOX excluirDia
                 timelineUnificado.push({ indexUI: `irreg_${pago.id || Date.now()}`, numero: 'N/A', fechaStr: cleanDateStr(pago.fecha), abonoFijo: 0, anticipoFijo: parseFloat(parseInputMonto(pago.monto)), esIrregular: true, excluirDia: pago.excluirDia || false });
             }
         });
@@ -283,7 +284,6 @@ function Inversores() {
             let diffTime = Math.abs(Date.UTC(fechaActual.getFullYear(), fechaActual.getMonth(), fechaActual.getDate()) - Date.UTC(fechaAnterior.getFullYear(), fechaAnterior.getMonth(), fechaAnterior.getDate()));
             let diasTranscurridos = Math.round(diffTime / (1000 * 60 * 60 * 24)); 
             
-            // Si el checkbox está marcado, no se cobra el interés del día actual
             let diasParaInteres = diasTranscurridos;
             if (row.esIrregular && row.excluirDia && diasTranscurridos > 0) {
                 diasParaInteres = diasTranscurridos - 1;
@@ -322,6 +322,70 @@ function Inversores() {
         });
 
         return { tabla: tablaRes, totales: { interes: totalInteres, total: totalGeneral } };
+    };
+
+    // --- FUNCIÓN PARA GENERAR EXCEL REAL (.XLSX) ---
+    const exportToExcel = (tablaData, contrato) => {
+        try {
+            const excelData = tablaData.map(row => ({
+                'NO. PAGO': row.numero,
+                'FECHA VENCIMIENTO': row.fechaStr,
+                'ABONO PRINCIPAL': row.abono,
+                'ANTICIPO': row.anticipo,
+                'INTERÉS ORDINARIO': row.interes,
+                'IVA': row.iva,
+                'TOTAL PAGO': row.pagoTotal,
+                'SALDO INSOLUTO': row.saldoFinal,
+                'DÍAS': row.dias
+            }));
+
+            excelData.push({
+                'NO. PAGO': '',
+                'FECHA VENCIMIENTO': '',
+                'ABONO PRINCIPAL': '',
+                'ANTICIPO': 'TOTALES:',
+                'INTERÉS ORDINARIO': totalesInteractivos.interes,
+                'IVA': '',
+                'TOTAL PAGO': totalesInteractivos.total,
+                'SALDO INSOLUTO': '',
+                'DÍAS': ''
+            });
+
+            const ws = XLSX.utils.json_to_sheet(excelData);
+            const colWidths = [
+                { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 15 },
+                { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 10 }
+            ];
+            ws['!cols'] = colWidths;
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, ws, `Amortización_${contrato.id}`);
+
+            const summaryData = [
+                ['INFORMACIÓN DEL CONTRATO DE INVERSIÓN'],
+                ['Número de Contrato', contrato.id],
+                ['Número de Disposición', contrato.numero_disposicion || 'N/A'],
+                ['Fondeador', inversorActivo?.nombre || ''],
+                ['Monto Inicial', contrato.monto_inicial],
+                ['Tasa Anual', `${contrato.tasa_anual_esperada}%`],
+                ['Sistema de Amortización', contrato.tipo_amortizacion?.toUpperCase() || 'FRANCÉS'],
+                ['Fecha de Inicio', new Date(contrato.fecha_inicio).toLocaleDateString('es-MX')],
+                ['Fecha de Término', new Date(contrato.fecha_fin).toLocaleDateString('es-MX')],
+                [],
+                ['RESUMEN FINANCIERO'],
+                ['Total Intereses', totalesInteractivos.interes],
+                ['Total a Pagar', totalesInteractivos.total],
+                [],
+                ['FECHA DE EXPORTACIÓN', new Date().toLocaleString('es-MX')]
+            ];
+            
+            const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+            XLSX.utils.book_append_sheet(workbook, wsSummary, 'Resumen Contrato');
+            XLSX.writeFile(workbook, `Amortizacion_Contrato_${contrato.id}_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } catch (error) {
+            console.error("Error al exportar a Excel:", error);
+            alert("Ocurrió un error al generar el archivo Excel.");
+        }
     };
 
     // --- EFECTO: SIMULADOR MAESTRO ---
@@ -386,7 +450,6 @@ function Inversores() {
         setPagosIrregulares(pagosIrregulares.filter((_, i) => i !== index));
     };
 
-    // --- NUEVO: GUARDAR INYECCIONES EN LA BD ---
     const handleGuardarInyecciones = async () => {
         const headers = getAuthHeaders(); if(!headers) return; setIsLoading(true);
         try {
@@ -402,7 +465,7 @@ function Inversores() {
         } catch(e) { console.error(e); } finally { setIsLoading(false); }
     };
 
-    // --- NUEVO: PROYECCIÓN GLOBAL ---
+    // --- PROYECCIÓN GLOBAL ---
     const abrirProyeccionGlobal = async (inversor) => {
         const headers = getAuthHeaders(); if(!headers) return;
         try {
@@ -495,7 +558,6 @@ function Inversores() {
         } catch (e) { console.error(e); }
     };
 
-    // --- NUEVO: ALERTAS DE CORREO ---
     const enviarAlertasCorreo = async () => {
         const targetEmail = correoContador || inversorActivo.email;
         if(!targetEmail) return alert("Por favor ingresa un correo electrónico destino válido.");
@@ -509,30 +571,6 @@ function Inversores() {
             const data = await res.json();
             if(data.success) alert(data.message);
         } catch(e) { console.error(e); alert("Error de red al simular correos."); } finally { setIsAlerting(false); }
-    };
-
-    // --- DESCARGAR PDF INTERACTIVO ---
-    const descargarPDFInteractivo = async () => {
-        const headers = getAuthHeaders(); if (!headers) return; setIsLoading(true);
-        try {
-            const url = `http://localhost:3001/api/inversores/contratos/${contratoParaAmortizacion.id}/tabla-amortizacion/generar-pdf`;
-            const payload = {
-                tablaData: tablaInteractivaRender,
-                fondeador: inversorActivo?.nombre || '',
-                montoInicial: contratoParaAmortizacion.monto_inicial,
-                tasa: contratoParaAmortizacion.tasa_anual_esperada,
-                sistema: contratoParaAmortizacion.tipo_amortizacion || 'frances',
-                fechaInicio: cleanDateStr(contratoParaAmortizacion.fecha_inicio),
-                numeroDisposicion: contratoParaAmortizacion.numero_disposicion 
-            };
-            const response = await fetch(url, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', 'Accept': 'application/pdf' }, body: JSON.stringify(payload) });
-            if (!response.ok) throw new Error("Fallo de servidor al generar PDF.");
-            const blob = await response.blob();
-            const objUrl = window.URL.createObjectURL(blob); 
-            const link = document.createElement('a'); 
-            link.href = objUrl; link.download = `Amortizacion_Contrato_${contratoParaAmortizacion.id}.pdf`; 
-            document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(objUrl);
-        } catch (error) { alert(`Error al generar el PDF: ${error.message}`); } finally { setIsLoading(false); }
     };
 
     // --- FUNCIONES CRUD Y MANEJADORES DE ESTADO BASE ---
@@ -560,7 +598,6 @@ function Inversores() {
 
     const cambiarEstatusInversor = async (id_persona, estatus_actual) => { const nuevoEstatus = estatus_actual === 1 ? 0 : 1; const authHeaders = getAuthHeaders(); if (!authHeaders) return; try { const response = await fetch(`http://localhost:3001/api/inversores/${id_persona}/estatus`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); if (handleAuthError(response.status)) return; if ((await response.json()).success) fetchInversores(); } catch (error) {} };
 
-    // ESTA FUNCIÓN CORRIGE EL PANTALLAZO BLANCO DEL FONDEO RÁPIDO
     const abrirModalFondeoDesdeSimulador = () => { 
         let idTasa = '';
         if (tasas && tasas.length > 0) {
@@ -600,11 +637,56 @@ function Inversores() {
     };
 
     const generarPDFContrato = async (id_contrato) => { const headers = getAuthHeaders(); setIsLoading(true); try { const response = await fetch(`http://localhost:3001/api/inversores/contratos/${id_contrato}/pdf`, { headers }); const blob = await response.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `Contrato_${id_contrato}.pdf`; link.click(); } catch (error) {} finally { setIsLoading(false); } };
+    
     const fetchBeneficiarios = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setBeneficiarios(data.data); } catch(e) {} };
     const totalPorcentaje = beneficiarios.reduce((acc, curr) => acc + parseFloat(curr.porcentaje), 0);
-    const handleGuardarBeneficiario = async (e) => { e.preventDefault(); if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Excede el 100%."); const headers = getAuthHeaders(); setIsLoading(true); try { const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formBeneficiario, id_inversor: inversorActivo.id }) }); const data = await res.json(); if (data.success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } } catch (error) {} finally { setIsLoading(false); } };
-    const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Eliminar?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) {} };
+    
+    const handleGuardarBeneficiario = async (e) => { 
+        e.preventDefault(); 
+        if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Excede el 100%."); 
+        const headers = getAuthHeaders(); 
+        if (!headers) return;
+        setIsLoading(true); 
+        
+        const formDataUpload = new FormData();
+        formDataUpload.append('id_inversor', inversorActivo.id);
+        formDataUpload.append('nombre_completo', formBeneficiario.nombre_completo);
+        formDataUpload.append('parentesco', formBeneficiario.parentesco);
+        formDataUpload.append('telefono', formBeneficiario.telefono);
+        formDataUpload.append('porcentaje', formBeneficiario.porcentaje);
+        if (formBeneficiario.fecha_nacimiento) formDataUpload.append('fecha_nacimiento', formBeneficiario.fecha_nacimiento);
+        if (ineFile) formDataUpload.append('ine', ineFile);
+        
+        try { 
+            const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { 
+                method: 'POST', 
+                headers: {
+                    'Authorization': headers.Authorization
+                },
+                body: formDataUpload 
+            }); 
+            const data = await res.json(); 
+            if (data.success) { 
+                setFormBeneficiario({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' }); 
+                setIneFile(null);
+                setInePreview(null);
+                fetchBeneficiarios(inversorActivo.id); 
+                alert("Beneficiario agregado correctamente");
+            } else {
+                alert(data.message || "Error al guardar beneficiario");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Error al guardar beneficiario");
+        } finally { 
+            setIsLoading(false); 
+        } 
+    };
+    
+    const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Eliminar beneficiario?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) {} };
+    
     const fetchMovimientos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/movimientos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setMovimientos(data.data); } catch(e){} };
+    
     const handleGuardarMovimiento = async (e) => { e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true); const formDataUpload = new FormData(); formDataUpload.append('id_contrato', formMovimiento.id_contrato); formDataUpload.append('tipo', formMovimiento.tipo); formDataUpload.append('monto', parseInputMonto(formMovimiento.monto)); if (fileComprobante) formDataUpload.append('comprobante', fileComprobante); try { const res = await fetch('http://localhost:3001/api/inversores/movimientos', { method: 'POST', headers, body: formDataUpload }); const data = await res.json(); if (data.success) { setShowNuevoMovimiento(false); fetchMovimientos(inversorActivo.id); } } catch (error) {} finally { setIsLoading(false); } };
 
     const inversoresFiltrados = inversores.filter(i => i.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || (i.rfc && i.rfc.toLowerCase().includes(searchTerm.toLowerCase())));
@@ -618,8 +700,8 @@ function Inversores() {
             {!showNuevoContrato ? (
                 <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                        <h4 style={{ margin: 0, fontSize: '16px', color: 'var(--text-main)', fontWeight: 'bold' }}>CONTRATOS VIGENTES</h4>
-                        <button className="btn-primary" onClick={() => setShowNuevoContrato(true)}><IconPlus /> Nuevo Contrato Antiguo</button>
+                        <h4 style={{ margin: 0, fontSize: '16px', color: '#1e293b', fontWeight: 'bold' }}>CONTRATOS VIGENTES</h4>
+                        <button className="btn-primary" onClick={() => setShowNuevoContrato(true)}><IconPlus /> Nuevo Contrato</button>
                     </div>
                     {contratos.length > 0 ? contratos.map(c => (
                         <div key={c.id} className="contrato-card">
@@ -631,7 +713,7 @@ function Inversores() {
                                 <div>
                                     <span>Monto Fondeado</span>
                                     <h3>{formatMoney(c.monto_inicial)}</h3>
-                                    {c.numero_disposicion && (<strong style={{color: 'var(--text-muted)'}}>Disp: {c.numero_disposicion}</strong>)}
+                                    {c.numero_disposicion && (<strong style={{color: '#64748b'}}>Disp: {c.numero_disposicion}</strong>)}
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <span>Tasa / Producto</span>
@@ -651,7 +733,7 @@ function Inversores() {
                 </>
             ) : (
                 <form className="modal-form" style={{ padding: 0 }} onSubmit={handleGuardarContrato}>
-                    <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>CREAR CONTRATO ESTÁTICO</h4>
+                    <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>CREAR CONTRATO</h4>
                     <div className="form-group" style={{ marginBottom: '16px' }}>
                         <label>Monto</label>
                         <div className="input-with-prefix">
@@ -660,7 +742,7 @@ function Inversores() {
                         </div>
                     </div>
                     <div className="form-group" style={{ marginBottom: '16px' }}>
-                        <label>Número de Disposición (Fondeador)</label>
+                        <label>Número de Disposición</label>
                         <input type="text" placeholder="Ej. 001-2026" value={formContrato.numero_disposicion} onChange={e => setFormContrato({ ...formContrato, numero_disposicion: e.target.value })} />
                     </div>
                     <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -669,7 +751,7 @@ function Inversores() {
                             <option value="frances">Cuota Fija (Sistema Francés)</option>
                             <option value="aleman">Capital Fijo (Sistema Alemán)</option>
                             <option value="diario">Saldos Diarios (Abono Libre)</option>
-                            <option value="personalizado">Plan Personalizado (Institucional)</option>
+                            <option value="personalizado">Plan Personalizado</option>
                         </select>
                     </div>
                     {formContrato.tipo_amortizacion === 'personalizado' && (
@@ -695,20 +777,193 @@ function Inversores() {
         </div>
     );
 
-    const TabBeneficiarios = () => ( <div className="tab-content fade-in-up"> <div className="progress-container"> <div className="progress-header"> <strong>Porcentaje Asignado</strong> <span style={{ color: totalPorcentaje === 100 ? 'var(--brand-green)' : 'var(--text-muted)' }}>{totalPorcentaje}% / 100%</span> </div> <div className="progress-bg"><div className={`progress-fill ${totalPorcentaje === 100 ? 'full' : ''}`} style={{ width: `${totalPorcentaje}%` }}></div></div> </div> {beneficiarios.length > 0 && ( <div className="beneficiarios-list"> {beneficiarios.map(b => ( <div className="beneficiario-card" key={b.id}> <div className="b-info"> <strong>{b.nombre_completo}</strong> <span>Parentesco: {b.parentesco} • Tel: {b.telefono || 'N/A'}</span> </div> <div className="b-actions"> <span className="b-percent">{b.porcentaje}%</span> <button onClick={() => eliminarBeneficiario(b.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}> <IconClose/> </button> </div> </div> ))} </div> )} {totalPorcentaje < 100 && ( <form className="modal-form" style={{ padding: 0, marginTop: '32px' }} onSubmit={handleGuardarBeneficiario}> <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>Añadir Beneficiario Adicional</h4> <div className="form-group" style={{ marginBottom: '16px' }}> <label>Nombre Completo</label><input type="text" required value={formBeneficiario.nombre_completo} onChange={e => setFormBeneficiario({ ...formBeneficiario, nombre_completo: e.target.value })} /> </div> <div className="form-row" style={{ marginBottom: '24px' }}> <div className="form-group"><label>Teléfono</label><input type="text" required maxLength="10" value={formBeneficiario.telefono} onChange={e => setFormBeneficiario({ ...formBeneficiario, telefono: e.target.value.replace(/[^0-9]/g, '') })} /></div> <div className="form-group"><label>Parentesco</label><select required value={formBeneficiario.parentesco} onChange={e => setFormBeneficiario({ ...formBeneficiario, parentesco: e.target.value })} className="custom-select"><option value="">Selecciona...</option><option value="Esposo/a">Esposo/a</option><option value="Hijo/a">Hijo/a</option><option value="Padre/Madre">Padre/Madre</option><option value="Otro">Otro</option></select></div> <div className="form-group"><label>Porcentaje (%)</label><input type="number" required min="1" max={100 - totalPorcentaje} value={formBeneficiario.porcentaje} onChange={e => setFormBeneficiario({ ...formBeneficiario, porcentaje: e.target.value })} /></div> </div> <div className="modal-footer" style={{ padding: 0, backgroundColor: 'transparent', border: 'none' }}><button type="submit" disabled={isLoading} className="btn-primary">{isLoading ? 'Guardando...' : 'Agregar Beneficiario'}</button></div> </form> )} </div> );
-    const TabMovimientos = () => ( <div className="tab-content fade-in-up"> {!showNuevoMovimiento ? ( <> <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}> <h4 style={{ margin: 0, fontSize: '16px', color: 'var(--text-main)', fontWeight: 'bold' }}>HISTORIAL DE MOVIMIENTOS</h4> {contratos.length > 0 && (<button className="btn-primary" onClick={() => setShowNuevoMovimiento(true)}><IconPlus/> Registrar Movimiento</button>)} </div> {contratos.length === 0 && <div className="empty-state">Debes crear un contrato de fondeo primero.</div>} {movimientos.length > 0 ? ( <div className="movimientos-list"> {movimientos.map(mov => { const isIngreso = mov.tipo === 'DEPOSITO'; const iconColor = isIngreso ? 'var(--brand-green)' : '#ef4444'; const bgColor = isIngreso ? '#dcfce3' : '#fee2e2'; return ( <div className="movimiento-item" key={mov.id}> <div className="mov-icon" style={{ backgroundColor: bgColor, color: iconColor }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={isIngreso ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M19 12l-7 7-7-7"}></path></svg></div> <div className="mov-detalles"> <strong>{mov.tipo.replace('_', ' ')}</strong> <span>Contrato #{mov.id_contrato.toString().padStart(4, '0')} • {new Date(mov.fecha_movimiento).toLocaleDateString()}</span> </div> <div className="mov-monto-accion"> <span className={`mov-monto ${isIngreso ? 'ingreso' : 'retiro'}`}>{isIngreso ? '+' : '-'}{formatMoney(mov.monto)}</span> {mov.recibo_comprobante && (<a href={`http://localhost:3001/${mov.recibo_comprobante}`} target="_blank" rel="noreferrer" className="btn-cancel" style={{ padding: '6px 12px' }}>Ver</a>)} </div> </div> ); })} </div> ) : (contratos.length > 0 && <div className="empty-state">No hay movimientos registrados en el sistema.</div>)} </> ) : ( <form className="modal-form" style={{ padding: 0 }} onSubmit={handleGuardarMovimiento}> <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>Registrar Transacción Física</h4> <div className="form-group" style={{ marginBottom: '16px' }}> <label>Contrato Asociado</label> <select required value={formMovimiento.id_contrato} onChange={e => setFormMovimiento({ ...formMovimiento, id_contrato: e.target.value })} className="custom-select"> <option value="">Selecciona un contrato...</option> {contratos.map(c => (<option key={c.id} value={c.id}>Contrato #{c.id.toString().padStart(4, '0')} - {formatMoney(c.monto_inicial)}</option>))} </select> </div> <div className="form-row" style={{ marginBottom: '16px' }}> <div className="form-group"> <label>Tipo de Operación</label> <select required value={formMovimiento.tipo} onChange={e => setFormMovimiento({ ...formMovimiento, tipo: e.target.value })} className="custom-select"> <option value="PAGO_INTERES">Pago de Rendimientos (Salida)</option> <option value="DEPOSITO">Inyección Extra de Capital (Entrada)</option> <option value="RETIRO_CAPITAL">Retiro Parcial de Capital (Salida)</option> </select> </div> <div className="form-group"> <label>Monto Exacto</label> <div className="input-with-prefix"> <span className="prefix">$</span> <input type="text" required placeholder="0.00" value={formatInputMonto(formMovimiento.monto)} onChange={e => setFormMovimiento({ ...formMovimiento, monto: parseInputMonto(e.target.value) })} /> </div> </div> </div> <div className="form-group" style={{ marginBottom: '24px' }}> <label>Comprobante Escaneado (PDF/IMG)</label> <input type="file" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" style={{ padding: '8px', border: '1px dashed var(--border-focus)' }} /> </div> <div className="modal-footer" style={{ padding: 0, backgroundColor: 'transparent', border: 'none' }}> <button type="button" onClick={() => setShowNuevoMovimiento(false)} className="btn-cancel">Cancelar</button> <button type="submit" disabled={isLoading} className="btn-primary">{isLoading ? 'Procesando...' : 'Asentar Movimiento'}</button> </div> </form> )} </div> );
+    const TabBeneficiarios = () => ( 
+        <div className="tab-content fade-in-up"> 
+            <div className="progress-container"> 
+                <div className="progress-header"> 
+                    <strong>Porcentaje Asignado</strong> 
+                    <span style={{ color: totalPorcentaje === 100 ? '#10b981' : '#64748b' }}>{totalPorcentaje}% / 100%</span> 
+                </div> 
+                <div className="progress-bg">
+                    <div className={`progress-fill ${totalPorcentaje === 100 ? 'full' : ''}`} style={{ width: `${totalPorcentaje}%` }}></div>
+                </div> 
+            </div> 
+            
+            {beneficiarios.length > 0 && ( 
+                <div className="beneficiarios-list"> 
+                    {beneficiarios.map(b => ( 
+                        <div className="beneficiario-card" key={b.id}> 
+                            <div className="b-info"> 
+                                <strong>{b.nombre_completo}</strong> 
+                                <span>Parentesco: {b.parentesco} • Tel: {b.telefono || 'N/A'}</span>
+                                {b.ine_url && (
+                                    <a href={`http://localhost:3001${b.ine_url}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#10b981', marginLeft: '8px', display: 'inline-block' }}>
+                                        📄 Ver INE
+                                    </a>
+                                )}
+                            </div> 
+                            <div className="b-actions"> 
+                                <span className="b-percent">{b.porcentaje}%</span> 
+                                <button onClick={() => eliminarBeneficiario(b.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}> 
+                                    <IconClose/> 
+                                </button> 
+                            </div> 
+                        </div> 
+                    ))} 
+                </div> 
+            )} 
+            
+            {totalPorcentaje < 100 && ( 
+                <form className="modal-form" style={{ padding: 0, marginTop: '32px' }} onSubmit={handleGuardarBeneficiario}> 
+                    <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>Añadir Beneficiario</h4> 
+                    <div className="form-group" style={{ marginBottom: '16px' }}> 
+                        <label>Nombre Completo *</label>
+                        <input type="text" required value={formBeneficiario.nombre_completo} onChange={e => setFormBeneficiario({ ...formBeneficiario, nombre_completo: e.target.value })} /> 
+                    </div> 
+                    
+                    <div className="form-group" style={{ marginBottom: '16px' }}>
+                        <label>INE / Identificación Oficial (PDF o Imagen)</label>
+                        <input 
+                            type="file" 
+                            accept=".pdf,.png,.jpg,.jpeg" 
+                            onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                    setIneFile(file);
+                                    if (file.type.startsWith('image/')) {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setInePreview(reader.result);
+                                        reader.readAsDataURL(file);
+                                    } else {
+                                        setInePreview(null);
+                                    }
+                                }
+                            }}
+                            style={{ padding: '8px', border: '1px dashed #cbd5e1', borderRadius: '8px', width: '100%' }}
+                        />
+                        {inePreview && (
+                            <div style={{ marginTop: '8px' }}>
+                                <img src={inePreview} alt="Vista previa INE" style={{ maxWidth: '100%', maxHeight: '100px', borderRadius: '4px' }} />
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="form-row" style={{ marginBottom: '24px' }}> 
+                        <div className="form-group">
+                            <label>Teléfono *</label>
+                            <input type="text" required maxLength="10" value={formBeneficiario.telefono} onChange={e => setFormBeneficiario({ ...formBeneficiario, telefono: e.target.value.replace(/[^0-9]/g, '') })} />
+                        </div>
+                        <div className="form-group">
+                            <label>Parentesco *</label>
+                            <select required value={formBeneficiario.parentesco} onChange={e => setFormBeneficiario({ ...formBeneficiario, parentesco: e.target.value })} className="custom-select">
+                                <option value="">Selecciona...</option>
+                                <option value="Esposo/a">Esposo/a</option>
+                                <option value="Hijo/a">Hijo/a</option>
+                                <option value="Padre/Madre">Padre/Madre</option>
+                                <option value="Hermano/a">Hermano/a</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div> 
+                        <div className="form-group">
+                            <label>Porcentaje (%) *</label>
+                            <input type="number" required min="1" max={100 - totalPorcentaje} value={formBeneficiario.porcentaje} onChange={e => setFormBeneficiario({ ...formBeneficiario, porcentaje: e.target.value })} />
+                        </div> 
+                    </div> 
+                    <div className="modal-footer" style={{ padding: 0, backgroundColor: 'transparent', border: 'none' }}>
+                        <button type="submit" disabled={isLoading} className="btn-primary">{isLoading ? 'Guardando...' : 'Agregar Beneficiario'}</button>
+                    </div> 
+                </form> 
+            )} 
+        </div> 
+    );
+    
+    const TabMovimientos = () => ( 
+        <div className="tab-content fade-in-up"> 
+            {!showNuevoMovimiento ? ( 
+                <> 
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}> 
+                        <h4 style={{ margin: 0, fontSize: '16px', color: '#1e293b', fontWeight: 'bold' }}>HISTORIAL DE MOVIMIENTOS</h4> 
+                        {contratos.length > 0 && (<button className="btn-primary" onClick={() => setShowNuevoMovimiento(true)}><IconPlus/> Registrar Movimiento</button>)} 
+                    </div> 
+                    {contratos.length === 0 && <div className="empty-state">Debes crear un contrato de fondeo primero.</div>} 
+                    {movimientos.length > 0 ? ( 
+                        <div className="movimientos-list"> 
+                            {movimientos.map(mov => { 
+                                const isIngreso = mov.tipo === 'DEPOSITO'; 
+                                const iconColor = isIngreso ? '#10b981' : '#ef4444'; 
+                                const bgColor = isIngreso ? '#dcfce3' : '#fee2e2'; 
+                                return ( 
+                                    <div className="movimiento-item" key={mov.id}> 
+                                        <div className="mov-icon" style={{ backgroundColor: bgColor, color: iconColor }}>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
+                                                <path d={isIngreso ? "M12 19V5M5 12l7-7 7 7" : "M12 5v14M19 12l-7 7-7-7"}></path>
+                                            </svg>
+                                        </div> 
+                                        <div className="mov-detalles"> 
+                                            <strong>{mov.tipo.replace('_', ' ')}</strong> 
+                                            <span>Contrato #{mov.id_contrato.toString().padStart(4, '0')} • {new Date(mov.fecha_movimiento).toLocaleDateString()}</span> 
+                                        </div> 
+                                        <div className="mov-monto-accion"> 
+                                            <span className={`mov-monto ${isIngreso ? 'ingreso' : 'retiro'}`}>{isIngreso ? '+' : '-'}{formatMoney(mov.monto)}</span> 
+                                            {mov.recibo_comprobante && (<a href={`http://localhost:3001/${mov.recibo_comprobante}`} target="_blank" rel="noreferrer" className="btn-cancel" style={{ padding: '6px 12px' }}>Ver</a>)} 
+                                        </div> 
+                                    </div> 
+                                ); 
+                            })} 
+                        </div> 
+                    ) : (contratos.length > 0 && <div className="empty-state">No hay movimientos registrados en el sistema.</div>)} 
+                </> 
+            ) : ( 
+                <form className="modal-form" style={{ padding: 0 }} onSubmit={handleGuardarMovimiento}> 
+                    <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>Registrar Transacción</h4> 
+                    <div className="form-group" style={{ marginBottom: '16px' }}> 
+                        <label>Contrato Asociado</label> 
+                        <select required value={formMovimiento.id_contrato} onChange={e => setFormMovimiento({ ...formMovimiento, id_contrato: e.target.value })} className="custom-select"> 
+                            <option value="">Selecciona un contrato...</option> 
+                            {contratos.map(c => (<option key={c.id} value={c.id}>Contrato #{c.id.toString().padStart(4, '0')} - {formatMoney(c.monto_inicial)}</option>))} 
+                        </select> 
+                    </div> 
+                    <div className="form-row" style={{ marginBottom: '16px' }}> 
+                        <div className="form-group"> 
+                            <label>Tipo de Operación</label> 
+                            <select required value={formMovimiento.tipo} onChange={e => setFormMovimiento({ ...formMovimiento, tipo: e.target.value })} className="custom-select"> 
+                                <option value="PAGO_INTERES">Pago de Rendimientos (Salida)</option> 
+                                <option value="DEPOSITO">Inyección Extra de Capital (Entrada)</option> 
+                                <option value="RETIRO_CAPITAL">Retiro Parcial de Capital (Salida)</option> 
+                            </select> 
+                        </div> 
+                        <div className="form-group"> 
+                            <label>Monto Exacto</label> 
+                            <div className="input-with-prefix"> 
+                                <span className="prefix">$</span> 
+                                <input type="text" required placeholder="0.00" value={formatInputMonto(formMovimiento.monto)} onChange={e => setFormMovimiento({ ...formMovimiento, monto: parseInputMonto(e.target.value) })} /> 
+                            </div> 
+                        </div> 
+                    </div> 
+                    <div className="form-group" style={{ marginBottom: '24px' }}> 
+                        <label>Comprobante Escaneado (PDF/IMG)</label> 
+                        <input type="file" required onChange={e => setFileComprobante(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" style={{ padding: '8px', border: '1px dashed #cbd5e1' }} /> 
+                    </div> 
+                    <div className="modal-footer" style={{ padding: 0, backgroundColor: 'transparent', border: 'none' }}> 
+                        <button type="button" onClick={() => setShowNuevoMovimiento(false)} className="btn-cancel">Cancelar</button> 
+                        <button type="submit" disabled={isLoading} className="btn-primary">{isLoading ? 'Procesando...' : 'Asentar Movimiento'}</button> 
+                    </div> 
+                </form> 
+            )} 
+        </div> 
+    );
 
     // --- RENDER PRINCIPAL ---
     return (
         <div className="inversores-container">
-            {/* --- ENCABEZADO --- */}
+            {/* ENCABEZADO */}
             <div className="page-header stagger-1">
                 <div>
                     <h1>Directorio Institucional</h1>
                     <p>Gestión integral de Fondeadores y Capital de Inversión</p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <button className="btn-primary" style={{ backgroundColor: 'white', color: 'var(--brand-green)', border: '1px solid var(--brand-green)', boxShadow: 'none' }} onClick={abrirModalFondeoDesdeSimulador}>
+                    <button className="btn-primary" style={{ backgroundColor: 'white', color: '#10b981', border: '1px solid #10b981', boxShadow: 'none' }} onClick={abrirModalFondeoDesdeSimulador}>
                         <IconSave /> Activar Fondeo Rápido
                     </button>
                     <button className="btn-primary" onClick={openNewModal}>
@@ -717,7 +972,7 @@ function Inversores() {
                 </div>
             </div>
 
-            {/* --- SIMULADOR DE PAGOS --- */}
+            {/* SIMULADOR DE PAGOS */}
             <div className="calc-dashboard stagger-2">
                 <div className="calc-panel">
                     <div className="panel-title">
@@ -737,12 +992,12 @@ function Inversores() {
                                 <option value="frances">Cuota Fija (Sistema Francés)</option>
                                 <option value="aleman">Capital Fijo (Sistema Alemán)</option>
                                 <option value="diario">Saldos Diarios (Abono Libre)</option>
-                                <option value="personalizado">Personalizado (Institucional)</option>
+                                <option value="personalizado">Personalizado</option>
                             </select>
                         </div>
                         
                         {(tipoAmortizacion === 'diario' || tipoAmortizacion === 'personalizado') && (
-                            <div className="form-row" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px dashed var(--border-focus)' }}>
+                            <div className="form-row" style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
                                 <div className="form-group">
                                     <label>Disposición</label>
                                     <input type="date" value={fechaInicioSim} onChange={(e) => setFechaInicioSim(e.target.value)} />
@@ -813,7 +1068,7 @@ function Inversores() {
                         )}
                         
                         {tipoAmortizacion === 'personalizado' && (
-                            <button onClick={abrirModalFondeoDesdeSimulador} style={{ width: '100%', padding: '12px', marginTop: '8px', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', transition: 'var(--transition-smooth)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                            <button onClick={abrirModalFondeoDesdeSimulador} style={{ width: '100%', padding: '12px', marginTop: '8px', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
                                 <IconSave/> Transferir Plan a Nuevo Fondeo
                             </button>
                         )}
@@ -842,7 +1097,6 @@ function Inversores() {
                                     </div>
                                 )}
                             </div>
-                            <svg viewBox="0 0 100 100" style={{ position: 'absolute', right: '-10%', top: '-20%', width: '150px', opacity: 0.1, transform: 'rotate(15deg)' }} fill="currentColor"><path d="M50 0L100 50L50 100L0 50Z"></path></svg>
                         </div>
 
                         <div className="result-card blue-card">
@@ -850,23 +1104,20 @@ function Inversores() {
                                 <span>Retorno Total (Cap+Int+IVA)</span>
                                 <h2>{formatMoney(totalRecibir)}</h2>
                             </div>
-                            <circle cx="90%" cy="10%" r="60" fill="white" opacity="0.05" />
-                            <circle cx="80%" cy="80%" r="40" fill="white" opacity="0.05" />
                         </div>
                     </div>
 
-                    {/* --- TABLA DE AMORTIZACIÓN EN TIEMPO REAL --- */}
                     {tablaAmortizacion.length > 0 && (
                         <div className="table-responsive" style={{ maxHeight: '350px', marginTop: '24px' }}>
                             <table className="data-table">
-                                <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--bg-main)', zIndex: 10 }}>
+                                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8fafc', zIndex: 10 }}>
                                     <tr>
                                         <th style={{ textAlign: 'center' }}>NO.</th>
                                         <th style={{ textAlign: 'right' }}>CAPITAL</th>
                                         <th style={{ textAlign: 'right' }}>ANTICIPO</th>
                                         <th style={{ textAlign: 'right' }}>INTERÉS</th>
                                         <th style={{ textAlign: 'right' }}>IVA</th>
-                                        <th style={{ textAlign: 'right', color: 'var(--brand-green)' }}>TOTAL</th>
+                                        <th style={{ textAlign: 'right', color: '#10b981' }}>TOTAL</th>
                                         <th style={{ textAlign: 'right' }}>SALDO</th>
                                         {(tipoAmortizacion === 'diario' || tipoAmortizacion === 'personalizado') && <th style={{ textAlign: 'center' }}>DÍAS</th>}
                                     </tr>
@@ -875,15 +1126,15 @@ function Inversores() {
                                     {tablaAmortizacion.map((row, idx) => (
                                         <tr key={idx} style={{ backgroundColor: row.numero == anticipoMesSim && tipoAmortizacion !== 'diario' ? '#fef9c3' : row.numero === 'N/A' ? '#f0fdf4' : 'transparent' }}>
                                             <td style={{ textAlign: 'center' }}>
-                                                <strong style={{ color: 'var(--text-main)' }}>{row.numero}</strong> 
-                                                {row.fechaStr !== '-' && <span style={{ display:'block', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>{row.fechaStr}</span>}
+                                                <strong style={{ color: '#1e293b' }}>{row.numero}</strong> 
+                                                {row.fechaStr !== '-' && <span style={{ display:'block', fontSize: '10px', color: '#64748b', marginTop: '2px' }}>{row.fechaStr}</span>}
                                             </td>
                                             <td style={{ textAlign: 'right' }}>{formatMoney(row.abono)}</td>
-                                            <td style={{ textAlign: 'right', color: row.anticipo > 0 ? '#166534' : 'var(--text-muted)', fontWeight: row.anticipo > 0 ? 'bold' : 'normal' }}>{formatMoney(row.anticipo)}</td>
+                                            <td style={{ textAlign: 'right', color: row.anticipo > 0 ? '#166534' : '#64748b', fontWeight: row.anticipo > 0 ? 'bold' : 'normal' }}>{formatMoney(row.anticipo)}</td>
                                             <td style={{ textAlign: 'right' }}>{formatMoney(row.interes)}</td>
                                             <td style={{ textAlign: 'right' }}>{formatMoney(row.iva)}</td>
-                                            <td style={{ textAlign: 'right', color: 'var(--brand-green)', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
-                                            <td style={{ textAlign: 'right', color: 'var(--text-main)', fontWeight: '600' }}>{formatMoney(row.saldoFinal)}</td>
+                                            <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
+                                            <td style={{ textAlign: 'right', color: '#1e293b', fontWeight: '600' }}>{formatMoney(row.saldoFinal)}</td>
                                             {(tipoAmortizacion === 'diario' || tipoAmortizacion === 'personalizado') && <td style={{ textAlign: 'center' }}>{row.dias}</td>}
                                         </tr>
                                     ))}
@@ -894,7 +1145,7 @@ function Inversores() {
                 </div>
             </div>
 
-            {/* --- DIRECTORIO DE FONDEADORES --- */}
+            {/* DIRECTORIO DE FONDEADORES */}
             <div className="inversores-list-container fade-in-up">
                 <div className="list-header">
                     <h2>Directorio</h2>
@@ -902,7 +1153,7 @@ function Inversores() {
                         <span className="prefix" style={{ display: 'flex', alignItems: 'center' }}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '18px'}}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                         </span>
-                        <input type="text" placeholder="Buscar por nombre o RFC..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ borderRadius: '20px', backgroundColor: 'var(--bg-main)' }} />
+                        <input type="text" placeholder="Buscar por nombre o RFC..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ borderRadius: '20px', backgroundColor: '#f8fafc' }} />
                     </div>
                 </div>
                 <div className="table-responsive">
@@ -925,26 +1176,26 @@ function Inversores() {
                                                 {inv.nombre.substring(0, 2).toUpperCase()}
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <strong style={{ color: 'var(--text-main)', fontSize: '15px' }}>{inv.nombre}</strong>
-                                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>RFC: {inv.rfc || 'S/N'}</span>
+                                                <strong style={{ color: '#1e293b', fontSize: '15px' }}>{inv.nombre}</strong>
+                                                <span style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>RFC: {inv.rfc || 'S/N'}</span>
                                             </div>
                                         </div>
                                     </td>
                                     <td>
-                                        <div style={{ display: 'flex', flexDirection: 'column', color: 'var(--text-main)' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', color: '#1e293b' }}>
                                             <span style={{ fontWeight: '500' }}>{inv.telefono}</span>
-                                            <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>{inv.email}</span>
+                                            <span style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>{inv.email}</span>
                                         </div>
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                             {inv.limite_credito > 0 ? (
                                                 <>
-                                                    <strong style={{color: 'var(--brand-green)', fontSize: '15px'}}>{formatMoney(inv.limite_credito)}</strong>
-                                                    <span style={{color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px'}}>Revolvente Máx.</span>
+                                                    <strong style={{color: '#10b981', fontSize: '15px'}}>{formatMoney(inv.limite_credito)}</strong>
+                                                    <span style={{color: '#64748b', fontSize: '11px', marginTop: '2px'}}>Revolvente Máx.</span>
                                                 </>
                                             ) : (
-                                                <span style={{color: 'var(--text-muted)', fontSize: '14px', fontStyle: 'italic'}}>No Asignado</span>
+                                                <span style={{color: '#64748b', fontSize: '14px', fontStyle: 'italic'}}>No Asignado</span>
                                             )}
                                         </div>
                                     </td>
@@ -959,13 +1210,13 @@ function Inversores() {
                                                 <IconRefresh/>
                                             </button>
                                             <button className="btn-icon-edit" onClick={() => abrirPanel(inv)} title="Expediente y Contratos">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                                             </button>
                                             <button className="btn-icon-edit" onClick={() => openEditModal(inv)} title="Editar Información">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                             </button>
                                             <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminarInversor(inv.id, inv.nombre)} title="Dar de Baja">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                                             </button>
                                         </div>
                                     </td>
@@ -993,7 +1244,6 @@ function Inversores() {
             {panelOpen && inversorActivo && (
                 <div className="modal-overlay" onClick={() => setPanelOpen(false)}>
                     <div className="master-panel fade-in-right" onClick={e => e.stopPropagation()}>
-                        
                         <div className="modal-header" style={{ flexShrink: 0 }}>
                             <div>
                                 <h2 style={{ color: 'white' }}>Panel de Control</h2>
@@ -1023,20 +1273,20 @@ function Inversores() {
                 </div>
             )}
 
-            {/* MODAL REDISEÑADO: ALTA/EDICIÓN FONDEADOR */}
+            {/* MODAL: ALTA/EDICIÓN FONDEADOR */}
             {isModalOpen && (
                 <div className="modal-overlay">
                     <div className="modal-content fade-in-down" style={{ maxWidth: '850px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid var(--border-light)' }}>
+                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                             <div>
-                                <h2 style={{ color: 'var(--text-main)', margin: 0, fontSize: '20px', fontWeight: '700' }}>{isEditing ? 'Editar Fondeador' : 'Registrar Nuevo Fondeador'}</h2>
-                                <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0', fontSize: '13px' }}>Directorio General de Clientes Inversionistas</p>
+                                <h2 style={{ color: '#1e293b', margin: 0, fontSize: '20px', fontWeight: '700' }}>{isEditing ? 'Editar Fondeador' : 'Registrar Nuevo Fondeador'}</h2>
+                                <p style={{ color: '#64748b', margin: '4px 0 0 0', fontSize: '13px' }}>Directorio General de Clientes Inversionistas</p>
                             </div>
                             <button onClick={() => setIsModalOpen(false)} className="btn-close"><IconClose/></button>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="modal-form" style={{ backgroundColor: 'var(--bg-main)', overflowY: 'auto', flexGrow: 1 }}>
-                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-light)' }}>
+                        <form onSubmit={handleSubmit} className="modal-form" style={{ backgroundColor: '#f8fafc', overflowY: 'auto', flexGrow: 1 }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                 <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '20px' }}>1. Datos de Identificación</h4>
                                 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -1049,7 +1299,7 @@ function Inversores() {
 
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>{formData.tipo_persona === 'MORAL' ? 'Razón Social (Empresa)' : 'Nombre(s)'}</label>
+                                        <label>{formData.tipo_persona === 'MORAL' ? 'Razón Social' : 'Nombre(s)'}</label>
                                         <input type="text" required value={formData.nombre} onChange={e => setFormData({ ...formData, nombre: e.target.value })} />
                                     </div>
                                     {formData.tipo_persona === 'FISICA' && !isEditing && (
@@ -1069,12 +1319,12 @@ function Inversores() {
                                 <h4 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '15px', fontWeight: '700' }}>2. Línea de Crédito Autorizada</h4>
                                 <label style={{ color: '#15803d', fontSize: '12px', marginBottom: '16px', display: 'block' }}>Monto máximo permitido para fondear (Revolvente)</label>
                                 <div className="input-with-prefix">
-                                    <span className="prefix" style={{ fontSize: '20px', fontWeight: '800', color: 'var(--brand-green)' }}>$</span>
-                                    <input type="text" required value={formatInputMonto(formData.limite_credito)} onChange={e => setFormData({ ...formData, limite_credito: parseInputMonto(e.target.value) })} placeholder="0.00" style={{ height: '56px', fontSize: '20px', fontWeight: '800', color: 'var(--brand-green)', borderColor: '#86efac', backgroundColor: 'white' }} />
+                                    <span className="prefix" style={{ fontSize: '20px', fontWeight: '800', color: '#10b981' }}>$</span>
+                                    <input type="text" required value={formatInputMonto(formData.limite_credito)} onChange={e => setFormData({ ...formData, limite_credito: parseInputMonto(e.target.value) })} placeholder="0.00" style={{ height: '56px', fontSize: '20px', fontWeight: '800', color: '#10b981', borderColor: '#86efac', backgroundColor: 'white' }} />
                                 </div>
                             </div>
 
-                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-light)' }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                                 <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '20px' }}>3. Contacto y Datos Bancarios</h4>
                                 <div className="form-row">
                                     <div className="form-group">
@@ -1103,8 +1353,8 @@ function Inversores() {
                             </div>
                             
                             {!isEditing && formData.tipo_persona === 'FISICA' && (
-                                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-light)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', marginBottom: '20px' }}>
+                                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '20px' }}>
                                         <h4 className="section-subtitle" style={{ border: 'none', margin: 0 }}>4. Beneficiario Principal</h4>
                                         <span className="status-badge active">100% ASIGNADO</span>
                                     </div>
@@ -1145,34 +1395,34 @@ function Inversores() {
             {isFondeoModalOpen && (
                 <div className="modal-overlay" onClick={() => { setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); }}>
                     <div className="modal-content fade-in-down" style={{ maxWidth: '650px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid var(--border-light)' }}>
+                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                             <div>
-                                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'var(--text-main)' }}>Activar Nuevo Fondeo</h2>
-                                <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0', fontSize: '13px' }}>Generación de contrato e ingreso de capital</p>
+                                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Activar Nuevo Fondeo</h2>
+                                <p style={{ color: '#64748b', margin: '4px 0 0 0', fontSize: '13px' }}>Generación de contrato e ingreso de capital</p>
                             </div>
                             <button onClick={() => { setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); }} className="btn-close"><IconClose/></button>
                         </div>
                         
-                        <form id="fondeoForm" onSubmit={handleCrearFondeo} className="modal-form" style={{ backgroundColor: 'var(--bg-main)', overflowY: 'auto', flexGrow: 1 }}>
-                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)', position: 'relative' }}>
+                        <form id="fondeoForm" onSubmit={handleCrearFondeo} className="modal-form" style={{ backgroundColor: '#f8fafc', overflowY: 'auto', flexGrow: 1 }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', position: 'relative' }}>
                                 <label style={labelStyle}>1. Seleccionar Inversionista</label>
                                 <div className="custom-select" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '46px', cursor: 'pointer' }} onClick={() => setDropdownFondeadorOpen(!dropdownFondeadorOpen)}>
-                                    <span style={{ color: formFondeo.id_inversor ? 'var(--text-main)' : 'var(--text-muted)', fontSize: '14px', fontWeight: formFondeo.id_inversor ? '600' : 'normal', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    <span style={{ color: formFondeo.id_inversor ? '#1e293b' : '#64748b', fontSize: '14px', fontWeight: formFondeo.id_inversor ? '600' : 'normal', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {formFondeo.id_inversor ? inversores.find(i => i.id == formFondeo.id_inversor)?.nombre : 'Despliegue para buscar un fondeador...'}
                                     </span>
                                 </div>
                                 
                                 {dropdownFondeadorOpen && (
-                                    <div style={{ position: 'absolute', top: '100%', left: '24px', right: '24px', zIndex: 100, backgroundColor: 'white', border: '1px solid var(--border-focus)', borderRadius: '8px', marginTop: '4px', boxShadow: 'var(--shadow-panel)', overflow: 'hidden' }}>
-                                        <div style={{ padding: '12px', borderBottom: '1px solid var(--border-light)', backgroundColor: 'var(--bg-main)' }}>
-                                            <input type="text" autoFocus placeholder="Buscar por nombre..." value={filtroFondeador} onChange={(e) => setFiltroFondeador(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') e.preventDefault(); }} style={{ height: '36px', width: '100%', padding: '0 12px', borderRadius: '6px', border: '1px solid var(--border-focus)', outline: 'none' }} />
+                                    <div style={{ position: 'absolute', top: '100%', left: '24px', right: '24px', zIndex: 100, backgroundColor: 'white', border: '1px solid #cbd5e1', borderRadius: '8px', marginTop: '4px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                                        <div style={{ padding: '12px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                                            <input type="text" autoFocus placeholder="Buscar por nombre..." value={filtroFondeador} onChange={(e) => setFiltroFondeador(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') e.preventDefault(); }} style={{ height: '36px', width: '100%', padding: '0 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }} />
                                         </div>
                                         <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
                                             {inversoresParaFondeo.length > 0 ? (
                                                 inversoresParaFondeo.map(inv => (
-                                                    <div key={inv.id} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border-light)', transition: 'var(--transition-smooth)' }} onClick={() => { setFormFondeo({...formFondeo, id_inversor: inv.id}); setDropdownFondeadorOpen(false); setFiltroFondeador(''); }} onMouseOver={e=>e.currentTarget.style.backgroundColor='var(--bg-main)'} onMouseOut={e=>e.currentTarget.style.backgroundColor='white'}>
-                                                        <strong style={{ fontSize: '14px', display:'block', color: 'var(--text-main)' }}>{inv.nombre}</strong>
-                                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Línea Libre: {formatMoney(inv.limite_credito)}</span>
+                                                    <div key={inv.id} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s' }} onClick={() => { setFormFondeo({...formFondeo, id_inversor: inv.id}); setDropdownFondeadorOpen(false); setFiltroFondeador(''); }} onMouseOver={e=>e.currentTarget.style.backgroundColor='#f8fafc'} onMouseOut={e=>e.currentTarget.style.backgroundColor='white'}>
+                                                        <strong style={{ fontSize: '14px', display:'block', color: '#1e293b' }}>{inv.nombre}</strong>
+                                                        <span style={{ fontSize: '12px', color: '#64748b' }}>Línea Libre: {formatMoney(inv.limite_credito)}</span>
                                                     </div>
                                                 ))
                                             ) : (
@@ -1183,11 +1433,11 @@ function Inversores() {
                                 )}
                             </div>
                             
-                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                                 <h4 className="section-subtitle" style={{ border: 'none', marginBottom: '16px' }}>2. Detalles de la Inversión</h4>
                                 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
-                                    <label>Número de Disposición (Fondeador)</label>
+                                    <label>Número de Disposición</label>
                                     <input type="text" placeholder="Ej. 001-2026" value={formFondeo.numero_disposicion} onChange={e => setFormFondeo({ ...formFondeo, numero_disposicion: e.target.value })} />
                                 </div>
 
@@ -1197,10 +1447,10 @@ function Inversores() {
                                         <input type="date" required value={formFondeo.fecha_inicio} onChange={e => setFormFondeo({ ...formFondeo, fecha_inicio: e.target.value })} />
                                     </div>
                                     <div className="form-group">
-                                        <label style={{color: 'var(--brand-green)'}}>Monto a Invertir</label>
+                                        <label style={{color: '#10b981'}}>Monto a Invertir</label>
                                         <div className="input-with-prefix">
-                                            <span className="prefix" style={{ color: 'var(--brand-green)', fontWeight: '800' }}>$</span>
-                                            <input type="text" required value={formatInputMonto(formFondeo.monto_inicial)} onChange={e => setFormFondeo({ ...formFondeo, monto_inicial: parseInputMonto(e.target.value) })} style={{ color: 'var(--brand-green)', fontWeight: '800', borderColor: '#bbf7d0', backgroundColor: '#f0fdf4' }} />
+                                            <span className="prefix" style={{ color: '#10b981', fontWeight: '800' }}>$</span>
+                                            <input type="text" required value={formatInputMonto(formFondeo.monto_inicial)} onChange={e => setFormFondeo({ ...formFondeo, monto_inicial: parseInputMonto(e.target.value) })} style={{ color: '#10b981', fontWeight: '800', borderColor: '#bbf7d0', backgroundColor: '#f0fdf4' }} />
                                         </div>
                                     </div>
                                 </div>
@@ -1229,7 +1479,7 @@ function Inversores() {
                                         <option value="frances">Cuota Fija Constante (Sistema Francés)</option>
                                         <option value="aleman">Capital Fijo Constante (Sistema Alemán)</option>
                                         <option value="diario">Saldos Diarios (Abono Libre)</option>
-                                        <option value="personalizado">Plan Personalizado (Institucional)</option>
+                                        <option value="personalizado">Plan Personalizado</option>
                                     </select>
                                 </div>
                             </div>
@@ -1248,25 +1498,25 @@ function Inversores() {
                 </div>
             )}
 
-            {/* --- VISOR INTERACTIVO E INYECCIONES DE CAPITAL --- */}
+            {/* VISOR INTERACTIVO E INYECCIONES DE CAPITAL */}
             {showVisorAmortizacion && contratoParaAmortizacion && (
                 <div className="modal-overlay">
                     <div className="modal-content fade-in-down" style={{ maxWidth: '1200px', width: '95%', maxHeight: '95vh', display: 'flex', flexDirection: 'column' }}>
-                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid var(--border-light)' }}>
+                        <div className="modal-header" style={{ flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                             <div>
-                                <h2 style={{ color: 'var(--text-main)', margin: 0, fontSize: '20px', fontWeight: '700' }}>Tabla de Amortización #{contratoParaAmortizacion.id.toString().padStart(4, '0')}</h2>
-                                <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                                <h2 style={{ color: '#1e293b', margin: 0, fontSize: '20px', fontWeight: '700' }}>Tabla de Amortización #{contratoParaAmortizacion.id.toString().padStart(4, '0')}</h2>
+                                <p style={{ color: '#64748b', margin: '4px 0 0 0' }}>
                                     Monto: {formatMoney(contratoParaAmortizacion.monto_inicial)} | Tasa: {contratoParaAmortizacion.tasa_anual_esperada}% | Sistema: {contratoParaAmortizacion.tipo_amortizacion ? contratoParaAmortizacion.tipo_amortizacion.toUpperCase() : 'FRANCÉS'}
                                 </p>
                             </div>
                             <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setAnticiposInteractivos({}); setPagosIrregulares([]); }} className="btn-close"><IconClose/></button>
                         </div>
                         
-                        <div className="modal-body" style={{ backgroundColor: 'var(--bg-main)', overflowY: 'auto', flexGrow: 1, padding: '32px' }}>
-                            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: 'var(--shadow-sm)' }}>
+                        <div className="modal-body" style={{ backgroundColor: '#f8fafc', overflowY: 'auto', flexGrow: 1, padding: '32px' }}>
+                            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
-                                        <h5 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '15px', fontWeight: '700' }}>+ Inyectar Pagos Irregulares (Fuera de Calendario)</h5>
+                                        <h5 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '15px', fontWeight: '700' }}>+ Inyectar Pagos Irregulares</h5>
                                         <p style={{ margin: 0, fontSize: '13px', color: '#15803d' }}>
                                             Agrega fechas de inyección no contempladas. Si marcas la casilla "No cobrar día", <strong>el interés del día de la inyección se descuenta</strong>.
                                         </p>
@@ -1279,7 +1529,7 @@ function Inversores() {
                                 {pagosIrregulares.length > 0 && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
                                         {pagosIrregulares.map((pago, index) => (
-                                            <div key={pago.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px 40px', gap: '16px', alignItems: 'end', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-light)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                            <div key={pago.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px 40px', gap: '16px', alignItems: 'end', backgroundColor: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                                 <div className="form-group">
                                                     <label>FECHA DE INYECCIÓN</label>
                                                     <input type="date" value={pago.fecha} onChange={e => handlePagoIrregularChange(index, 'fecha', e.target.value)} />
@@ -1309,9 +1559,9 @@ function Inversores() {
                                 )}
                             </div>
                             
-                            <div className="table-responsive" style={{ boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border-light)' }}>
-                                <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid var(--border-light)' }}>
-                                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+                            <div className="table-responsive" style={{ boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0' }}>
+                                <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
+                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
                                         <strong>Nota interactiva:</strong> Escribe sobre las celdas verdes para anticipos programados. Guarda tus inyecciones para no perderlas.
                                     </p>
                                 </div>
@@ -1324,7 +1574,7 @@ function Inversores() {
                                             <th style={{ backgroundColor: '#dcfce3', color: '#166534' }}>ANTICIPO (EDITABLE)</th>
                                             <th>INT. ORD.</th>
                                             <th>IVA</th>
-                                            <th style={{ color: 'var(--brand-green)' }}>TOTAL PAGO</th>
+                                            <th style={{ color: '#10b981' }}>TOTAL PAGO</th>
                                             <th>SALDO INSOLUTO</th>
                                             <th>DÍAS COBRADOS</th>
                                         </tr>
@@ -1333,10 +1583,10 @@ function Inversores() {
                                         {tablaInteractivaRender.map((row, idx) => (
                                             <tr key={idx} style={{ backgroundColor: row.numero === 'N/A' ? '#f0fdf4' : (anticiposInteractivos[row.indexUI] || 0) > 0 ? '#fef9c3' : 'transparent' }}>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    <strong style={{ color: row.numero === 'N/A' ? '#166534' : 'var(--text-main)' }}>{row.numero}</strong> 
+                                                    <strong style={{ color: row.numero === 'N/A' ? '#166534' : '#1e293b' }}>{row.numero}</strong> 
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    <strong style={{ color: row.numero === 'N/A' ? '#15803d' : 'var(--text-main)' }}>{row.fechaStr}</strong>
+                                                    <strong style={{ color: row.numero === 'N/A' ? '#15803d' : '#1e293b' }}>{row.fechaStr}</strong>
                                                 </td>
                                                 <td className="number">{formatMoney(row.abono)}</td>
                                                 <td className="number" style={{ padding: '4px 12px', backgroundColor: row.numero === 'N/A' ? 'transparent' : '#f0fdf4' }}>
@@ -1351,18 +1601,18 @@ function Inversores() {
                                                 </td>
                                                 <td className="number">{formatMoney(row.interes)}</td>
                                                 <td className="number">{formatMoney(row.iva)}</td>
-                                                <td className="number" style={{ color: 'var(--brand-green)', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
-                                                <td className="number" style={{ color: 'var(--text-main)', fontWeight: '800' }}>{formatMoney(row.saldoFinal)}</td>
-                                                <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{row.dias}</td>
+                                                <td className="number" style={{ color: '#10b981', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
+                                                <td className="number" style={{ color: '#1e293b', fontWeight: '800' }}>{formatMoney(row.saldoFinal)}</td>
+                                                <td style={{ textAlign: 'center', color: '#64748b' }}>{row.dias}</td>
                                             </tr>
                                         ))}
                                     </tbody>
                                     <tfoot>
-                                        <tr style={{ backgroundColor: 'var(--border-light)' }}>
-                                            <td colSpan="4" style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: 'var(--text-main)' }}>TOTALES PROYECTADOS:</td>
-                                            <td className="number" style={{ padding: '12px', fontWeight: 'bold', color: 'var(--text-main)' }}>{formatMoney(totalesInteractivos.interes)}</td>
+                                        <tr style={{ backgroundColor: '#e2e8f0' }}>
+                                            <td colSpan="4" style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#1e293b' }}>TOTALES PROYECTADOS:</td>
+                                            <td className="number" style={{ padding: '12px', fontWeight: 'bold', color: '#1e293b' }}>{formatMoney(totalesInteractivos.interes)}</td>
                                             <td></td>
-                                            <td className="number" style={{ padding: '12px', fontWeight: 'bold', color: 'var(--brand-green)' }}>{formatMoney(totalesInteractivos.total)}</td>
+                                            <td className="number" style={{ padding: '12px', fontWeight: 'bold', color: '#10b981' }}>{formatMoney(totalesInteractivos.total)}</td>
                                             <td colSpan="2"></td>
                                         </tr>
                                     </tfoot>
@@ -1375,22 +1625,22 @@ function Inversores() {
                             <button type="button" onClick={handleGuardarInyecciones} disabled={isLoading} className="btn-primary" style={{ backgroundColor: '#0f172a' }}>
                                 <IconSave/> Guardar Inyecciones
                             </button>
-                            <button type="button" onClick={descargarPDFInteractivo} disabled={isLoading} className="btn-primary">
-                                <IconDownload/> Descargar PDF Exacto
+                            <button type="button" onClick={() => exportToExcel(tablaInteractivaRender, contratoParaAmortizacion)} disabled={isLoading} className="btn-primary" style={{ backgroundColor: '#10b981', color: 'white', border: 'none' }}>
+                                <IconExcel/> Exportar a Excel
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- PROYECCIÓN GLOBAL A PANTALLA COMPLETA --- */}
+            {/* PROYECCIÓN GLOBAL */}
             {showProyeccionGlobal && (
-                <div className="modal-overlay" style={{ zIndex: 6000, backgroundColor: 'var(--bg-main)', backdropFilter: 'none' }}>
+                <div className="modal-overlay" style={{ zIndex: 6000, backgroundColor: '#f8fafc', backdropFilter: 'none' }}>
                     <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-                        <div className="modal-header" style={{ borderRadius: 0, flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid var(--border-light)' }}>
+                        <div className="modal-header" style={{ borderRadius: 0, flexShrink: 0, backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                             <div>
-                                <h2 style={{ color: 'var(--text-main)', margin: 0 }}>Proyección Global de Pagos</h2>
-                                <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0' }}>Vista anticipada de vencimientos para: <strong style={{ color: 'var(--brand-green)' }}>{inversorActivo?.nombre}</strong></p>
+                                <h2 style={{ color: '#1e293b', margin: 0 }}>Proyección Global de Pagos</h2>
+                                <p style={{ color: '#64748b', margin: '4px 0 0 0' }}>Vista anticipada de vencimientos para: <strong style={{ color: '#10b981' }}>{inversorActivo?.nombre}</strong></p>
                             </div>
                             <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                                 <div className="input-with-prefix" style={{ width: '300px' }}>
@@ -1399,7 +1649,7 @@ function Inversores() {
                                     </span>
                                     <input type="email" placeholder="Correo del Contador..." value={correoContador} onChange={e => setCorreoContador(e.target.value)} style={{ backgroundColor: 'white', color: '#1e3a8a', border: '1px solid #bfdbfe' }} />
                                 </div>
-                                <button onClick={enviarAlertasCorreo} disabled={isAlerting} className="btn-primary" style={{ backgroundColor: 'white', color: 'var(--brand-green)', border: '1px solid var(--brand-green)', boxShadow: 'none' }}>
+                                <button onClick={enviarAlertasCorreo} disabled={isAlerting} className="btn-primary" style={{ backgroundColor: 'white', color: '#10b981', border: '1px solid #10b981', boxShadow: 'none' }}>
                                     <IconMail/> {isAlerting ? 'Enviando...' : 'Enviar Alertas'}
                                 </button>
                                 <button onClick={() => setShowProyeccionGlobal(false)} className="btn-close"><IconClose/></button>
@@ -1411,8 +1661,7 @@ function Inversores() {
                                 <div className="empty-state">No hay contratos activos para este fondeador.</div>
                             ) : (
                                 <>
-                                    {/* TABLA DE RESUMEN TIPO EXCEL */}
-                                    <div className="table-responsive" style={{ maxHeight: '350px', marginBottom: '32px', boxShadow: 'var(--shadow-lg)' }}>
+                                    <div className="table-responsive" style={{ maxHeight: '350px', marginBottom: '32px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
                                         <table className="detailed-table">
                                             <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                                                 <tr>
@@ -1429,7 +1678,7 @@ function Inversores() {
                                                     <th>NO. PAGO</th>
                                                     <th>A. CAPITAL</th>
                                                     <th>P. INTERÉS</th>
-                                                    <th style={{ color: 'var(--brand-green)' }}>TOTAL PAGO</th>
+                                                    <th style={{ color: '#10b981' }}>TOTAL PAGO</th>
                                                     <th>SALDO FINAL</th>
                                                 </tr>
                                             </thead>
@@ -1446,7 +1695,7 @@ function Inversores() {
                                                         <td style={{textAlign: 'center'}}>{c.no_pago} {c.no_pago !== 'N/A' ? `de ${c.total_pagos}` : ''}</td>
                                                         <td className="number">{formatMoney(c.a_capital)}</td>
                                                         <td className="number">{formatMoney(c.p_interes)}</td>
-                                                        <td className="number" style={{fontWeight: '800', backgroundColor: 'var(--bg-main)', color: 'var(--brand-green)'}}>{formatMoney(c.total_pago)}</td>
+                                                        <td className="number" style={{fontWeight: '800', backgroundColor: '#f8fafc', color: '#10b981'}}>{formatMoney(c.total_pago)}</td>
                                                         <td className="number">{formatMoney(c.saldo_final)}</td>
                                                     </tr>
                                                 ))}
@@ -1454,7 +1703,6 @@ function Inversores() {
                                         </table>
                                     </div>
 
-                                    {/* TARJETAS MENSUALES */}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '24px' }}>
                                         {pagosGlobalesMensuales.map((mesGrupo, index) => (
                                             <div key={index} className="month-card">
@@ -1468,13 +1716,13 @@ function Inversores() {
                                                             <div style={{ display: 'flex', alignItems: 'center' }}>
                                                                 <span className={`payment-status-dot ${p.cssDotClass}`}></span>
                                                                 <div>
-                                                                    <strong style={{ fontSize: '14px', color: 'var(--text-main)' }}>{p.fechaStr}</strong>
-                                                                    <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)' }}>Disp: <strong>{p.disp}</strong> | Cto. #{p.contrato_id.toString().padStart(4,'0')}</span>
+                                                                    <strong style={{ fontSize: '14px', color: '#1e293b' }}>{p.fechaStr}</strong>
+                                                                    <span style={{ display: 'block', fontSize: '12px', color: '#64748b' }}>Disp: <strong>{p.disp}</strong> | Cto. #{p.contrato_id.toString().padStart(4,'0')}</span>
                                                                 </div>
                                                             </div>
                                                             <div style={{ textAlign: 'right' }}>
-                                                                <strong style={{ display: 'block', fontSize: '15px', color: 'var(--brand-green)' }}>{formatMoney(p.pagoTotal)}</strong>
-                                                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.numero === 'N/A' ? 'Inyección' : `Pago ${p.numero}`}</span>
+                                                                <strong style={{ display: 'block', fontSize: '15px', color: '#10b981' }}>{formatMoney(p.pagoTotal)}</strong>
+                                                                <span style={{ fontSize: '11px', color: '#64748b' }}>{p.numero === 'N/A' ? 'Inyección' : `Pago ${p.numero}`}</span>
                                                             </div>
                                                         </div>
                                                     ))}

@@ -4,10 +4,12 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+
 /**
- * GET - Obtener todas las unidades
+ * GET - Obtener todas las unidades (Ruta Protegida)
  */
-router.get('/', (req, res) => {
+router.get('/', verificarToken, (req, res) => {
     const sql = `
         SELECT *
         FROM unidades_negocio
@@ -32,9 +34,9 @@ router.get('/', (req, res) => {
 });
 
 /**
- * POST - Crear nueva unidad
+ * POST - Crear nueva unidad (Ruta Protegida)
  */
-router.post('/', (req, res) => {
+router.post('/', verificarToken, (req, res) => {
     let { nombre } = req.body;
 
     nombre = nombre?.trim();
@@ -85,6 +87,10 @@ router.post('/', (req, res) => {
                     error: err.message
                 });
             }
+            
+            try {
+                registrarBitacora(req.usuario.id, 'CREAR_UNIDAD_NEGOCIO', `Creó la nueva unidad de negocio: ${nombre}`);
+            } catch (bitErr) {}
 
             res.status(201).json({
                 success: true,
@@ -96,9 +102,9 @@ router.post('/', (req, res) => {
 });
 
 /**
- * PUT - Actualizar unidad
+ * PUT - Actualizar unidad (Ruta Protegida)
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     let { nombre } = req.body;
 
@@ -165,6 +171,10 @@ router.put('/:id', (req, res) => {
                     message: 'Unidad no encontrada'
                 });
             }
+            
+            try {
+                registrarBitacora(req.usuario.id, 'EDITAR_UNIDAD_NEGOCIO', `Actualizó el nombre de la unidad ID ${id} a: ${nombre}`);
+            } catch (bitErr) {}
 
             res.status(200).json({
                 success: true,
@@ -175,9 +185,9 @@ router.put('/:id', (req, res) => {
 });
 
 /**
- * DELETE - Eliminar unidad
+ * DELETE - Eliminar unidad (Ruta Protegida)
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
 
     if (isNaN(id)) {
@@ -208,6 +218,10 @@ router.delete('/:id', (req, res) => {
                 message: 'Unidad no encontrada'
             });
         }
+        
+        try {
+            registrarBitacora(req.usuario.id, 'ELIMINAR_UNIDAD_NEGOCIO', `Eliminó la unidad de negocio ID: ${id}`);
+        } catch (bitErr) {}
 
         res.status(200).json({
             success: true,

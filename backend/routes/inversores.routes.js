@@ -7,13 +7,21 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Asegurar que el directorio uploads existe
 const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) { cb(null, uploadDir); },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, req.body.id_contrato + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
+    destination: function (req, file, cb) { 
+        cb(null, uploadDir); 
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const idContrato = (req.body && req.body.id_contrato) ? req.body.id_contrato : 'temp';
+        cb(null, idContrato + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
 });
 const upload = multer({ storage: storage });
 
@@ -76,136 +84,138 @@ function formatMoney(n) {
 // ==========================================
 
 router.get('/', verificarToken, (req, res) => {
-  const query = `
-    SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
-           p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
-           i.origen_fondos, i.estatus_activo, i.limite_credito
-    FROM PERSONAS p INNER JOIN INVERSORES i ON p.id = i.id_persona
-    WHERE p.eliminado = FALSE ORDER BY p.id DESC
-  `;
-  db.query(query, (err, results) => {
-    if (err) return res.status(500).json({ success: false });
-    res.json({ success: true, data: results });
-  });
+    const query = `
+        SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
+               p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
+               i.origen_fondos, i.estatus_activo, i.limite_credito
+        FROM PERSONAS p INNER JOIN INVERSORES i ON p.id = i.id_persona
+        WHERE p.eliminado = FALSE ORDER BY p.id DESC
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: results });
+    });
 });
 
 router.post('/', verificarToken, (req, res) => {
-  const { 
-      tipo_persona,
-      nombre, apellidos, rfc, direccion, telefono, email, 
-      clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito,
-      ben_nombre, ben_parentesco, ben_telefono 
-  } = req.body;
+    const { 
+        tipo_persona,
+        nombre, apellidos, rfc, direccion, telefono, email, 
+        clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito,
+        ben_nombre, ben_parentesco, ben_telefono 
+    } = req.body;
 
-  const tipoPersonaReal = tipo_persona || 'FISICA';
-  const nombreCompleto = tipoPersonaReal === 'MORAL' ? nombre.trim() : `${nombre} ${apellidos || ''}`.trim();
-  const rfcFinal = rfc ? rfc.toUpperCase() : 'XAXX010101000';
+    const tipoPersonaReal = tipo_persona || 'FISICA';
+    const nombreCompleto = tipoPersonaReal === 'MORAL' ? nombre.trim() : `${nombre} ${apellidos || ''}`.trim();
+    const rfcFinal = rfc ? rfc.toUpperCase() : 'XAXX010101000';
 
-  db.beginTransaction(err => {
-    if (err) {
-        console.error("Error al iniciar transacción:", err);
-        return res.status(500).json({ success: false, message: "Error interno del servidor." });
-    }
-    
-    db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
-      [tipoPersonaReal, nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
+    db.beginTransaction(err => {
         if (err) {
-            console.error("Error en INSERT PERSONAS:", err.sqlMessage || err);
-            return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: ${err.sqlMessage}` }));
+            console.error("Error al iniciar transacción:", err);
+            return res.status(500).json({ success: false, message: "Error interno del servidor." });
         }
         
-        const idNuevaPersona = resultPersona.insertId;
-        
-        db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
-          [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL', limite_credito || 0], (err) => {
+        db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
+            [tipoPersonaReal, nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
             if (err) {
-                console.error("Error en INSERT INVERSORES:", err.sqlMessage || err);
-                return db.rollback(() => res.status(500).json({ success: false, message: `Error en Inversores: ${err.sqlMessage}` }));
+                console.error("Error en INSERT PERSONAS:", err.sqlMessage || err);
+                return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: ${err.sqlMessage}` }));
             }
             
-            if (ben_nombre) {
-                db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
-                [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
-                    if (err) {
-                        console.error("Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
-                        return db.rollback(() => res.status(500).json({ success: false, message: `Error en Beneficiarios: ${err.sqlMessage}` }));
-                    }
+            const idNuevaPersona = resultPersona.insertId;
+            
+            db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
+                [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL', limite_credito || 0], (err) => {
+                if (err) {
+                    console.error("Error en INSERT INVERSORES:", err.sqlMessage || err);
+                    return db.rollback(() => res.status(500).json({ success: false, message: `Error en Inversores: ${err.sqlMessage}` }));
+                }
+                
+                if (ben_nombre) {
+                    db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
+                        [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
+                        if (err) {
+                            console.error("Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
+                            return db.rollback(() => res.status(500).json({ success: false, message: `Error en Beneficiarios: ${err.sqlMessage}` }));
+                        }
+                        commitFondeador();
+                    });
+                } else {
                     commitFondeador();
-                });
-            } else {
-                commitFondeador();
-            }
+                }
 
-            function commitFondeador() {
-                db.commit(err => {
-                  if (err) {
-                      console.error("Error en COMMIT:", err.sqlMessage || err);
-                      return db.rollback(() => res.status(500).json({ success: false, message: "Error al guardar todo." }));
-                  }
-                  
-                  try {
-                      registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador: ${nombreCompleto} con límite de ${formatMoney(limite_credito)}`);
-                  } catch (bitErr) {
-                      console.error("Aviso: Fondeador guardado, pero falló la bitácora:", bitErr);
-                  }
-                  
-                  res.json({ success: true, message: 'Fondeador registrado exitosamente.' });
-                });
-            }
-          });
-      });
-  });
+                function commitFondeador() {
+                    db.commit(err => {
+                        if (err) {
+                            console.error("Error en COMMIT:", err.sqlMessage || err);
+                            return db.rollback(() => res.status(500).json({ success: false, message: "Error al guardar todo." }));
+                        }
+                        
+                        try {
+                            registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registró al fondeador: ${nombreCompleto} con límite de ${formatMoney(limite_credito)}`);
+                        } catch (bitErr) {
+                            console.error("Aviso: Fondeador guardado, pero falló la bitácora:", bitErr);
+                        }
+                        
+                        res.json({ success: true, message: 'Fondeador registrado exitosamente.' });
+                    });
+                }
+            });
+        });
+    });
 });
 
 router.put('/:id_persona/estatus', verificarToken, (req, res) => {
-  const { id_persona } = req.params;
-  const { estatus_activo } = req.body;
+    const { id_persona } = req.params;
+    const { estatus_activo } = req.body;
 
-  db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_persona], (err, results) => {
-      if (err || results.length === 0) return res.status(500).json({ success: false });
-      const nombreFondeador = results[0].nombre_razon_social;
-      
-      db.query('UPDATE INVERSORES SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${estatus_activo ? 'Activo' : 'Inactivo'} del fondeador: ${nombreFondeador}`);
-        res.json({ success: true });
-      });
-  });
+    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_persona], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false, error: err?.message });
+        const nombreFondeador = results[0].nombre_razon_social;
+        
+        db.query('UPDATE INVERSORES SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${estatus_activo ? 'Activo' : 'Inactivo'} del fondeador: ${nombreFondeador}`);
+            res.json({ success: true });
+        });
+    });
 });
 
 router.put('/:id', verificarToken, (req, res) => {
-  const { id } = req.params;
-  const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito } = req.body;
-  
-  db.beginTransaction(err => {
-    if (err) return res.status(500).json({ success: false });
-    db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
-      if (err) return db.rollback(() => res.status(500).json({ success: false }));
-      
-      db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=?, limite_credito=? WHERE id_persona=?', [clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito, id], (err) => {
-        if (err) return db.rollback(() => res.status(500).json({ success: false }));
-        db.commit(err => {
-          if (err) return db.rollback(() => res.status(500).json({ success: false }));
-          registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizó los datos del fondeador: ${nombre}. Nuevo límite: ${formatMoney(limite_credito)}`);
-          res.json({ success: true, message: 'Fondeador actualizado.' });
+    const { id } = req.params;
+    const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito } = req.body;
+    
+    db.beginTransaction(err => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
+            [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
+            if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
+            
+            db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=?, limite_credito=? WHERE id_persona=?', 
+                [clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito, id], (err) => {
+                if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
+                db.commit(err => {
+                    if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
+                    registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizó los datos del fondeador: ${nombre}. Nuevo límite: ${formatMoney(limite_credito)}`);
+                    res.json({ success: true, message: 'Fondeador actualizado.' });
+                });
+            });
         });
-      });
     });
-  });
 });
 
 router.delete('/:id', verificarToken, (req, res) => {
-  const id = req.params.id;
-  db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id], (err, results) => {
-      if (err || results.length === 0) return res.status(500).json({ success: false });
-      const nombreFondeador = results[0].nombre_razon_social;
-      
-      db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_FONDEADOR', `Eliminó del directorio al fondeador: ${nombreFondeador}`);
-        res.json({ success: true });
-      });
-  });
+    const id = req.params.id;
+    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false, error: err?.message });
+        const nombreFondeador = results[0].nombre_razon_social;
+        
+        db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_FONDEADOR', `Eliminó del directorio al fondeador: ${nombreFondeador}`);
+            res.json({ success: true });
+        });
+    });
 });
 
 // ==========================================
@@ -213,29 +223,30 @@ router.delete('/:id', verificarToken, (req, res) => {
 // ==========================================
 
 router.get('/tasas', verificarToken, (req, res) => {
-  db.query('SELECT * FROM CATALOGO_TASAS WHERE estatus_activo = 1', (err, results) => {
-    if (err) return res.status(500).json({ success: false });
-    res.json({ success: true, data: results });
-  });
+    db.query('SELECT * FROM CATALOGO_TASAS WHERE estatus_activo = 1', (err, results) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: results });
+    });
 });
 
 router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
-  db.query('SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada FROM CONTRATOS_INVERSION c JOIN CATALOGO_TASAS t ON c.id_tasa = t.id WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC', [req.params.id_inversor], (err, results) => {
-    if (err) return res.status(500).json({ success: false });
-    res.json({ success: true, data: results });
-  });
+    db.query('SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada FROM CONTRATOS_INVERSION c JOIN CATALOGO_TASAS t ON c.id_tasa = t.id WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC', 
+        [req.params.id_inversor], (err, results) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: results });
+    });
 });
 
 router.post('/contratos', verificarToken, (req, res) => {
-  const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
-  
-  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
-    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err) => {
-      if (err) {
-          console.error("Error al guardar contrato estático:", err);
-          return res.status(500).json({ success: false, message: 'Error de servidor' });
-      }
-      res.json({ success: true });
+    const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
+    
+    db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
+        [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err) => {
+        if (err) {
+            console.error("Error al guardar contrato estático:", err);
+            return res.status(500).json({ success: false, message: 'Error de servidor', error: err.message });
+        }
+        res.json({ success: true });
     });
 });
 
@@ -268,7 +279,7 @@ router.post('/inversion', verificarToken, (req, res) => {
         ], (err, result) => {
             if (err) {
                 console.error(err);
-                return res.status(500).json({ success: false, message: 'Error al registrar la inversión' });
+                return res.status(500).json({ success: false, message: 'Error al registrar la inversión', error: err.message });
             }
             registrarBitacora(req.usuario.id, 'NUEVA_INVERSION', `Inversión de $${monto_inicial} registrada para: ${nombreFondeador}`);
             res.json({ success: true, message: 'Fondeo registrado correctamente' });
@@ -285,7 +296,7 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
     const jsonStr = JSON.stringify(pagos_irregulares);
     
     db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ? WHERE id = ?', [jsonStr, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al guardar inyecciones.' });
+        if (err) return res.status(500).json({ success: false, message: 'Error al guardar inyecciones.', error: err.message });
         registrarBitacora(req.usuario.id, 'INYECCION_CAPITAL', `Se guardaron/actualizaron inyecciones de capital para el contrato #${req.params.id}`);
         res.json({ success: true, message: 'Inyecciones guardadas correctamente.' });
     });
@@ -298,72 +309,154 @@ router.post('/alertas-correo', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// BENEFICIARIOS Y MOVIMIENTOS
+// BENEFICIARIOS
 // ==========================================
 
 router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
-  db.query('SELECT * FROM BENEFICIARIOS WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
-    if (err) return res.status(500).json({ success: false });
-    res.json({ success: true, data: results });
-  });
-});
-
-router.post('/beneficiarios', verificarToken, (req, res) => {
-  const { id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento } = req.body;
-  db.query('SELECT SUM(porcentaje) as total FROM BENEFICIARIOS WHERE id_inversor = ?', [id_inversor], (err, results) => {
-    const nuevoTotal = (parseFloat(results[0].total) || 0) + parseFloat(porcentaje);
-    if (nuevoTotal > 100) return res.status(400).json({ success: false, message: `Excede el 100%.` });
-    
-    db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento) VALUES (?, ?, ?, ?, ?, ?)', 
-    [id_inversor, nombre_completo, parentesco, telefono || null, porcentaje, fecha_nacimiento || null], (err) => {
-      if (err) return res.status(500).json({ success: false });
-      
-      db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
-          const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
-          registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agregó a ${nombre_completo} como beneficiario de: ${nombreFondeador}`);
-          res.json({ success: true });
-      });
+    db.query('SELECT * FROM BENEFICIARIOS WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: results });
     });
-  });
 });
 
-router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
-  const { id } = req.params;
-  db.query('SELECT nombre_completo FROM BENEFICIARIOS WHERE id = ?', [id], (err, results) => {
-      const nombreBen = (results && results.length > 0) ? results[0].nombre_completo : 'Beneficiario';
-      
-      db.query('DELETE FROM BENEFICIARIOS WHERE id = ?', [id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_BENEFICIARIO', `Eliminó al beneficiario: ${nombreBen}`);
-        res.json({ success: true });
-      });
-  });
+router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) => {
+    
+    const { id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento } = req.body;
+    
+    const url_ine = req.file ? `/uploads/${req.file.filename}` : null;
+    
+    if (!id_inversor) {
+        return res.status(400).json({ success: false, message: 'Falta el campo requerido: id_inversor' });
+    }
+    if (!nombre_completo) {
+        return res.status(400).json({ success: false, message: 'Falta el campo requerido: nombre_completo' });
+    }
+    
+    // Verificar que el inversor existe
+    db.query('SELECT id_persona FROM INVERSORES WHERE id_persona = ?', [id_inversor], (err, results) => {
+        if (err) {
+            console.error('Error al verificar inversor:', err);
+            return res.status(500).json({ success: false, message: 'Error al verificar inversor', error: err.message });
+        }
+        
+        if (results.length === 0) {
+            return res.status(404).json({ success: false, message: `No se encontró el inversor con ID: ${id_inversor}` });
+        }
+        
+        // Verificar porcentaje total
+        db.query('SELECT COALESCE(SUM(porcentaje), 0) as total FROM BENEFICIARIOS WHERE id_inversor = ?', [id_inversor], (err, sumResults) => {
+            if (err) {
+                console.error('Error al sumar porcentajes:', err);
+                return res.status(500).json({ success: false, message: 'Error al verificar porcentajes', error: err.message });
+            }
+            
+            const porcentajeActual = parseFloat(porcentaje || 100);
+            const totalActual = parseFloat(sumResults[0].total || 0);
+            const nuevoTotal = totalActual + porcentajeActual;
+            
+            if (nuevoTotal > 100) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Los porcentajes suman ${nuevoTotal}%. No puede exceder el 100%`,
+                    total_actual: totalActual,
+                    porcentaje_intentado: porcentajeActual
+                });
+            }
+            
+            const query = `INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento, ine_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            
+            const valores = [id_inversor, nombre_completo, parentesco || null, telefono || null, porcentaje || 100, fecha_nacimiento || null, url_ine];
+            
+            db.query(query, valores, (err, result) => {
+                if (err) {
+                    console.error('Error al insertar beneficiario:', err);
+                    return res.status(500).json({ success: false, message: 'Error al guardar el beneficiario', error: err.message, sqlError: err.sqlMessage });
+                }
+                
+                // Obtener nombre del fondeador para bitácora
+                db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
+                    const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
+                    
+                    try {
+                        registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agregó a ${nombre_completo} como beneficiario de: ${nombreFondeador}`);
+                    } catch (bitErr) {
+                        console.error('Error en bitácora:', bitErr);
+                    }
+                    
+                    res.json({ success: true, message: 'Beneficiario registrado exitosamente', id_beneficiario: result.insertId });
+                });
+            });
+        });
+    });
 });
+
+// ==========================================
+// MOVIMIENTOS
+// ==========================================
 
 router.get('/movimientos/:id_inversor', verificarToken, (req, res) => {
-  db.query('SELECT m.*, c.id as contrato_id FROM MOVIMIENTOS_INVERSION m JOIN CONTRATOS_INVERSION c ON m.id_contrato = c.id WHERE c.id_inversor = ? ORDER BY m.fecha_movimiento DESC', [req.params.id_inversor], (err, results) => {
-    if (err) return res.status(500).json({ success: false });
-    res.json({ success: true, data: results });
-  });
-});
-
-router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, res) => {
-  const { id_contrato, tipo, monto } = req.body;
-  let recibo = req.file ? `uploads/${req.file.filename}` : null;
-  db.query('INSERT INTO MOVIMIENTOS_INVERSION (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', [id_contrato, tipo, monto, recibo], (err) => {
-    if (err) return res.status(500).json({ success: false });
-    
-    db.query('SELECT p.nombre_razon_social FROM CONTRATOS_INVERSION c JOIN PERSONAS p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
-       const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
-       registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registró un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`);
-       res.json({ success: true });
+    db.query('SELECT m.*, c.id as contrato_id FROM MOVIMIENTOS_INVERSION m JOIN CONTRATOS_INVERSION c ON m.id_contrato = c.id WHERE c.id_inversor = ? ORDER BY m.fecha_movimiento DESC', 
+        [req.params.id_inversor], (err, results) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({ success: true, data: results });
     });
-  });
 });
 
-// =========================================================================
+router.post('/movimientos', verificarToken, (req, res, next) => {
+    // Procesar el upload manualmente para mejor control
+    upload.single('comprobante')(req, res, (err) => {
+        if (err) {
+            console.error("Error en multer:", err);
+            return res.status(500).json({ success: false, message: 'Error al subir el archivo', error: err.message });
+        }
+        
+        // Validación del body
+        if (!req.body) {
+            return res.status(400).json({ success: false, message: 'No se recibió el body de la petición' });
+        }
+        
+        const { id_contrato, tipo, monto } = req.body;
+        
+        // Validación de campos obligatorios
+        if (!id_contrato) {
+            return res.status(400).json({ success: false, message: 'Falta el campo requerido: id_contrato' });
+        }
+        if (!tipo) {
+            return res.status(400).json({ success: false, message: 'Falta el campo requerido: tipo' });
+        }
+        if (!monto) {
+            return res.status(400).json({ success: false, message: 'Falta el campo requerido: monto' });
+        }
+        
+        // Validar que tipo sea un valor válido
+        const tiposValidos = ['DEPOSITO', 'RETIRO_CAPITAL', 'PAGO_INTERES'];
+        if (!tiposValidos.includes(tipo)) {
+            return res.status(400).json({ success: false, message: 'Tipo inválido. Debe ser: DEPOSITO, RETIRO_CAPITAL o PAGO_INTERES' });
+        }
+        
+        let recibo = req.file ? `uploads/${req.file.filename}` : null;
+        
+        db.query('INSERT INTO MOVIMIENTOS_INVERSION (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', 
+            [id_contrato, tipo, monto, recibo], (err, result) => {
+            if (err) {
+                console.error("Error al insertar movimiento:", err);
+                return res.status(500).json({ success: false, error: err.message });
+            }
+            
+            db.query('SELECT p.nombre_razon_social FROM CONTRATOS_INVERSION c JOIN PERSONAS p ON c.id_inversor = p.id WHERE c.id = ?', 
+                [id_contrato], (err, results) => {
+                const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
+                registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registró un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`);
+                res.json({ success: true, message: 'Movimiento registrado correctamente' });
+            });
+        });
+    });
+});
+
+// ==========================================
 // RUTA GENERADORA DE CONSTANCIA DE INVERSIÓN EN PDF
-// =========================================================================
+// ==========================================
+
 router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
 
@@ -429,7 +522,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         
         currentY += 20;
         doc.font('Helvetica-Bold').text('DOMICILIO:', 50, currentY);
-        doc.font('Helvetica').text(contrato.direccion.toUpperCase(), 110, currentY, { width: 450 });
+        doc.font('Helvetica').text(contrato.direccion?.toUpperCase() || 'NO REGISTRADO', 110, currentY, { width: 450 });
 
         currentY += 30;
 
@@ -439,7 +532,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         currentY += 25;
         doc.fillColor('black'); 
         doc.font('Helvetica-Bold').text('MONTO DE INVERSIÓN:', 50, currentY);
-        doc.font('Helvetica').text(`$${Number(contrato.monto_inicial).toLocaleString('es-MX', {minimumFractionDigits: 2})}`, 175, currentY);
+        doc.font('Helvetica').text(formatMoney(contrato.monto_inicial), 175, currentY);
         
         doc.font('Helvetica-Bold').text('TASA NOMINAL:', 280, currentY);
         doc.font('Helvetica').text(`${contrato.tasa_anual_esperada}% Anual`, 360, currentY);
@@ -510,9 +603,10 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
     });
 });
 
-// =========================================================================
-// RUTA WYSIWYG: RECIBE LA TABLA YA CALCULADA DESDE REACT Y CREA EL PDF ESTILIZADO
-// =========================================================================
+// ==========================================
+// RUTA WYSIWYG: TABLA DE AMORTIZACIÓN PDF ESTILIZADO
+// ==========================================
+
 router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
     const { tablaData, fondeador, montoInicial, tasa, sistema, fechaInicio, numeroDisposicion } = req.body;
@@ -532,30 +626,24 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         res.setHeader('Content-type', 'application/pdf');
         doc.pipe(res);
 
-        // --- ENCABEZADO ESTILIZADO CON LOGO CENTRADO ---
         const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
         if (fs.existsSync(logoPath)) {
-            // Posicionamos el logo a la izquierda, dándole un buen espacio
             doc.image(logoPath, 40, 30, { width: 70 });
         }
         
-        // Centramos los títulos principales para que no se amontonen con el logo
         doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
            .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 0, 40, { align: 'center' });
         doc.fontSize(11).font('Helvetica').fillColor('black')
            .text('TABLA DE AMORTIZACIÓN DE FONDEO', 0, 60, { align: 'center' });
         
-        // Bajamos la línea divisoria para que pase debajo del logo y los textos
         const lineY = 115;
         doc.moveTo(40, lineY).lineTo(doc.page.width - 40, lineY).strokeColor(COLOR_LINEAS).stroke();
 
-        // --- SECCIÓN DE INFORMACIÓN DEL CRÉDITO (TIPO GRID EXCEL) ---
         let startY = 130;
         const infoRowHeight = 20;
 
         doc.font('Helvetica-Bold').fontSize(9).fillColor('black');
         
-        // Columna Izquierda
         doc.text('EMPRESA:', 50, startY);
         doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 150, startY);
         
@@ -571,7 +659,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica-Bold').text('FONDEADOR:', 50, startY + (infoRowHeight * 4));
         doc.font('Helvetica').text(fondeador || 'N/A', 150, startY + (infoRowHeight * 4));
 
-        // Columna Derecha (bien espaciada)
         const rightColX = 450;
         doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
         doc.font('Helvetica').text('MXN', rightColX + 110, startY);
@@ -584,15 +671,12 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica').text(fechaMostrar, rightColX + 110, startY + (infoRowHeight * 2));
 
         doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
-        doc.font('Helvetica').text(sistema.toUpperCase(), rightColX + 110, startY + (infoRowHeight * 3));
+        doc.font('Helvetica').text(sistema?.toUpperCase() || 'FRANCES', rightColX + 110, startY + (infoRowHeight * 3));
 
-        // Mover Y asegurando espacio para las filas de info
         let currentY = startY + (infoRowHeight * 5) + 20;
 
-        // --- TABLA DE AMORTIZACIÓN CENTRADA ---
         const colWidths = [50, 80, 85, 85, 80, 60, 90, 90, 40]; 
         const tableWidth = colWidths.reduce((a, b) => a + b, 0);
-        // Calculamos startX para que la tabla quede perfectamente al centro
         const tableStartX = (doc.page.width - tableWidth) / 2;
         
         const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINC.', 'ANTICIPO CAP.', 'INT. ORD.', 'IVA', 'TOTAL PAGO', 'SALDO INSOLUTO', 'DÍAS'];
@@ -602,7 +686,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             doc.font('Helvetica-Bold').fontSize(8).fillColor(COLOR_TEXTO_HEADER);
             let x = tableStartX;
             headers.forEach((h, i) => { 
-                // Añadimos un pequeño offset a la "Y" para centrar el texto verticalmente en el rectángulo
                 doc.text(h, x, y + 2, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
                 x += colWidths[i];
             });
@@ -612,13 +695,11 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         currentY = drawTableHeader(currentY);
         doc.font('Helvetica').fontSize(8).fillColor('black');
 
-        // --- DIBUJAR FILAS ---
         tablaData.forEach((row, rowIndex) => {
             let x = tableStartX;
             const isAlternateRow = rowIndex % 2 === 1;
 
             if (isAlternateRow) {
-                // Aumentamos ligeramente la altura de las filas para que respiren más
                 doc.rect(tableStartX, currentY - 4, tableWidth, 18).fill(COLOR_SHADING_FILAS);
             }
 
@@ -631,7 +712,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
                 formatMoney(row.iva), 
                 formatMoney(row.pagoTotal), 
                 formatMoney(row.saldoFinal),
-                row.dias,
+                row.dias || 30,
             ];
             
             doc.fillColor('black');
@@ -641,7 +722,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             });
             currentY += 18;
             
-            // Salto de página automático ajustado
             if (currentY > doc.page.height - 60) { 
                 doc.addPage({layout:'landscape', margin:30}); 
                 doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACIÓN - CONTRATO #' + String(idContrato).padStart(5, '0'), 0, 30, { align: 'center' });
@@ -650,18 +730,17 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             }
         });
 
-        // --- FILA DE TOTALES ESTILIZADA ---
         doc.rect(tableStartX, currentY - 4, tableWidth, 22).fill('#E2E8F0');
         doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
         
         doc.text('TOTALES:', tableStartX, currentY + 1, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
         
-        const totalAbono = tablaData.reduce((acc, curr) => acc + curr.abono, 0);
-        const totalAnticipo = tablaData.reduce((acc, curr) => acc + curr.anticipo, 0);
-        const totalInteresOrd = tablaData.reduce((acc, curr) => acc + curr.interes, 0);
-        const totalIva = tablaData.reduce((acc, curr) => acc + curr.iva, 0);
-        const totalPagoGral = tablaData.reduce((acc, curr) => acc + curr.pagoTotal, 0);
-        const totalDias = tablaData.reduce((acc, curr) => acc + curr.dias, 0);
+        const totalAbono = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.abono) || 0), 0);
+        const totalAnticipo = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.anticipo) || 0), 0);
+        const totalInteresOrd = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.interes) || 0), 0);
+        const totalIva = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.iva) || 0), 0);
+        const totalPagoGral = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.pagoTotal) || 0), 0);
+        const totalDias = tablaData.reduce((acc, curr) => acc + (parseInt(curr.dias) || 30), 0);
 
         let tx = tableStartX + colWidths[0] + colWidths[1];
         doc.text(formatMoney(totalAbono), tx, currentY + 1, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
