@@ -1048,7 +1048,15 @@ function Proveedores() {
                                 </div>
                                 
                                 <div className="mov-detalles" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <strong style={{ fontSize: '14px', color: '#0f172a' }}>{pago.concepto}</strong>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{pago.concepto}</strong>
+                                      {pago.origen_movimiento === 'SOLICITUD DE RECURSO' && (
+                                          <span style={{ fontSize: '9px', backgroundColor: '#e0e7ff', color: '#1d4ed8', padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', border: '1px solid #bfdbfe', letterSpacing: '0.5px' }}>SOLICITUD UNIVERSAL</span>
+                                      )}
+                                      {pago.origen_movimiento === 'PAGO DIRECTO' && (
+                                          <span style={{ fontSize: '9px', backgroundColor: '#f3e8ff', color: '#6d28d9', padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', border: '1px solid #ddd6fe', letterSpacing: '0.5px' }}>PAGO RÁPIDO</span>
+                                      )}
+                                  </div>
                                   <span style={{ fontSize: '12px', color: '#64748b' }}>Factura: {pago.num_factura_ref || 'S/N'} • {new Date(pago.fecha_solicitud || pago.fecha_creacion).toLocaleDateString()}</span>
                                   <span style={{
                                     fontSize: '11px', color: estatusColor, backgroundColor: estatusBg, 

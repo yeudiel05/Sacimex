@@ -19,6 +19,10 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 const uploadExcel = multer({ storage: multer.memoryStorage() });
 
+// ==========================================
+// UTILERÍAS GENERALES Y MOTOR FINANCIERO (FIFO)
+// ==========================================
+
 function numeroALetras(num) {
     const unidades = ['Cero', 'Un', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve'];
     const decenas = ['Diez', 'Once', 'Doce', 'Trece', 'Catorce', 'Quince', 'Dieciseis', 'Diecisiete', 'Dieciocho', 'Diecinueve'];
@@ -53,33 +57,140 @@ function numeroALetras(num) {
     return `${textoFinal.toUpperCase()} PESOS ${centavos.toString().padStart(2, '0')}/100 M.N.`;
 }
 
-// ==========================================
-// RUTA: PAGO RÁPIDO DE FONDEADOR DESDE REPORTE
-// ==========================================
-router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (req, res) => {
-    const { id_contrato, monto } = req.body;
-    let url = req.file ? `uploads/${req.file.filename}` : null;
-    
-    const query = `
-        INSERT INTO movimientos_inversion 
-        (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) 
-        VALUES (?, 'PAGO_INTERES', ?, ?, 'COMPLETADO')
-    `;
-    db.query(query, [id_contrato, monto, url], (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'PAGO_FONDEADOR', `Registró pago de rendimiento desde Reporte al contrato #${id_contrato}`);
-        res.json({ success: true, message: 'Pago de inversor registrado exitosamente' });
+function cleanDateStr(dateVal) {
+    if (!dateVal) return new Date().toISOString().split('T')[0];
+    try {
+        if (typeof dateVal === 'string') return dateVal.split('T')[0];
+        if (dateVal instanceof Date) {
+            if (isNaN(dateVal.getTime())) return new Date().toISOString().split('T')[0];
+            return dateVal.toISOString().split('T')[0];
+        }
+        return new Date().toISOString().split('T')[0];
+    } catch (e) {
+        return new Date().toISOString().split('T')[0];
+    }
+}
+
+const parseMontoLocal = (val) => {
+    if (val === null || val === undefined || val === '') return 0;
+    return parseFloat(String(val).replace(/,/g, '')) || 0;
+};
+
+function calcularAmortizacionBackend(contratoObj) {
+    const m = parseFloat(contratoObj.monto_inicial) || 0;
+    const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
+    const tipoReal = String(contratoObj.tipo_amortizacion || 'frances').toLowerCase().trim();
+    const cobraIva = contratoObj.cobra_iva === 1;
+
+    let planBaseGuardado = [];
+    if (contratoObj.plan_json) {
+        try {
+            let temp = contratoObj.plan_json;
+            while (typeof temp === 'string') temp = JSON.parse(temp);
+            if (Array.isArray(temp)) planBaseGuardado = temp;
+        } catch (e) {}
+    }
+
+    let inyecciones = [];
+    if (contratoObj.pagos_irregulares_json) {
+        try {
+            let temp = contratoObj.pagos_irregulares_json;
+            while (typeof temp === 'string') temp = JSON.parse(temp);
+            if (Array.isArray(temp)) inyecciones = temp;
+        } catch (e) {}
+    }
+
+    const tasaAnual = t / 100; const tasaMensual = tasaAnual / 12;
+    let saldo = m; let tablaRes = [];
+
+    const fInicioStr = cleanDateStr(contratoObj.fecha_inicio);
+    let fechaAnterior = new Date(`${fInicioStr}T12:00:00`);
+
+    let timelineUnificado = [];
+
+    if (tipoReal === 'personalizado' && planBaseGuardado.length > 0) {
+        timelineUnificado = planBaseGuardado.map((row, i) => ({
+            indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
+            abonoFijo: parseMontoLocal(row.abono), anticipoFijo: parseMontoLocal(row.anticipo), esIrregular: false, excluirDia: false
+        }));
+    } else {
+        const fFinStr = cleanDateStr(contratoObj.fecha_fin);
+        let fFin = new Date(`${fFinStr}T12:00:00`);
+        if(isNaN(fFin.getTime())) { fFin = new Date(fechaAnterior); fFin.setMonth(fechaAnterior.getMonth() + 12); }
+        let plazoMeses = Math.max(1, Math.round((fFin - fechaAnterior) / (1000 * 60 * 60 * 24 * 30.44)));
+        if (isNaN(plazoMeses) || plazoMeses < 1) plazoMeses = 12;
+        
+        let fTemp = new Date(fechaAnterior);
+        for(let i=1; i<=plazoMeses; i++){
+            fTemp.setMonth(fTemp.getMonth() + 1);
+            let capFijo = tipoReal === 'aleman' ? m / plazoMeses : 0;
+            timelineUnificado.push({ indexUI: `base_${i}`, numero: i.toString(), fechaStr: fTemp.toISOString().split('T')[0], abonoFijo: capFijo, anticipoFijo: 0, esIrregular: false, excluirDia: false });
+        }
+    }
+
+    inyecciones.forEach(pago => {
+        if (pago.fecha && parseMontoLocal(pago.monto) > 0) {
+            timelineUnificado.push({ indexUI: `irreg_${pago.id || Date.now()}`, numero: 'N/A', fechaStr: cleanDateStr(pago.fecha), abonoFijo: 0, anticipoFijo: parseMontoLocal(pago.monto), esIrregular: true, excluirDia: pago.excluirDia === true || pago.excluirDia === 'true' || false });
+        }
     });
-});
+
+    timelineUnificado.sort((a,b) => new Date(`${a.fechaStr}T12:00:00`) - new Date(`${b.fechaStr}T12:00:00`));
+
+    let p_frances_meses_restantes = timelineUnificado.filter(r => !r.esIrregular).length;
+
+    timelineUnificado.forEach((row) => {
+        let fechaActual = new Date(`${row.fechaStr}T12:00:00`);
+        if(isNaN(fechaActual.getTime())) fechaActual = new Date(fechaAnterior);
+        
+        let diffTime = Math.abs(Date.UTC(fechaActual.getFullYear(), fechaActual.getMonth(), fechaActual.getDate()) - Date.UTC(fechaAnterior.getFullYear(), fechaAnterior.getMonth(), fechaAnterior.getDate()));
+        let diasTranscurridos = Math.round(diffTime / (1000 * 60 * 60 * 24)); 
+        
+        let diasParaInteres = diasTranscurridos;
+        if (row.esIrregular && row.excluirDia && diasTranscurridos > 0) {
+            diasParaInteres = diasTranscurridos - 1;
+        }
+        
+        let interes = (saldo * tasaAnual / 360) * diasParaInteres;
+        let abonoReal = row.abonoFijo;
+        
+        if (tipoReal === 'frances' && !row.esIrregular && p_frances_meses_restantes > 0) {
+            let cuotaPura = (saldo * (tasaMensual / (1 - Math.pow(1 + tasaMensual, -p_frances_meses_restantes))));
+            abonoReal = cuotaPura - interes;
+            p_frances_meses_restantes--;
+        }
+
+        let anticipoReal = row.anticipoFijo;
+        let capital = abonoReal + anticipoReal;
+        
+        if (capital > saldo) {
+            capital = saldo;
+            if (abonoReal > saldo) { abonoReal = saldo; anticipoReal = 0; } else { anticipoReal = saldo - abonoReal; }
+        }
+        
+        let iva = cobraIva ? (interes * 0.16) : 0;
+        let totalPago = capital + interes + iva;
+        saldo -= capital; if (saldo < 0.01) saldo = 0;
+
+        tablaRes.push({
+            numero: row.numero, 
+            pagoTotal: totalPago, 
+            fechaPura: fechaActual,
+            fechaStr: fechaActual.toISOString().split('T')[0]
+        });
+        fechaAnterior = new Date(fechaActual);
+    });
+
+    return tablaRes;
+}
 
 // ==========================================
-// NUEVA RUTA: LISTA DE GASTOS CON ARRASTRE DE PAGOS PENDIENTES
+// REPORTES MAESTROS DE EGRESOS Y GASTOS (CON FIFO Y FILTROS DE LIMPIEZA)
 // ==========================================
 router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
-    // 1. Obtener gastos operativos (solicitudes) del mes actual
+    // 1. Obtener gastos operativos del mes actual (SÓLO LO PENDIENTE)
     const queryOperativos = `
         SELECT 
             s.id,
@@ -88,7 +199,7 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
             COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
             s.descripcion AS concepto,
             s.monto AS monto,
-            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'PENDIENTE' AS estatus_pago,
             'OPERATIVO' AS origen_dato,
             MONTH(s.fecha_limite_pago) AS mes_origen,
             YEAR(s.fecha_limite_pago) AS anio_origen,
@@ -97,11 +208,11 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
         LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
         LEFT JOIN personas pprov ON prov.id_persona = pprov.id
-        WHERE s.estatus != 'RECHAZADO'
+        WHERE s.estatus NOT IN ('PAGADO', 'COMPLETADO', 'RECHAZADO', 'CANCELADO')
         AND (MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?)
     `;
 
-    // 2. Obtener gastos arrastrados de meses anteriores (no pagados)
+    // 2. Obtener gastos arrastrados de meses anteriores (SÓLO LO PENDIENTE)
     const queryOperativosArrastrados = `
         SELECT 
             s.id,
@@ -110,7 +221,7 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
             COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
             s.descripcion AS concepto,
             s.monto AS monto,
-            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'PENDIENTE' AS estatus_pago,
             'OPERATIVO' AS origen_dato,
             MONTH(s.fecha_limite_pago) AS mes_origen,
             YEAR(s.fecha_limite_pago) AS anio_origen,
@@ -119,204 +230,104 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
         LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
         LEFT JOIN personas pprov ON prov.id_persona = pprov.id
-        WHERE s.estatus NOT IN ('PAGADO', 'RECHAZADO')
-        AND (MONTH(s.fecha_limite_pago) < ? AND YEAR(s.fecha_limite_pago) <= ?)
-        AND NOT (MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?)
+        WHERE s.estatus NOT IN ('PAGADO', 'COMPLETADO', 'RECHAZADO', 'CANCELADO')
+        AND (YEAR(s.fecha_limite_pago) < ? OR (YEAR(s.fecha_limite_pago) = ? AND MONTH(s.fecha_limite_pago) < ?))
     `;
 
-    // Función para parsear fechas
-    function parseDateStr(dateStr) {
-        if (!dateStr) return new Date();
-        const parts = dateStr.split('-');
-        return new Date(parts[0], parts[1] - 1, parts[2]);
-    }
-
-    function dateFromDb(dbDate) {
-        if (!dbDate) return new Date();
-        if (typeof dbDate === 'string') return parseDateStr(dbDate.split('T')[0]);
-        const dt = new Date(dbDate);
-        return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
-    }
-
-    // Ejecutar ambas consultas en paralelo
     Promise.all([
         new Promise((resolve, reject) => {
             db.query(queryOperativos, [mesFiltro, anioFiltro], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
+                if (err) reject(err); else resolve(results);
             });
         }),
         new Promise((resolve, reject) => {
-            db.query(queryOperativosArrastrados, [mesFiltro, anioFiltro, mesFiltro, anioFiltro], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
+            db.query(queryOperativosArrastrados, [anioFiltro, anioFiltro, mesFiltro], (err, results) => {
+                if (err) reject(err); else resolve(results);
             });
         })
     ]).then(([operativosActuales, operativosArrastrados]) => {
         
-        // 3. Obtener pagos de fondeadores (contratos de inversión)
+        // 3. Obtener Fondeadores usando la Bolsa Unificada FIFO
         const queryFondeadores = `
             SELECT 
-                ci.id AS id_contrato,
-                ci.plan_json,
-                ci.pagos_irregulares_json,
-                ci.monto_inicial,
-                ci.fecha_inicio,
-                t.tasa_anual_esperada,
-                t.cobra_iva,
-                p.nombre_razon_social AS proveedor,
-                (SELECT GROUP_CONCAT(MONTH(fecha_movimiento)) 
-                 FROM movimientos_inversion mi 
-                 WHERE mi.id_contrato = ci.id 
-                 AND mi.tipo = 'PAGO_INTERES' 
-                 AND mi.estatus_movimiento = 'COMPLETADO' 
-                 AND YEAR(fecha_movimiento) = ?) AS meses_pagados
+                ci.id AS id_contrato, ci.plan_json, ci.pagos_irregulares_json, 
+                ci.monto_inicial, ci.fecha_inicio, ci.fecha_fin, ci.tipo_amortizacion, ci.numero_disposicion,
+                t.tasa_anual_esperada, t.cobra_iva, p.nombre_razon_social AS proveedor,
+                COALESCE((
+                    SELECT SUM(monto) FROM movimientos_inversion mi 
+                    WHERE mi.id_contrato = ci.id AND (mi.tipo = 'PAGO_INTERES' OR mi.tipo = 'DEPOSITO') AND mi.estatus_movimiento = 'COMPLETADO'
+                ), 0) AS total_pagado
             FROM contratos_inversion ci
             JOIN inversores i ON ci.id_inversor = i.id_persona
             JOIN personas p ON i.id_persona = p.id
             JOIN catalogo_tasas t ON ci.id_tasa = t.id
-            WHERE ci.estatus = 'ACTIVO'
+            WHERE ci.estatus = 'ACTIVO' AND p.eliminado = FALSE AND i.estatus_activo = 1
         `;
 
-        db.query(queryFondeadores, [anioFiltro], (err2, resContratos) => {
-            if (err2) {
-                return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
-            }
+        db.query(queryFondeadores, (err2, resContratos) => {
+            if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
 
-            let fondeadoresPendientes = [];
+            let fondeadoresActuales = [];
             let fondeadoresArrastrados = [];
 
             resContratos.forEach(contrato => {
-                const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
-                
-                let saldo = parseFloat(contrato.monto_inicial) || 0;
-                const tasa = parseFloat(contrato.tasa_anual_esperada) || 0;
-                const cobraIva = contrato.cobra_iva === 1;
-                
-                let eventos = [];
-                
-                // Extraer Cuotas del Plan
-                if (contrato.plan_json) {
-                    try {
-                        const plan = JSON.parse(contrato.plan_json);
-                        plan.forEach(c => {
-                            if (c.fecha) {
-                                eventos.push({
-                                    tipo: 'CUOTA',
-                                    fecha: parseDateStr(c.fecha),
-                                    fechaStr: c.fecha,
-                                    abono: parseFloat(c.abono) || 0,
-                                    numero: c.numero,
-                                    esIrregular: false
-                                });
-                            }
-                        });
-                    } catch(e) {}
-                }
-                
-                // Extraer Pagos Irregulares
-                if (contrato.pagos_irregulares_json) {
-                    try {
-                        const irreg = JSON.parse(contrato.pagos_irregulares_json);
-                        irreg.forEach(c => {
-                            if (c.fecha) {
-                                eventos.push({
-                                    tipo: 'IRREGULAR',
-                                    fecha: parseDateStr(c.fecha),
-                                    fechaStr: c.fecha,
-                                    monto: parseFloat(c.monto) || 0,
-                                    esIrregular: true
-                                });
-                            }
-                        });
-                    } catch(e) {}
-                }
-                
-                // Ordenar la línea de tiempo
-                eventos.sort((a, b) => a.fecha - b.fecha);
-                
-                // Recrear el Motor de Amortización Dinámico
-                let fechaAnterior = dateFromDb(contrato.fecha_inicio);
-                let interesAcumulado = 0;
-                
-                eventos.forEach(evt => {
-                    let dias = 0;
-                    if (evt.fecha > fechaAnterior) {
-                        dias = Math.round((evt.fecha - fechaAnterior) / (1000 * 60 * 60 * 24));
+                let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
+                const tabla = calcularAmortizacionBackend(contrato);
+
+                // Paso FIFO
+                tabla.forEach(pago => {
+                    if (pago.pagoTotal > 0.01) {
+                        if (bolsaTotal >= pago.pagoTotal - 0.5) {
+                            pago.pagado = true;
+                            bolsaTotal -= pago.pagoTotal;
+                        } else {
+                            pago.pagado = false;
+                        }
+                    } else {
+                        pago.pagado = true;
                     }
+                });
+
+                // Extraemos ÚNICAMENTE lo que NO se ha pagado
+                tabla.forEach(pago => {
+                    if (pago.pagoTotal <= 0.01 || pago.pagado) return; // <-- AQUÍ ESTÁ LA MAGIA, SI ESTÁ PAGADO SE IGNORA
+
+                    const mesEvt = pago.fechaPura.getMonth() + 1;
+                    const anioEvt = pago.fechaPura.getFullYear();
                     
-                    interesAcumulado += (saldo * (tasa / 100) / 360) * dias;
-                    fechaAnterior = evt.fecha;
-                    
-                    const mesEvt = evt.fecha.getMonth() + 1;
-                    const anioEvt = evt.fecha.getFullYear();
-                    
-                    if (evt.tipo === 'CUOTA') {
-                        const ivaFinal = cobraIva ? (interesAcumulado * 0.16) : 0;
-                        const totalPago = evt.abono + interesAcumulado + ivaFinal;
-                        const yaSePago = mesesPagadosArray.includes(String(mesEvt));
-                        
-                        const pagoItem = {
-                            id_contrato: contrato.id_contrato,
-                            fecha_recepcion: evt.fechaStr,
-                            tipo_gasto: 'PAGOS INTERES DE CRED',
-                            proveedor: contrato.proveedor,
-                            concepto: `Pago Rendimiento (Cuota ${evt.numero || '-'}) Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
-                            monto: totalPago,
-                            estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
-                            origen_dato: 'FONDEADOR',
-                            mes_origen: mesEvt,
-                            anio_origen: anioEvt
-                        };
-                        
-                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
-                            if (!yaSePago) fondeadoresPendientes.push(pagoItem);
-                        } else if (!yaSePago && (anioEvt < anioFiltro || (anioEvt === anioFiltro && mesEvt < mesFiltro))) {
-                            fondeadoresArrastrados.push(pagoItem);
-                        }
-                        
-                        saldo -= evt.abono;
-                        interesAcumulado = 0;
-                        
-                    } else if (evt.tipo === 'IRREGULAR') {
-                        const pagoItem = {
-                            id_contrato: contrato.id_contrato,
-                            fecha_recepcion: evt.fechaStr,
-                            tipo_gasto: 'RETIRO / PAGO ESPECIAL',
-                            proveedor: contrato.proveedor,
-                            concepto: `Pago Irregular / Capital Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
-                            monto: evt.monto,
-                            estatus_pago: 'PENDIENTE',
-                            origen_dato: 'FONDEADOR',
-                            mes_origen: mesEvt,
-                            anio_origen: anioEvt
-                        };
-                        
-                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
-                            fondeadoresPendientes.push(pagoItem);
-                        } else if (anioEvt < anioFiltro || (anioEvt === anioFiltro && mesEvt < mesFiltro)) {
-                            fondeadoresArrastrados.push(pagoItem);
-                        }
-                        
-                        saldo -= evt.monto;
+                    const pagoItem = {
+                        id_contrato: contrato.id_contrato,
+                        fecha_recepcion: pago.fechaStr,
+                        tipo_gasto: pago.numero === 'N/A' ? 'RETIRO / PAGO ESPECIAL' : 'PAGOS INTERES DE CRED',
+                        proveedor: contrato.proveedor,
+                        concepto: pago.numero === 'N/A' ? `Inyección a Capital Disp. ${contrato.numero_disposicion || 'S/N'}` : `Pago Rendimiento (Cuota ${pago.numero}) Disp. ${contrato.numero_disposicion || 'S/N'}`,
+                        monto: pago.pagoTotal,
+                        estatus_pago: 'PENDIENTE',
+                        origen_dato: 'FONDEADOR',
+                        mes_origen: mesEvt,
+                        anio_origen: anioEvt
+                    };
+
+                    if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                        fondeadoresActuales.push(pagoItem);
+                    } else if (anioEvt < anioFiltro || (anioEvt === anioFiltro && mesEvt < mesFiltro)) {
+                        fondeadoresArrastrados.push(pagoItem);
                     }
                 });
             });
 
             // Combinar todos los gastos
-            const gastosActuales = [...operativosActuales, ...fondeadoresPendientes];
+            const gastosActuales = [...operativosActuales, ...fondeadoresActuales];
             const gastosArrastrados = [...operativosArrastrados, ...fondeadoresArrastrados];
             
-            // Los gastos arrastrados se muestran primero, luego los actuales
             const dataFinal = [...gastosArrastrados, ...gastosActuales].sort((a, b) => {
-                // Primero ordenar por fecha de vencimiento
                 const fechaA = a.fecha_recepcion ? new Date(a.fecha_recepcion) : new Date(0);
                 const fechaB = b.fecha_recepcion ? new Date(b.fecha_recepcion) : new Date(0);
                 return fechaA - fechaB;
             });
 
-            const totalPendiente = dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0);
-            const totalArrastrado = gastosArrastrados.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0);
+            const totalPendiente = dataFinal.reduce((sum, r) => sum + parseFloat(r.monto), 0);
+            const totalArrastrado = gastosArrastrados.reduce((sum, r) => sum + parseFloat(r.monto), 0);
 
             res.json({ 
                 success: true, 
@@ -333,51 +344,148 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
     });
 });
 
-// ==========================================
-// NUEVA RUTA: POSTERGAR PAGO AL MES SIGUIENTE
-// ==========================================
+router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
+    const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
+    const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
+
+    const queryOperativos = `
+        SELECT 
+            s.fecha_limite_pago AS fecha_recepcion, cp.descripcion AS tipo_gasto, COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
+            s.descripcion AS concepto, s.monto AS monto, IF(s.estatus IN ('PAGADO', 'COMPLETADO'), 'PAGADO', 'PENDIENTE') AS estatus_pago,
+            'OPERATIVO' AS origen_dato, s.id AS id_contrato
+        FROM solicitudes_recursos s
+        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
+        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
+        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
+        WHERE MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?
+        AND s.estatus NOT IN ('RECHAZADO', 'CANCELADO')
+    `;
+
+    db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos' });
+
+        const queryFondeadores = `
+            SELECT 
+                ci.id AS id_contrato, ci.plan_json, ci.pagos_irregulares_json, 
+                ci.monto_inicial, ci.fecha_inicio, ci.fecha_fin, ci.tipo_amortizacion, ci.numero_disposicion,
+                t.tasa_anual_esperada, t.cobra_iva, p.nombre_razon_social AS proveedor,
+                COALESCE((
+                    SELECT SUM(monto) FROM movimientos_inversion mi 
+                    WHERE mi.id_contrato = ci.id AND (mi.tipo = 'PAGO_INTERES' OR mi.tipo = 'DEPOSITO') AND mi.estatus_movimiento = 'COMPLETADO'
+                ), 0) AS total_pagado
+            FROM contratos_inversion ci
+            JOIN inversores i ON ci.id_inversor = i.id_persona
+            JOIN personas p ON i.id_persona = p.id
+            JOIN catalogo_tasas t ON ci.id_tasa = t.id
+            WHERE ci.estatus = 'ACTIVO' AND p.eliminado = FALSE AND i.estatus_activo = 1
+        `;
+
+        db.query(queryFondeadores, (err2, resContratos) => {
+            if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
+
+            let fondeadoresCalculados = [];
+
+            resContratos.forEach(contrato => {
+                let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
+                const tabla = calcularAmortizacionBackend(contrato);
+
+                tabla.forEach(pago => {
+                    if (pago.pagoTotal > 0.01) {
+                        if (bolsaTotal >= pago.pagoTotal - 0.5) {
+                            pago.pagado = true;
+                            bolsaTotal -= pago.pagoTotal;
+                        } else {
+                            pago.pagado = false;
+                        }
+                    } else {
+                        pago.pagado = true;
+                    }
+                });
+
+                tabla.forEach(pago => {
+                    if (pago.pagoTotal <= 0.01) return;
+                    
+                    const mesEvt = pago.fechaPura.getMonth() + 1;
+                    const anioEvt = pago.fechaPura.getFullYear();
+                    
+                    if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
+                        fondeadoresCalculados.push({
+                            id_contrato: contrato.id_contrato,
+                            fecha_recepcion: pago.fechaStr,
+                            tipo_gasto: pago.numero === 'N/A' ? 'RETIRO / PAGO ESPECIAL' : 'PAGOS INTERES DE CRED',
+                            proveedor: contrato.proveedor,
+                            concepto: pago.numero === 'N/A' ? `Inyección a Capital Disp. ${contrato.numero_disposicion || 'S/N'}` : `Pago Rendimiento (Cuota ${pago.numero}) Disp. ${contrato.numero_disposicion || 'S/N'}`,
+                            monto: pago.pagoTotal,
+                            estatus_pago: pago.pagado ? 'PAGADO' : 'PENDIENTE',
+                            origen_dato: 'FONDEADOR'
+                        });
+                    }
+                });
+            });
+
+            const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
+
+            const resumen = {
+                total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
+                total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
+            };
+            resumen.gran_total = resumen.total_pagado + resumen.total_pendiente;
+
+            const desglose = {};
+            dataFinal.forEach(item => {
+                const cat = item.tipo_gasto || 'OTROS';
+                if(!desglose[cat]) desglose[cat] = 0;
+                desglose[cat] += parseFloat(item.monto);
+            });
+
+            res.json({ success: true, data: dataFinal, resumen, desglose });
+        });
+    });
+});
+
+router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
+    const query = `
+        SELECT 
+            pp.id AS id_pago, p.nombre_razon_social AS proveedor, pp.concepto, pp.monto_pago, pp.estatus,
+            DATE(pp.fecha_solicitud) as fecha_solicitud, pr.dias_credito,
+            DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY) AS fecha_vencimiento,
+            DATEDIFF(DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY), CURDATE()) AS dias_restantes
+        FROM pagos_a_proveedores pp
+        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
+        JOIN personas p ON pr.id_persona = p.id
+        WHERE pp.estatus NOT IN ('PAGADO', 'COMPLETADO', 'RECHAZADO', 'CANCELADO')
+        ORDER BY fecha_vencimiento ASC
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error de base de datos' });
+        res.json({ success: true, data: results });
+    });
+});
+
 router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
     const { id, tipo, nueva_fecha } = req.body;
 
-    if (!id || !tipo || !nueva_fecha) {
-        return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
-    }
+    if (!id || !tipo || !nueva_fecha) return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
 
     if (tipo === 'OPERATIVO') {
-        // Actualizar la fecha límite de la solicitud de recursos
-        const query = `
-            UPDATE solicitudes_recursos 
-            SET fecha_limite_pago = ? 
-            WHERE id = ?
-        `;
+        const query = `UPDATE solicitudes_recursos SET fecha_limite_pago = ? WHERE id = ?`;
         db.query(query, [nueva_fecha, id], (err, result) => {
-            if (err) {
-                return res.status(500).json({ success: false, message: err.message });
-            }
+            if (err) return res.status(500).json({ success: false, message: err.message });
             registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO', `Postergó el pago de la solicitud #${id} para la fecha ${nueva_fecha}`);
             res.json({ success: true, message: 'Pago postergado correctamente' });
         });
     } 
     else if (tipo === 'FONDEADOR') {
-        // Para fondeadores, necesitamos actualizar la fecha en el plan_json o pagos_irregulares_json
-        // Primero obtener el contrato y sus datos
-        const queryGetContrato = `
-            SELECT plan_json, pagos_irregulares_json FROM contratos_inversion WHERE id = ?
-        `;
-        
+        const queryGetContrato = `SELECT plan_json, pagos_irregulares_json FROM contratos_inversion WHERE id = ?`;
         db.query(queryGetContrato, [id], (err, results) => {
-            if (err || results.length === 0) {
-                return res.status(500).json({ success: false, message: 'Contrato no encontrado' });
-            }
+            if (err || results.length === 0) return res.status(500).json({ success: false, message: 'Contrato no encontrado' });
             
             let contrato = results[0];
             let actualizado = false;
             
-            // Intentar actualizar en pagos_irregulares_json
             if (contrato.pagos_irregulares_json) {
                 try {
                     let pagosIrregulares = JSON.parse(contrato.pagos_irregulares_json);
-                    // Buscar el pago pendiente más próximo y actualizar su fecha
                     for (let pago of pagosIrregulares) {
                         if (pago.estatus_pago !== 'PAGADO' && (!pago.fecha_postergada || pago.fecha_postergada !== true)) {
                             pago.fecha = nueva_fecha;
@@ -389,15 +497,9 @@ router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
                     }
                     
                     if (actualizado) {
-                        const updateQuery = `
-                            UPDATE contratos_inversion 
-                            SET pagos_irregulares_json = ? 
-                            WHERE id = ?
-                        `;
+                        const updateQuery = `UPDATE contratos_inversion SET pagos_irregulares_json = ? WHERE id = ?`;
                         db.query(updateQuery, [JSON.stringify(pagosIrregulares), id], (err) => {
-                            if (err) {
-                                return res.status(500).json({ success: false, message: err.message });
-                            }
+                            if (err) return res.status(500).json({ success: false, message: err.message });
                             registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO_FONDEADOR', `Postergó el pago del fondeador contrato #${id} para la fecha ${nueva_fecha}`);
                             res.json({ success: true, message: 'Pago de fondeador postergado correctamente' });
                         });
@@ -418,7 +520,203 @@ router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// RUTAS DE AUTORIZACIÓN DE PAGOS DIRECTOS
+// PAGO RÁPIDO DE FONDEADOR DESDE REPORTE
+// ==========================================
+router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (req, res) => {
+    const { id_contrato, monto } = req.body;
+    let url = req.file ? `uploads/${req.file.filename}` : null;
+    
+    const query = `
+        INSERT INTO movimientos_inversion 
+        (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) 
+        VALUES (?, 'PAGO_INTERES', ?, ?, 'COMPLETADO')
+    `;
+    db.query(query, [id_contrato, monto, url], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        registrarBitacora(req.usuario.id, 'PAGO_FONDEADOR', `Registró pago de rendimiento desde Reporte al contrato #${id_contrato}`);
+        res.json({ success: true, message: 'Pago de inversor registrado exitosamente' });
+    });
+});
+
+// ==========================================
+// CRUD NORMAL DE PROVEEDORES
+// ==========================================
+router.get('/', verificarToken, (req, res) => {
+    const query = `
+        SELECT 
+            p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
+            p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, 
+            pr.categoria, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
+            pr.banco, pr.dias_credito, pr.estatus_activo 
+        FROM personas p 
+        INNER JOIN proveedores pr ON p.id = pr.id_persona 
+        WHERE p.eliminado = FALSE 
+        ORDER BY p.id DESC
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
+        res.json({ success: true, data: results });
+    });
+});
+
+router.post('/', verificarToken, (req, res) => {
+    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
+    db.beginTransaction(err => {
+        if (err) return res.status(500).json({ success: false, message: 'Fallo al iniciar transacción BD.' });
+        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
+        [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
+            if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
+            const idNuevaPersona = resultPersona.insertId;
+            const catLimpia = categoria || 'OTROS';
+            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
+            [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
+                if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
+                db.commit(err => {
+                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
+                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
+                    res.json({ success: true });
+                });
+            });
+        });
+    });
+});
+
+router.put('/:id', verificarToken, (req, res) => {
+    const { id } = req.params;
+    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
+    db.beginTransaction(err => {
+        if (err) return res.status(500).json({ success: false, message: 'Fallo en BD' });
+        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
+        [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
+            if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
+            const catLimpia = categoria || 'OTROS';
+            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
+            [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
+                if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
+                db.commit(err => {
+                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`);
+                    res.json({ success: true });
+                });
+            });
+        });
+    });
+});
+
+router.put('/:id/estatus', verificarToken, (req, res) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false });
+        const nombreProveedor = results[0].nombre_razon_social;
+        db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`);
+            res.json({ success: true });
+        });
+    });
+});
+
+router.delete('/:id', verificarToken, (req, res) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ success: false });
+        const nombreProveedor = results[0].nombre_razon_social;
+        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
+            res.json({ success: true });
+        });
+    });
+});
+
+// ==========================================
+// HISTORIAL UNIFICADO PARA EL EXPEDIENTE DEL PROVEEDOR
+// ==========================================
+router.get('/:id/pagos', verificarToken, (req, res) => {
+    const query = `
+        SELECT 
+            id, concepto, monto_pago, num_factura_ref, fecha_solicitud, estatus, url_comprobante_pago, 'PAGO DIRECTO' AS origen_movimiento
+        FROM pagos_a_proveedores 
+        WHERE id_proveedor = ?
+        
+        UNION ALL
+        
+        SELECT 
+            id, descripcion AS concepto, monto AS monto_pago, 'S/N' AS num_factura_ref, COALESCE(fecha_limite_pago, NOW()) AS fecha_solicitud, estatus, '' AS url_comprobante_pago, 'SOLICITUD DE RECURSO' AS origen_movimiento
+        FROM solicitudes_recursos 
+        WHERE id_proveedor = ?
+        ORDER BY fecha_solicitud DESC
+    `;
+    db.query(query, [req.params.id, req.params.id], (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al obtener historial unificado.' });
+        res.json({ success: true, data: results });
+    });
+});
+
+router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) => {
+    const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
+    let url = req.file ? `uploads/${req.file.filename}` : null;
+    const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
+    const id_autoriza = req.usuario.rol === 'ADMIN' ? req.usuario.id : null;
+
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_proveedor], (err, results) => {
+        const nombreProveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
+        db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
+        [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if(estatus === 'PAGADO'){
+                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo a favor de: ${nombreProveedor}`);
+            } else {
+                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago para validación a favor de: ${nombreProveedor}`);
+            }
+            res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
+        });
+    });
+});
+
+router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
+    const { id_pago } = req.params;
+    const { accion } = req.body; 
+    const id_usuario = req.usuario.id;
+
+    let nuevoEstatus = '';
+    let queryUpdate = '';
+    let params = [];
+    let accionBitacora = '';
+
+    if (accion === 'VALIDAR') {
+        nuevoEstatus = 'PENDIENTE_AUTORIZACION';
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_validador = ?, fecha_validacion = NOW() WHERE id = ?';
+        params = [nuevoEstatus, id_usuario, id_pago];
+        accionBitacora = 'VALIDACIÓN_PAGO';
+    } else if (accion === 'AUTORIZAR') {
+        nuevoEstatus = 'PAGADO'; 
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ?';
+        params = [nuevoEstatus, id_usuario, id_pago];
+        accionBitacora = 'AUTORIZACIÓN_FINAL';
+    } else if (accion === 'RECHAZAR') {
+        nuevoEstatus = 'RECHAZADO';
+        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ? WHERE id = ?';
+        params = [nuevoEstatus, id_pago];
+        accionBitacora = 'RECHAZO_PAGO';
+    } else {
+        return res.status(400).json({ success: false, message: 'Acción no válida' });
+    }
+
+    db.query(queryUpdate, params, (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (result.affectedRows === 0) return res.status(400).json({ success: false, message: 'Pago no encontrado.' });
+
+        db.query('SELECT pp.concepto, pp.monto_pago, p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [id_pago], (err, row) => {
+            if (!err && row.length > 0) {
+                const estatusLegible = nuevoEstatus.replace('_', ' ');
+                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
+            }
+            res.json({ success: true });
+        });
+    });
+});
+
+// ==========================================
+// AUTORIZACIONES (WORKFLOW ANTIGUO) Y PDF
 // ==========================================
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
@@ -551,369 +849,8 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// REPORTE MAESTRO DE EGRESOS (CON MOTOR FINANCIERO)
+// IMPORTAR PROVEEDORES DESDE EXCEL
 // ==========================================
-router.get('/reportes/pagos-del-mes', verificarToken, (req, res) => {
-    const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
-    const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
-
-    const queryOperativos = `
-        SELECT 
-            s.fecha_limite_pago AS fecha_recepcion,
-            cp.descripcion AS tipo_gasto,
-            COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
-            s.descripcion AS concepto,
-            s.monto AS monto,
-            IF(s.estatus = 'PAGADO', 'PAGADO', 'PENDIENTE') AS estatus_pago,
-            'OPERATIVO' AS origen_dato,
-            s.id AS id_contrato
-        FROM solicitudes_recursos s
-        LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
-        LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
-        LEFT JOIN personas pprov ON prov.id_persona = pprov.id
-        WHERE MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?
-        AND s.estatus != 'RECHAZADO'
-    `;
-
-    db.query(queryOperativos, [mesFiltro, anioFiltro], (err, resOperativos) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error DB Operativos' });
-
-        const queryFondeadores = `
-            SELECT 
-                ci.id AS id_contrato, 
-                ci.plan_json, 
-                ci.pagos_irregulares_json, 
-                ci.monto_inicial,
-                ci.fecha_inicio,
-                t.tasa_anual_esperada,
-                t.cobra_iva,
-                p.nombre_razon_social AS proveedor,
-                (SELECT GROUP_CONCAT(MONTH(fecha_movimiento)) FROM movimientos_inversion mi WHERE mi.id_contrato = ci.id AND mi.tipo = 'PAGO_INTERES' AND mi.estatus_movimiento = 'COMPLETADO' AND YEAR(fecha_movimiento) = ?) AS meses_pagados
-            FROM contratos_inversion ci
-            JOIN inversores i ON ci.id_inversor = i.id_persona
-            JOIN personas p ON i.id_persona = p.id
-            JOIN catalogo_tasas t ON ci.id_tasa = t.id
-            WHERE ci.estatus = 'ACTIVO'
-        `;
-
-        db.query(queryFondeadores, [anioFiltro], (err2, resContratos) => {
-            if (err2) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
-
-            let fondeadoresCalculados = [];
-
-            function parseDateStr(dateStr) {
-                const parts = dateStr.split('-');
-                return new Date(parts[0], parts[1] - 1, parts[2]);
-            }
-            function dateFromDb(dbDate) {
-                if (!dbDate) return new Date();
-                if (typeof dbDate === 'string') return parseDateStr(dbDate.split('T')[0]);
-                const dt = new Date(dbDate);
-                return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
-            }
-
-            resContratos.forEach(contrato => {
-                const mesesPagadosArray = contrato.meses_pagados ? contrato.meses_pagados.split(',') : [];
-                
-                let saldo = parseFloat(contrato.monto_inicial) || 0;
-                const tasa = parseFloat(contrato.tasa_anual_esperada) || 0;
-                const cobraIva = contrato.cobra_iva === 1;
-                
-                let eventos = [];
-                
-                if (contrato.plan_json) {
-                    try {
-                        const plan = JSON.parse(contrato.plan_json);
-                        plan.forEach(c => {
-                            if (c.fecha) {
-                                eventos.push({
-                                    tipo: 'CUOTA',
-                                    fecha: parseDateStr(c.fecha),
-                                    fechaStr: c.fecha,
-                                    abono: parseFloat(c.abono) || 0,
-                                    numero: c.numero
-                                });
-                            }
-                        });
-                    } catch(e) {}
-                }
-                
-                if (contrato.pagos_irregulares_json) {
-                    try {
-                        const irreg = JSON.parse(contrato.pagos_irregulares_json);
-                        irreg.forEach(c => {
-                            if (c.fecha) {
-                                eventos.push({
-                                    tipo: 'IRREGULAR',
-                                    fecha: parseDateStr(c.fecha),
-                                    fechaStr: c.fecha,
-                                    monto: parseFloat(c.monto) || 0
-                                });
-                            }
-                        });
-                    } catch(e) {}
-                }
-                
-                eventos.sort((a, b) => a.fecha - b.fecha);
-                
-                let fechaAnterior = dateFromDb(contrato.fecha_inicio);
-                let interesAcumulado = 0;
-                
-                eventos.forEach(evt => {
-                    let dias = 0;
-                    if (evt.fecha > fechaAnterior) {
-                        dias = Math.round((evt.fecha - fechaAnterior) / (1000 * 60 * 60 * 24));
-                    }
-                    
-                    interesAcumulado += (saldo * (tasa / 100) / 360) * dias;
-                    fechaAnterior = evt.fecha;
-                    
-                    const mesEvt = evt.fecha.getMonth() + 1;
-                    const anioEvt = evt.fecha.getFullYear();
-                    
-                    if (evt.tipo === 'CUOTA') {
-                        const ivaFinal = cobraIva ? (interesAcumulado * 0.16) : 0;
-                        const totalPago = evt.abono + interesAcumulado + ivaFinal;
-                        
-                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
-                            const yaSePago = mesesPagadosArray.includes(String(mesFiltro));
-                            fondeadoresCalculados.push({
-                                id_contrato: contrato.id_contrato,
-                                fecha_recepcion: evt.fechaStr,
-                                tipo_gasto: 'PAGOS INTERES DE CRED',
-                                proveedor: contrato.proveedor,
-                                concepto: `Pago Rendimiento (Cuota ${evt.numero || '-'}) Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
-                                monto: totalPago,
-                                estatus_pago: yaSePago ? 'PAGADO' : 'PENDIENTE',
-                                origen_dato: 'FONDEADOR'
-                            });
-                        }
-                        
-                        saldo -= evt.abono;
-                        interesAcumulado = 0;
-                        
-                    } else if (evt.tipo === 'IRREGULAR') {
-                        if (mesEvt === mesFiltro && anioEvt === anioFiltro) {
-                            fondeadoresCalculados.push({
-                                id_contrato: contrato.id_contrato,
-                                fecha_recepcion: evt.fechaStr,
-                                tipo_gasto: 'RETIRO / PAGO ESPECIAL',
-                                proveedor: contrato.proveedor,
-                                concepto: `Pago Irregular / Capital Cto. #${String(contrato.id_contrato).padStart(4, '0')}`,
-                                monto: evt.monto,
-                                estatus_pago: 'PENDIENTE',
-                                origen_dato: 'FONDEADOR'
-                            });
-                        }
-                        saldo -= evt.monto;
-                    }
-                });
-            });
-
-            const dataFinal = [...resOperativos, ...fondeadoresCalculados].sort((a, b) => new Date(a.fecha_recepcion) - new Date(b.fecha_recepcion));
-
-            const resumen = {
-                total_pagado: dataFinal.filter(r => r.estatus_pago === 'PAGADO').reduce((sum, r) => sum + parseFloat(r.monto), 0),
-                total_pendiente: dataFinal.filter(r => r.estatus_pago === 'PENDIENTE').reduce((sum, r) => sum + parseFloat(r.monto), 0),
-            };
-            resumen.gran_total = resumen.total_pagado + resumen.total_pendiente;
-
-            const desglose = {};
-            dataFinal.forEach(item => {
-                const cat = item.tipo_gasto || 'OTROS';
-                if(!desglose[cat]) desglose[cat] = 0;
-                desglose[cat] += parseFloat(item.monto);
-            });
-
-            res.json({ success: true, data: dataFinal, resumen, desglose });
-        });
-    });
-});
-
-router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
-    const query = `
-        SELECT 
-            pp.id AS id_pago,
-            p.nombre_razon_social AS proveedor,
-            pp.concepto,
-            pp.monto_pago,
-            pp.estatus,
-            DATE(pp.fecha_solicitud) as fecha_solicitud,
-            pr.dias_credito,
-            DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY) AS fecha_vencimiento,
-            DATEDIFF(DATE_ADD(pp.fecha_solicitud, INTERVAL pr.dias_credito DAY), CURDATE()) AS dias_restantes
-        FROM pagos_a_proveedores pp
-        JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
-        JOIN personas p ON pr.id_persona = p.id
-        WHERE pp.estatus NOT IN ('PAGADO', 'RECHAZADO')
-        ORDER BY fecha_vencimiento ASC
-    `;
-    db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error de base de datos' });
-        res.json({ success: true, data: results });
-    });
-});
-
-// ==========================================
-// CRUD NORMAL DE PROVEEDORES
-// ==========================================
-router.get('/', verificarToken, (req, res) => {
-    const query = `
-        SELECT 
-            p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
-            p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, 
-            pr.categoria, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
-            pr.banco, pr.dias_credito, pr.estatus_activo 
-        FROM personas p 
-        INNER JOIN proveedores pr ON p.id = pr.id_persona 
-        WHERE p.eliminado = FALSE 
-        ORDER BY p.id DESC
-    `;
-    db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
-        res.json({ success: true, data: results });
-    });
-});
-
-router.post('/', verificarToken, (req, res) => {
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    db.beginTransaction(err => {
-        if (err) return res.status(500).json({ success: false, message: 'Fallo al iniciar transacción BD.' });
-        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
-        [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
-            if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
-            const idNuevaPersona = resultPersona.insertId;
-            const catLimpia = categoria || 'OTROS';
-            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-            [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
-                if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
-                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
-                    res.json({ success: true });
-                });
-            });
-        });
-    });
-});
-
-router.put('/:id', verificarToken, (req, res) => {
-    const { id } = req.params;
-    const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
-    db.beginTransaction(err => {
-        if (err) return res.status(500).json({ success: false, message: 'Fallo en BD' });
-        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
-        [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
-            if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
-            const catLimpia = categoria || 'OTROS';
-            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
-            [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
-                if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`);
-                    res.json({ success: true });
-                });
-            });
-        });
-    });
-});
-
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(500).json({ success: false });
-        const nombreProveedor = results[0].nombre_razon_social;
-        db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
-
-router.delete('/:id', verificarToken, (req, res) => {
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(500).json({ success: false });
-        const nombreProveedor = results[0].nombre_razon_social;
-        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
-            res.json({ success: true });
-        });
-    });
-});
-
-router.get('/:id/pagos', verificarToken, (req, res) => {
-    db.query('SELECT * FROM pagos_a_proveedores WHERE id_proveedor = ? ORDER BY fecha_solicitud DESC', [req.params.id], (err, results) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, data: results });
-    });
-});
-
-router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) => {
-    const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
-    let url = req.file ? `uploads/${req.file.filename}` : null;
-    const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
-    const id_autoriza = req.usuario.rol === 'ADMIN' ? req.usuario.id : null;
-
-    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_proveedor], (err, results) => {
-        const nombreProveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
-        db.query('INSERT INTO pagos_a_proveedores (id_proveedor, id_usuario_solicita, id_usuario_autoriza, monto_pago, concepto, num_factura_ref, url_comprobante_pago, estatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
-        [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            if(estatus === 'PAGADO'){
-                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo a favor de: ${nombreProveedor}`);
-            } else {
-                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago para validación a favor de: ${nombreProveedor}`);
-            }
-            res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
-        });
-    });
-});
-
-router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
-    const { id_pago } = req.params;
-    const { accion } = req.body; 
-    const id_usuario = req.usuario.id;
-
-    let nuevoEstatus = '';
-    let queryUpdate = '';
-    let params = [];
-    let accionBitacora = '';
-
-    if (accion === 'VALIDAR') {
-        nuevoEstatus = 'PENDIENTE_AUTORIZACION';
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_validador = ?, fecha_validacion = NOW() WHERE id = ?';
-        params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'VALIDACIÓN_PAGO';
-    } else if (accion === 'AUTORIZAR') {
-        nuevoEstatus = 'PAGADO'; 
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ?, id_usuario_autoriza = ?, fecha_autorizacion = NOW() WHERE id = ?';
-        params = [nuevoEstatus, id_usuario, id_pago];
-        accionBitacora = 'AUTORIZACIÓN_FINAL';
-    } else if (accion === 'RECHAZAR') {
-        nuevoEstatus = 'RECHAZADO';
-        queryUpdate = 'UPDATE pagos_a_proveedores SET estatus = ? WHERE id = ?';
-        params = [nuevoEstatus, id_pago];
-        accionBitacora = 'RECHAZO_PAGO';
-    } else {
-        return res.status(400).json({ success: false, message: 'Acción no válida' });
-    }
-
-    db.query(queryUpdate, params, (err, result) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        if (result.affectedRows === 0) return res.status(400).json({ success: false, message: 'Pago no encontrado.' });
-
-        db.query('SELECT pp.concepto, pp.monto_pago, p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [id_pago], (err, row) => {
-            if (!err && row.length > 0) {
-                const estatusLegible = nuevoEstatus.replace('_', ' ');
-                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
-            }
-            res.json({ success: true });
-        });
-    });
-});
-
 router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     try {
