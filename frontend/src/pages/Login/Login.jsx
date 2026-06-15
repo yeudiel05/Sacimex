@@ -67,6 +67,13 @@ function Login() {
           localStorage.removeItem('rememberedUser');
         }
 
+        // --- GATILLO SILENCIOSO PARA ALERTAS GLOBALES ---
+        // Se ejecuta en segundo plano sin interrumpir el login del usuario
+        fetch('http://localhost:3001/api/inversores/trigger-alertas-login', { 
+            method: 'POST' 
+        }).catch(err => console.log('Silenced Alertas Error:', err));
+        // ------------------------------------------------
+
         setTimeout(() => {
           navigate('/dashboard');
         }, 800);

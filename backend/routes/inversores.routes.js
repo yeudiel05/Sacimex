@@ -6,6 +6,7 @@ const PDFDocument = require('pdfkit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 
 const uploadDir = path.join(__dirname, '../uploads');
 const storage = multer.diskStorage({
@@ -16,6 +17,22 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage: storage });
+
+// ==========================================
+// CONFIGURACIÓN DE CORREO INSTITUCIONAL (SMTP)
+// ==========================================
+const transportadorSMTP = nodemailer.createTransport({
+    host: 'smtp.gmail.com', 
+    port: 465, 
+    secure: true, 
+    auth: {
+        user: 'ordazruudvan@gmail.com', 
+        pass: 'ejci wnas ugjg yans' 
+    },
+    tls: {
+        rejectUnauthorized: false
+    }
+});
 
 // ==========================================
 // UTILERÍAS
@@ -69,6 +86,35 @@ function numeroALetras(num) {
 
 function formatMoney(n) { 
     return '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); 
+}
+
+function cleanDateStr(dateVal) {
+    if (!dateVal) return new Date().toISOString().split('T')[0];
+    try {
+        if (typeof dateVal === 'string') return dateVal.split('T')[0];
+        if (dateVal instanceof Date) {
+            if (isNaN(dateVal.getTime())) return new Date().toISOString().split('T')[0];
+            return dateVal.toISOString().split('T')[0];
+        }
+        return new Date().toISOString().split('T')[0];
+    } catch (e) {
+        return new Date().toISOString().split('T')[0];
+    }
+}
+
+// Validación de Disposición Única
+function checkDisposicionUnica(db, numero_disposicion, id_exclude, callback) {
+    if (!numero_disposicion) return callback(true);
+    let q = 'SELECT id FROM CONTRATOS_INVERSION WHERE numero_disposicion = ?';
+    let p = [numero_disposicion];
+    if (id_exclude) {
+        q += ' AND id != ?';
+        p.push(id_exclude);
+    }
+    db.query(q, p, (err, results) => {
+        if (err) return callback(false);
+        callback(results.length === 0);
+    });
 }
 
 // ==========================================
@@ -229,13 +275,32 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
 router.post('/contratos', verificarToken, (req, res) => {
   const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
   
-  db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
-    [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err) => {
-      if (err) {
-          console.error("Error al guardar contrato estático:", err);
-          return res.status(500).json({ success: false, message: 'Error de servidor' });
-      }
-      res.json({ success: true });
+  checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
+      if (!esValido) return res.status(400).json({ success: false, message: 'El Número de Disposición ya se encuentra registrado.' });
+
+      db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
+        [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err) => {
+          if (err) {
+              console.error("Error al guardar contrato estático:", err);
+              return res.status(500).json({ success: false, message: 'Error de servidor' });
+          }
+          res.json({ success: true });
+      });
+  });
+});
+
+router.put('/contratos/:id', verificarToken, (req, res) => {
+    const { fecha_inicio, numero_disposicion } = req.body;
+    
+    checkDisposicionUnica(db, numero_disposicion, req.params.id, (esValido) => {
+        if (!esValido) return res.status(400).json({ success: false, message: 'El Número de Disposición ya se encuentra registrado en otro contrato.' });
+
+        db.query('UPDATE CONTRATOS_INVERSION SET fecha_inicio = ?, numero_disposicion = ? WHERE id = ?', 
+            [fecha_inicio, numero_disposicion, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: "Error al actualizar contrato" });
+            registrarBitacora(req.usuario.id, 'EDITAR_CONTRATO', `Actualizó información del contrato #${req.params.id}`);
+            res.json({ success: true, message: 'Contrato actualizado' });
+        });
     });
 });
 
@@ -246,38 +311,42 @@ router.post('/inversion', verificarToken, (req, res) => {
     const fFin = new Date(fInicio);
     fFin.setMonth(fInicio.getMonth() + parseInt(plazo_meses || 12));
 
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, results) => {
-        const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Fondeador Desconocido';
+    checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
+        if (!esValido) return res.status(400).json({ success: false, message: 'El Número de Disposición ya se encuentra registrado.' });
 
-        const query = `
-            INSERT INTO CONTRATOS_INVERSION 
-            (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus, numero_disposicion) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO', ?)
-        `;
+        db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, results) => {
+            const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Fondeador Desconocido';
 
-        db.query(query, [
-            id_inversor, 
-            id_tasa, 
-            monto_inicial, 
-            frecuencia_pagos, 
-            tipo_amortizacion || 'frances', 
-            plan_json || null, 
-            fInicio.toISOString().split('T')[0], 
-            fFin.toISOString().split('T')[0],
-            numero_disposicion || null
-        ], (err, result) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ success: false, message: 'Error al registrar la inversión' });
-            }
-            registrarBitacora(req.usuario.id, 'NUEVA_INVERSION', `Inversión de $${monto_inicial} registrada para: ${nombreFondeador}`);
-            res.json({ success: true, message: 'Fondeo registrado correctamente' });
+            const query = `
+                INSERT INTO CONTRATOS_INVERSION 
+                (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus, numero_disposicion) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO', ?)
+            `;
+
+            db.query(query, [
+                id_inversor, 
+                id_tasa, 
+                monto_inicial, 
+                frecuencia_pagos, 
+                tipo_amortizacion || 'frances', 
+                plan_json || null, 
+                fInicio.toISOString().split('T')[0], 
+                fFin.toISOString().split('T')[0],
+                numero_disposicion || null
+            ], (err, result) => {
+                if (err) {
+                    console.error(err);
+                    return res.status(500).json({ success: false, message: 'Error al registrar la inversión' });
+                }
+                registrarBitacora(req.usuario.id, 'NUEVO_FONDEO', `Ingreso de capital de $${monto_inicial} registrado para: ${nombreFondeador}`);
+                res.json({ success: true, message: 'Fondeo registrado correctamente' });
+            });
         });
     });
 });
 
 // ==========================================
-// PAGOS IRREGULARES Y ALERTAS (CRM)
+// PAGOS IRREGULARES Y ALERTAS REALES (SMTP)
 // ==========================================
 
 router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
@@ -285,17 +354,328 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
     const jsonStr = JSON.stringify(pagos_irregulares);
     
     db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ? WHERE id = ?', [jsonStr, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al guardar inyecciones.' });
-        registrarBitacora(req.usuario.id, 'INYECCION_CAPITAL', `Se guardaron/actualizaron inyecciones de capital para el contrato #${req.params.id}`);
-        res.json({ success: true, message: 'Inyecciones guardadas correctamente.' });
+        if (err) return res.status(500).json({ success: false, message: 'Error al guardar abonos a capital.' });
+        registrarBitacora(req.usuario.id, 'ABONO_CAPITAL', `Se registraron abonos a capital y se reestructuró el saldo del contrato #${req.params.id}`);
+        res.json({ success: true, message: 'Abonos a capital guardados correctamente.' });
     });
 });
 
+// ENVÍO MANUAL DE ALERTA POR CORREO
 router.post('/alertas-correo', verificarToken, (req, res) => {
-    const { email, fondeador, totalPagos } = req.body;
-    registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS', `Se enviaron alertas de ${totalPagos} pagos próximos al correo: ${email}`);
-    res.json({ success: true, message: `Alertas enviadas exitosamente a ${email}` });
+    const { email, id_inversor } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ success: false, message: 'El correo destino es obligatorio.' });
+    }
+
+    const queryFondeador = `
+        SELECT 
+            ci.id AS id_contrato, 
+            ci.plan_json, 
+            ci.pagos_irregulares_json, 
+            ci.fecha_inicio,
+            ci.fecha_fin,
+            ci.monto_inicial,
+            ci.tipo_amortizacion,
+            ci.numero_disposicion,
+            t.tasa_anual_esperada,
+            t.cobra_iva,
+            p.nombre_razon_social AS proveedor,
+            COALESCE((
+                SELECT SUM(monto) 
+                FROM movimientos_inversion mi 
+                WHERE mi.id_contrato = ci.id AND (mi.tipo = 'PAGO_INTERES' OR mi.tipo = 'DEPOSITO') AND mi.estatus_movimiento = 'COMPLETADO'
+            ), 0) AS total_pagado
+        FROM contratos_inversion ci
+        JOIN inversores i ON ci.id_inversor = i.id_persona
+        JOIN personas p ON i.id_persona = p.id
+        JOIN catalogo_tasas t ON ci.id_tasa = t.id
+        WHERE ci.id_inversor = ? AND ci.estatus = 'ACTIVO' AND p.eliminado = FALSE
+    `;
+
+    db.query(queryFondeador, [id_inversor], (err, resContratos) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al consultar contratos para la alerta.' });
+        if (resContratos.length === 0) return res.status(404).json({ success: false, message: 'No hay contratos activos para notificar.' });
+
+        const nombreFondeador = resContratos[0].proveedor;
+        let filasHtml = '';
+        const hoy = new Date();
+        hoy.setHours(0,0,0,0);
+
+        resContratos.forEach(contrato => {
+            let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
+            const tabla = calcularAmortizacionBackend(contrato);
+
+            tabla.forEach(pago => {
+                if (pago.pagoTotal > 0.01) {
+                    if (bolsaTotal >= pago.pagoTotal - 0.5) {
+                        pago.pagado = true;
+                        bolsaTotal -= pago.pagoTotal;
+                    } else {
+                        pago.pagado = false;
+                    }
+                }
+            });
+
+            tabla.forEach(pago => {
+                if (!pago.pagado && pago.pagoTotal > 0.01) {
+                    const diasRestantes = Math.ceil((pago.fechaPura - hoy) / (1000 * 60 * 60 * 24));
+                    
+                    if (diasRestantes <= 15) {
+                        const esInyeccion = pago.numero === 'N/A';
+                        const estatusTexto = diasRestantes < 0 ? `Vencido por ${Math.abs(diasRestantes)} días` : diasRestantes === 0 ? 'Vence Hoy' : `Por vencer en ${diasRestantes} días`;
+                        const colorEstatus = diasRestantes < 0 ? '#ef4444' : diasRestantes === 0 ? '#f59e0b' : '#3b82f6';
+
+                        filasHtml += `
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 12px; font-weight: bold;">${contrato.numero_disposicion || 'S/N'}</td>
+                                <td style="padding: 12px;">${esInyeccion ? 'Pago Inyección Extra a Capital' : 'Rendimiento Mensual (Cuota ' + pago.numero + ')'}</td>
+                                <td style="padding: 12px; text-align: center;">${pago.fechaStr}</td>
+                                <td style="padding: 12px; text-align: right; font-weight: bold;">$${Number(pago.pagoTotal).toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
+                                <td style="padding: 12px; text-align: center; color: ${colorEstatus}; font-weight: bold;">${estatusTexto}</td>
+                            </tr>
+                        `;
+                    }
+                }
+            });
+        });
+
+        if (filasHtml === '') {
+            return res.json({ success: true, message: 'No hay saldos pendientes urgentes para reportar de este fondeador.' });
+        }
+
+        const cuerpoCorreo = `
+            <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 800px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #0F6B38; border-bottom: 2px solid #0F6B38; padding-bottom: 10px; margin-top: 0;">Reporte de Saldos y Vencimientos de Fondeo</h2>
+                <p>Estimada C.P. Trinidad,</p>
+                <p>A continuación se detalla la relación de rendimientos y obligaciones pendientes de pago correspondientes al fondeador <strong>${nombreFondeador}</strong> para su revisión y correspondiente programación en el presupuesto de egresos:</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px;">
+                    <thead>
+                        <tr style="background-color: #0F6B38; color: white;">
+                            <th style="padding: 12px; text-align: left;">Disposición</th>
+                            <th style="padding: 12px; text-align: left;">Concepto</th>
+                            <th style="padding: 12px; text-align: center;">Fecha Límite</th>
+                            <th style="padding: 12px; text-align: right;">Total de Salida</th>
+                            <th style="padding: 12px; text-align: center;">Estatus</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filasHtml}
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border-left: 4px solid #0F6B38; font-size: 12px; color: #64748b;">
+                    <strong>Nota del Sistema:</strong> Este desglose contempla de forma exacta el capital remanente, el interés devengado a la fecha de corte y la aplicación de IVA correspondiente según las condiciones contractuales vigentes.
+                </div>
+                <p style="margin-top: 20px; font-size: 12px; color: #94a3b8; text-align: center;">Sistema de Gestión de Fondeadores - Módulo de Tesorería</p>
+            </div>
+        `;
+
+        const opcionesCorreo = {
+            from: '"Sistema de Alertas Sacimex" <ordazruudvan@gmail.com>',
+            to: email, 
+            subject: `Urgente: Calendario de Pagos Pendientes - Fondeador: ${nombreFondeador}`,
+            html: cuerpoCorreo
+        };
+
+        transportadorSMTP.sendMail(opcionesCorreo, (mailErr, info) => {
+            if (mailErr) {
+                console.error("Error SMTP:", mailErr);
+                return res.status(500).json({ success: false, message: 'Error al enviar el correo a través del servidor SMTP.' });
+            }
+            registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS_SMTP', `Se notificó exitosamente a la Coordinación Contable sobre saldos de: ${nombreFondeador}`);
+            res.json({ success: true, message: 'El reporte de proyección fue enviado exitosamente a la Coordinación Contable.' });
+        });
+    });
 });
+
+// ==========================================
+// RUTA DE BANDEJA DE ALERTAS GLOBALES (FIFO UNIFICADO)
+// ==========================================
+router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
+    
+    const queryFondeadores = `
+        SELECT 
+            ci.id AS id_contrato, 
+            ci.plan_json, 
+            ci.pagos_irregulares_json, 
+            ci.fecha_inicio,
+            ci.fecha_fin,
+            ci.monto_inicial,
+            ci.tipo_amortizacion,
+            ci.numero_disposicion,
+            t.tasa_anual_esperada,
+            t.cobra_iva,
+            p.nombre_razon_social AS proveedor,
+            COALESCE((
+                SELECT SUM(monto) 
+                FROM movimientos_inversion mi 
+                WHERE mi.id_contrato = ci.id AND (mi.tipo = 'PAGO_INTERES' OR mi.tipo = 'DEPOSITO') AND mi.estatus_movimiento = 'COMPLETADO'
+            ), 0) AS total_pagado
+        FROM contratos_inversion ci
+        JOIN inversores i ON ci.id_inversor = i.id_persona
+        JOIN personas p ON i.id_persona = p.id
+        JOIN catalogo_tasas t ON ci.id_tasa = t.id
+        WHERE ci.estatus = 'ACTIVO' AND p.eliminado = FALSE
+    `;
+
+    db.query(queryFondeadores, (err, resContratos) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error DB Fondeadores' });
+
+        let pagosAlerta = [];
+        const hoy = new Date();
+        hoy.setHours(0,0,0,0);
+        
+        resContratos.forEach(contrato => {
+            let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
+            const tabla = calcularAmortizacionBackend(contrato);
+
+            tabla.forEach(pago => {
+                if (pago.pagoTotal > 0.01) {
+                    if (bolsaTotal >= pago.pagoTotal - 0.5) {
+                        pago.pagado = true;
+                        bolsaTotal -= pago.pagoTotal;
+                    } else {
+                        pago.pagado = false;
+                    }
+                }
+            });
+
+            tabla.forEach(pago => {
+                if (!pago.pagado && pago.pagoTotal > 0.01) {
+                    const diasRestantes = Math.ceil((pago.fechaPura - hoy) / (1000 * 60 * 60 * 24));
+                    
+                    if (diasRestantes <= 15) {
+                        pagosAlerta.push({
+                            id_pago: `c${contrato.id_contrato}_n${pago.numero}_${pago.fechaPura.getTime()}`,
+                            proveedor: contrato.proveedor,
+                            concepto: pago.numero === 'N/A' ? `Inyección a Capital Disp. ${contrato.numero_disposicion || 'S/N'}` : `Rendimiento (Cuota ${pago.numero}) Disp. ${contrato.numero_disposicion || 'S/N'}`,
+                            monto_pago: pago.pagoTotal,
+                            fecha_solicitud: pago.fechaStr, 
+                            dias_restantes: diasRestantes
+                        });
+                    }
+                }
+            });
+        });
+
+        pagosAlerta.sort((a,b) => a.dias_restantes - b.dias_restantes);
+        res.json({ success: true, data: pagosAlerta });
+    });
+});
+
+function calcularAmortizacionBackend(contratoObj) {
+    const m = parseFloat(contratoObj.monto_inicial) || 0;
+    const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
+    const tipoReal = String(contratoObj.tipo_amortizacion || 'frances').toLowerCase().trim();
+    const cobraIva = contratoObj.cobra_iva === 1;
+
+    const parseMontoLocal = (val) => {
+        if (val === null || val === undefined || val === '') return 0;
+        return parseFloat(String(val).replace(/,/g, '')) || 0;
+    };
+
+    let planBaseGuardado = [];
+    if (contratoObj.plan_json) {
+        try {
+            let temp = contratoObj.plan_json;
+            while (typeof temp === 'string') temp = JSON.parse(temp);
+            if (Array.isArray(temp)) planBaseGuardado = temp;
+        } catch (e) {}
+    }
+
+    let inyecciones = [];
+    if (contratoObj.pagos_irregulares_json) {
+        try {
+            let temp = contratoObj.pagos_irregulares_json;
+            while (typeof temp === 'string') temp = JSON.parse(temp);
+            if (Array.isArray(temp)) inyecciones = temp;
+        } catch (e) {}
+    }
+
+    const tasaAnual = t / 100; const tasaMensual = tasaAnual / 12;
+    let saldo = m; let tablaRes = [];
+
+    const fInicioStr = cleanDateStr(contratoObj.fecha_inicio);
+    let fechaAnterior = new Date(`${fInicioStr}T12:00:00`);
+
+    let timelineUnificado = [];
+
+    if (tipoReal === 'personalizado' && planBaseGuardado.length > 0) {
+        timelineUnificado = planBaseGuardado.map((row, i) => ({
+            indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
+            abonoFijo: parseMontoLocal(row.abono), anticipoFijo: parseMontoLocal(row.anticipo), esIrregular: false, excluirDia: false
+        }));
+    } else {
+        const fFinStr = cleanDateStr(contratoObj.fecha_fin);
+        let fFin = new Date(`${fFinStr}T12:00:00`);
+        if(isNaN(fFin.getTime())) { fFin = new Date(fechaAnterior); fFin.setMonth(fechaAnterior.getMonth() + 12); }
+        let plazoMeses = Math.max(1, Math.round((fFin - fechaAnterior) / (1000 * 60 * 60 * 24 * 30.44)));
+        if (isNaN(plazoMeses) || plazoMeses < 1) plazoMeses = 12;
+        
+        let fTemp = new Date(fechaAnterior);
+        for(let i=1; i<=plazoMeses; i++){
+            fTemp.setMonth(fTemp.getMonth() + 1);
+            let capFijo = tipoReal === 'aleman' ? m / plazoMeses : 0;
+            timelineUnificado.push({ indexUI: `base_${i}`, numero: i.toString(), fechaStr: fTemp.toISOString().split('T')[0], abonoFijo: capFijo, anticipoFijo: 0, esIrregular: false, excluirDia: false });
+        }
+    }
+
+    inyecciones.forEach(pago => {
+        if (pago.fecha && parseMontoLocal(pago.monto) > 0) {
+            timelineUnificado.push({ indexUI: `irreg_${pago.id || Date.now()}`, numero: 'N/A', fechaStr: cleanDateStr(pago.fecha), abonoFijo: 0, anticipoFijo: parseMontoLocal(pago.monto), esIrregular: true, excluirDia: pago.excluirDia === true || pago.excluirDia === 'true' || false });
+        }
+    });
+
+    timelineUnificado.sort((a,b) => new Date(`${a.fechaStr}T12:00:00`) - new Date(`${b.fechaStr}T12:00:00`));
+
+    let p_frances_meses_restantes = timelineUnificado.filter(r => !r.esIrregular).length;
+
+    timelineUnificado.forEach((row) => {
+        let fechaActual = new Date(`${row.fechaStr}T12:00:00`);
+        if(isNaN(fechaActual.getTime())) fechaActual = new Date(fechaAnterior);
+        
+        let diffTime = Math.abs(Date.UTC(fechaActual.getFullYear(), fechaActual.getMonth(), fechaActual.getDate()) - Date.UTC(fechaAnterior.getFullYear(), fechaAnterior.getMonth(), fechaAnterior.getDate()));
+        let diasTranscurridos = Math.round(diffTime / (1000 * 60 * 60 * 24)); 
+        
+        let diasParaInteres = diasTranscurridos;
+        if (row.esIrregular && row.excluirDia && diasTranscurridos > 0) {
+            diasParaInteres = diasTranscurridos - 1;
+        }
+        
+        let interes = (saldo * tasaAnual / 360) * diasParaInteres;
+        let abonoReal = row.abonoFijo;
+        
+        if (tipoReal === 'frances' && !row.esIrregular && p_frances_meses_restantes > 0) {
+            let cuotaPura = (saldo * (tasaMensual / (1 - Math.pow(1 + tasaMensual, -p_frances_meses_restantes))));
+            abonoReal = cuotaPura - interes;
+            p_frances_meses_restantes--;
+        }
+
+        let anticipoReal = row.anticipoFijo;
+        let capital = abonoReal + anticipoReal;
+        
+        if (capital > saldo) {
+            capital = saldo;
+            if (abonoReal > saldo) { abonoReal = saldo; anticipoReal = 0; } else { anticipoReal = saldo - abonoReal; }
+        }
+        
+        let iva = cobraIva ? (interes * 0.16) : 0;
+        let totalPago = capital + interes + iva;
+        saldo -= capital; if (saldo < 0.01) saldo = 0;
+
+        tablaRes.push({
+            numero: row.numero, 
+            pagoTotal: totalPago, 
+            fechaPura: fechaActual,
+            fechaStr: fechaActual.toLocaleDateString('es-MX')
+        });
+        fechaAnterior = new Date(fechaActual);
+    });
+
+    return tablaRes;
+}
 
 // ==========================================
 // BENEFICIARIOS Y MOVIMIENTOS
@@ -319,8 +699,8 @@ router.post('/beneficiarios', verificarToken, (req, res) => {
       if (err) return res.status(500).json({ success: false });
       
       db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
-          const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
-          registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agregó a ${nombre_completo} como beneficiario de: ${nombreFondeador}`);
+          const fontdeadorNombre = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
+          registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agregó a ${nombre_completo} como beneficiario de: ${fontdeadorNombre}`);
           res.json({ success: true });
       });
     });
@@ -362,7 +742,7 @@ router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, 
 });
 
 // =========================================================================
-// RUTA GENERADORA DE CONSTANCIA DE INVERSIÓN EN PDF
+// RUTA GENERADORA DE CONSTANCIA DE DEPÓSITO EN PDF
 // =========================================================================
 router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
@@ -407,7 +787,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         doc.fontSize(11).font('Helvetica-Bold')
            .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 110, 45, { align: 'center' });
         doc.fontSize(10).font('Helvetica-Bold')
-           .text('CONSTANCIA DE INVERSIÓN TÍTULOS CLASE III', 110, 60, { align: 'center' });
+           .text('CONSTANCIA DE FONDEO TÍTULOS CLASE III', 110, 60, { align: 'center' });
         
         doc.fillColor('black').fontSize(9).font('Helvetica-Bold');
         
@@ -438,7 +818,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         
         currentY += 25;
         doc.fillColor('black'); 
-        doc.font('Helvetica-Bold').text('MONTO DE INVERSIÓN:', 50, currentY);
+        doc.font('Helvetica-Bold').text('MONTO DE FONDEO:', 50, currentY);
         doc.font('Helvetica').text(`$${Number(contrato.monto_inicial).toLocaleString('es-MX', {minimumFractionDigits: 2})}`, 175, currentY);
         
         doc.font('Helvetica-Bold').text('TASA NOMINAL:', 280, currentY);
@@ -461,9 +841,9 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 
         doc.font('Helvetica').fontSize(8);
         
-        doc.text(`LA PRESENTE CONSTANCIA DE INVERSIÓN QUE SE EMITE A FAVOR DE C. `, 50, doc.y, { continued: true, align: 'justify', width: 510 });
+        doc.text(`LA PRESENTE CONSTANCIA DE FONDEO QUE SE EMITE A FAVOR DE C. `, 50, doc.y, { continued: true, align: 'justify', width: 510 });
         doc.font('Helvetica-Bold').text(`${contrato.inversor.toUpperCase()} `, { continued: true });
-        doc.font('Helvetica').text(`(EN ADELANTE "INVERSIONISTA") POR CONDUCTO DE OPCIONES SACIMEX® S.A. DE C.V. SOFOM E.N.R. (EN ADELANTE "SACIMEX®") SE SUJETARÁ A LAS SIGUIENTES:`);
+        doc.font('Helvetica').text(`(EN ADELANTE "FONDEADOR") POR CONDUCTO DE OPCIONES SACIMEX® S.A. DE C.V. SOFOM E.N.R. (EN ADELANTE "SACIMEX®") SE SUJETARÁ A LAS SIGUIENTES:`);
         doc.moveDown(1);
 
         doc.font('Helvetica-Bold').text('CLÁUSULAS', 50, doc.y, { width: 510, align: 'center' });
@@ -471,13 +851,13 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 
         const clausulas = [
             "LA CANTIDAD DEPOSITADA DE LA PRESENTE CONSTANCIA SOLO PODRÁ RETIRARSE HASTA SU VENCIMIENTO.",
-            "EN LA SUCURSAL DONDE EL (LA) INVERSIONISTA DEPOSITE, SERÁ EL LUGAR DONDE DEBE RETIRAR EL DEPÓSITO.",
-            "LA PRESENTE CONSTANCIA NO SERÁ NEGOCIABLE, EN FORMA ALGUNA, POR LO CUAL EL IMPORTE DEL MISMO, ASÍ COMO LOS INTERESES CORRESPONDIENTES, ÚNICAMENTE LE SERÁN ENTREGADOS AL TITULAR, APODERADO, O BENEFICIARIO EN CASO DE FALLECIMIENTO DEL (LA) INVERSIONISTA.",
-            "LA PRESENTE CONSTANCIA SERÁ FIRMADA POR EL (LA) INVERSIONISTA EN DUPLICADO, QUEDANDO EL ORIGINAL PARA EL (LA) INVERSIONISTA, SALVO EN CASO DE GARANTIZAR CRÉDITOS AUTOMÁTICOS.",
-            "LOS PORCENTAJES DE INTERÉS SERÁN FIJADOS POR EL CONSEJO DE ADMINISTRACIÓN O EN SU CASO POR EL COMITÉ DE CRÉDITO SEGÚN CORRESPONDA, NOTIFICANDO A EL INVERSIONISTA, POR MEDIO DE CIRCULAR O EN AVISO QUE SE FIJARÁ EN LAS OFICINAS DE SACIMEX®.",
-            "EL BENEFICIARIO DEBERÁ SER MAYOR DE EDAD CUMPLIDOS AL MOMENTO DE LA FIRMA DEL CONTRATO Y LA PRESENTE CONSTANCIA Y DEBERÁ PRESENTAR SU IDENTIFICACIÓN OFICIAL AL MOMENTO DE EJERCER SU DERECHO.",
-            "LOS INTERESES SERÁN PAGADOS TOTALMENTE AL DEPOSITANTE AL VENCIMIENTO DE LA CONSTANCIA, SI A LA FECHA DEL VENCIMIENTO EL (LA) INVERSIONISTA NO SE PRESENTA, SÉ REINVERTIRÁ LA CANTIDAD DEPOSITADA MÁS EL RENDIMIENTO TOTAL AL MISMO PLAZO Y A LA TASA DE INTERÉS VIGENTE.",
-            "TODO LO RELATIVO A LOS DERECHOS Y OBLIGACIONES QUE SE DERIVEN DE ESTA CONSTANCIA SE CUMPLIRÁN DE ACUERDO A LO ESTABLECIDO EN EL CONTRATO DE INVERSIÓN A PLAZO FIJO CELEBRADO ENTRE EL (LA) INVERSIONISTA Y SACIMEX®."
+            "EN LA SUCURSAL DONDE EL (LA) FONDEADOR DEPOSITE, SERÁ EL LUGAR DONDE DEBE RETIRAR EL DEPÓSITO.",
+            "LA PRESENTE CONSTANCIA NO SERÁ NEGOCIABLE, EN FORMA ALGUNA, POR LO CUAL EL IMPORTE DEL MISMO, ASÍ COMO LOS INTERESES CORRESPONDIENTES, ÚNICAMENTE LE SERÁN ENTREGADOS AL TITULAR, APODERADO, O BENEFICIARIO EN CASO DE FALLECIMIENTO DEL (LA) FONDEADOR.",
+            "LA PRESENTE CONSTANCIA SERÁ FIRMADA POR EL (LA) FONDEADOR EN DUPLICADO, QUEDANDO EL ORIGINAL PARA EL (LA) FONDEADOR, SALVO EN CASO DE GARANTIZAR CRÉDITOS AUTOMÁTICOS.",
+            "LOS PORCENTAJES DE INTERÉS SERÁN FIJADOS POR EL CONSEJO DE ADMINISTRACIÓN O EN SU CASO POR EL COMITÉ DE CRÉDITO SEGÚN CORRESPONDA, NOTIFICANDO A EL FONDEADOR, POR MEDIO DE CIRCULAR O EN AVISO QUE SE FIJARÁ EN LAS OFICINAS DE SACIMEX®.",
+            "EL BENEFICIARIO DEBERÁ SER MAYOR DE EDAD CUMPLIDOS AL MOMENTO DE LA FIRMA DEL CONTRATO Y LA PRESENTE CONSTANCIA DEBERÁ PRESENTAR SU IDENTIFICACIÓN OFICIAL AL MOMENTO DE EJERCER SU DERECHO.",
+            "LOS INTERESES SERÁN PAGADOS TOTALMENTE AL DEPOSITANTE AL VENCIMIENTO DE LA CONSTANCIA, SI A LA FECHA DEL VENCIMIENTO EL (LA) FONDEADOR NO SE PRESENTA, SÉ REINVERTIRÁ LA CANTIDAD DEPOSITADA MÁS EL RENDIMIENTO TOTAL AL MISMO PLAZO Y A LA TASA DE INTERÉS VIGENTE.",
+            "TODO LO RELATIVO A LOS DERECHOS Y OBLIGACIONES QUE SE DERIVEN DE ESTA CONSTANCIA SE CUMPLIRÁN DE ACUERDO A LO ESTABLECIDO EN EL CONTRATO DE FONDEO A PLAZO FIJO CELEBRADO ENTRE EL (LA) FONDEADOR Y SACIMEX®."
         ];
 
         doc.font('Helvetica').fontSize(8);
@@ -493,7 +873,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         const sigY = doc.y;
         
         doc.moveTo(80, sigY).lineTo(250, sigY).stroke();
-        doc.font('Helvetica-Bold').text('INVERSIONISTA', 80, sigY + 5, { width: 170, align: 'center' });
+        doc.font('Helvetica-Bold').text('FONDEADOR', 80, sigY + 5, { width: 170, align: 'center' });
         doc.font('Helvetica').text(`C. ${contrato.inversor.toUpperCase()}`, 80, sigY + 15, { width: 170, align: 'center' });
 
         doc.moveTo(350, sigY).lineTo(520, sigY).stroke();
@@ -532,30 +912,24 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         res.setHeader('Content-type', 'application/pdf');
         doc.pipe(res);
 
-        // --- ENCABEZADO ESTILIZADO CON LOGO CENTRADO ---
         const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
         if (fs.existsSync(logoPath)) {
-            // Posicionamos el logo a la izquierda, dándole un buen espacio
             doc.image(logoPath, 40, 30, { width: 70 });
         }
         
-        // Centramos los títulos principales para que no se amontonen con el logo
         doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
            .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 0, 40, { align: 'center' });
         doc.fontSize(11).font('Helvetica').fillColor('black')
            .text('TABLA DE AMORTIZACIÓN DE FONDEO', 0, 60, { align: 'center' });
         
-        // Bajamos la línea divisoria para que pase debajo del logo y los textos
         const lineY = 115;
         doc.moveTo(40, lineY).lineTo(doc.page.width - 40, lineY).strokeColor(COLOR_LINEAS).stroke();
 
-        // --- SECCIÓN DE INFORMACIÓN DEL CRÉDITO (TIPO GRID EXCEL) ---
         let startY = 130;
         const infoRowHeight = 20;
 
         doc.font('Helvetica-Bold').fontSize(9).fillColor('black');
         
-        // Columna Izquierda
         doc.text('EMPRESA:', 50, startY);
         doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 150, startY);
         
@@ -571,7 +945,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica-Bold').text('FONDEADOR:', 50, startY + (infoRowHeight * 4));
         doc.font('Helvetica').text(fondeador || 'N/A', 150, startY + (infoRowHeight * 4));
 
-        // Columna Derecha (bien espaciada)
         const rightColX = 450;
         doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
         doc.font('Helvetica').text('MXN', rightColX + 110, startY);
@@ -586,13 +959,10 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
         doc.font('Helvetica').text(sistema.toUpperCase(), rightColX + 110, startY + (infoRowHeight * 3));
 
-        // Mover Y asegurando espacio para las filas de info
         let currentY = startY + (infoRowHeight * 5) + 20;
 
-        // --- TABLA DE AMORTIZACIÓN CENTRADA ---
         const colWidths = [50, 80, 85, 85, 80, 60, 90, 90, 40]; 
         const tableWidth = colWidths.reduce((a, b) => a + b, 0);
-        // Calculamos startX para que la tabla quede perfectamente al centro
         const tableStartX = (doc.page.width - tableWidth) / 2;
         
         const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINC.', 'ANTICIPO CAP.', 'INT. ORD.', 'IVA', 'TOTAL PAGO', 'SALDO INSOLUTO', 'DÍAS'];
@@ -602,7 +972,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             doc.font('Helvetica-Bold').fontSize(8).fillColor(COLOR_TEXTO_HEADER);
             let x = tableStartX;
             headers.forEach((h, i) => { 
-                // Añadimos un pequeño offset a la "Y" para centrar el texto verticalmente en el rectángulo
                 doc.text(h, x, y + 2, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
                 x += colWidths[i];
             });
@@ -612,13 +981,11 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         currentY = drawTableHeader(currentY);
         doc.font('Helvetica').fontSize(8).fillColor('black');
 
-        // --- DIBUJAR FILAS ---
         tablaData.forEach((row, rowIndex) => {
             let x = tableStartX;
             const isAlternateRow = rowIndex % 2 === 1;
 
             if (isAlternateRow) {
-                // Aumentamos ligeramente la altura de las filas para que respiren más
                 doc.rect(tableStartX, currentY - 4, tableWidth, 18).fill(COLOR_SHADING_FILAS);
             }
 
@@ -641,7 +1008,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             });
             currentY += 18;
             
-            // Salto de página automático ajustado
             if (currentY > doc.page.height - 60) { 
                 doc.addPage({layout:'landscape', margin:30}); 
                 doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACIÓN - CONTRATO #' + String(idContrato).padStart(5, '0'), 0, 30, { align: 'center' });
@@ -650,7 +1016,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             }
         });
 
-        // --- FILA DE TOTALES ESTILIZADA ---
         doc.rect(tableStartX, currentY - 4, tableWidth, 22).fill('#E2E8F0');
         doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
         
@@ -687,6 +1052,130 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         console.error("Error al generar PDF:", pdfError);
         res.status(500).json({ success: false, message: 'Error interno al generar PDF' });
     }
+});
+
+// ==========================================
+// RUTA OCULTA: DISPARAR ALERTAS AL INICIAR SESIÓN
+// ==========================================
+router.post('/trigger-alertas-login', (req, res) => {
+    // No usamos verificarToken aquí para que el Login pueda dispararlo libremente
+    console.log('🔔 Iniciando sesión: Revisando vencimientos globales...');
+
+    const queryFondeadores = `
+        SELECT 
+            ci.id AS id_contrato, ci.plan_json, ci.pagos_irregulares_json, 
+            ci.fecha_inicio, ci.fecha_fin, ci.monto_inicial, ci.tipo_amortizacion,
+            ci.numero_disposicion, t.tasa_anual_esperada, t.cobra_iva,
+            p.nombre_razon_social AS proveedor,
+            COALESCE((
+                SELECT SUM(monto) FROM movimientos_inversion mi 
+                WHERE mi.id_contrato = ci.id AND (mi.tipo = 'PAGO_INTERES' OR mi.tipo = 'DEPOSITO') AND mi.estatus_movimiento = 'COMPLETADO'
+            ), 0) AS total_pagado
+        FROM contratos_inversion ci
+        JOIN inversores i ON ci.id_inversor = i.id_persona
+        JOIN personas p ON i.id_persona = p.id
+        JOIN catalogo_tasas t ON ci.id_tasa = t.id
+        WHERE ci.estatus = 'ACTIVO' AND p.eliminado = FALSE
+    `;
+
+    db.query(queryFondeadores, (err, resContratos) => {
+        if (err) return res.status(500).json({ success: false });
+
+        let pagosAlerta = [];
+        const hoy = new Date();
+        hoy.setHours(0,0,0,0);
+        
+        resContratos.forEach(contrato => {
+            let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
+            const tabla = calcularAmortizacionBackend(contrato); 
+
+            tabla.forEach(pago => {
+                if (pago.pagoTotal > 0.01) {
+                    if (bolsaTotal >= pago.pagoTotal - 0.5) {
+                        pago.pagado = true;
+                        bolsaTotal -= pago.pagoTotal;
+                    } else {
+                        pago.pagado = false;
+                    }
+                }
+            });
+
+            tabla.forEach(pago => {
+                if (!pago.pagado && pago.pagoTotal > 0.01) {
+                    const diasRestantes = Math.ceil((pago.fechaPura - hoy) / (1000 * 60 * 60 * 24));
+                    if (diasRestantes <= 15) { 
+                        pagosAlerta.push({
+                            proveedor: contrato.proveedor,
+                            disposicion: contrato.numero_disposicion || 'S/N',
+                            concepto: pago.numero === 'N/A' ? 'Inyección a Capital' : `Rendimiento (Cuota ${pago.numero})`,
+                            monto: pago.pagoTotal,
+                            fecha: pago.fechaStr,
+                            dias_restantes: diasRestantes
+                        });
+                    }
+                }
+            });
+        });
+
+        if (pagosAlerta.length > 0) {
+            pagosAlerta.sort((a,b) => a.dias_restantes - b.dias_restantes);
+
+            let filasHtml = '';
+            pagosAlerta.forEach(p => {
+                const estatusTexto = p.dias_restantes < 0 ? `Vencido por ${Math.abs(p.dias_restantes)} días` : p.dias_restantes === 0 ? 'Vence Hoy' : `En ${p.dias_restantes} días`;
+                const colorEstatus = p.dias_restantes < 0 ? '#ef4444' : p.dias_restantes === 0 ? '#f59e0b' : '#3b82f6';
+                
+                filasHtml += `
+                    <tr style="border-bottom: 1px solid #e2e8f0;">
+                        <td style="padding: 10px;">${p.proveedor}</td>
+                        <td style="padding: 10px; font-weight: bold;">${p.disposicion}</td>
+                        <td style="padding: 10px;">${p.concepto}</td>
+                        <td style="padding: 10px; text-align: center;">${p.fecha}</td>
+                        <td style="padding: 10px; text-align: right; font-weight: bold;">$${Number(p.monto).toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
+                        <td style="padding: 10px; text-align: center; color: ${colorEstatus}; font-weight: bold;">${estatusTexto}</td>
+                    </tr>
+                `;
+            });
+
+            const cuerpoCorreo = `
+                <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 900px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <h2 style="color: #0F6B38; border-bottom: 2px solid #0F6B38; padding-bottom: 10px; margin-top: 0;">Reporte de Vencimientos de Fondeo (Inicio de Sesión)</h2>
+                    <p>Estimada C.P. Trinidad,</p>
+                    <p>Un usuario acaba de acceder al sistema. Este es el resumen en tiempo real de obligaciones pendientes de pago para los próximos 15 días, así como saldos vencidos:</p>
+                    
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px;">
+                        <thead>
+                            <tr style="background-color: #0F6B38; color: white;">
+                                <th style="padding: 12px; text-align: left;">Fondeador</th>
+                                <th style="padding: 12px; text-align: left;">Disp.</th>
+                                <th style="padding: 12px; text-align: left;">Concepto</th>
+                                <th style="padding: 12px; text-align: center;">Fecha Límite</th>
+                                <th style="padding: 12px; text-align: right;">Total Salida</th>
+                                <th style="padding: 12px; text-align: center;">Estatus</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filasHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const opcionesCorreo = {
+                from: '"Sistema de Alertas" <ordazruudvan@gmail.com>',
+                to: 'ordazruudvan@gmail.com', 
+                subject: `Alertas de Pago - ${pagosAlerta.length} Vencimientos Próximos`,
+                html: cuerpoCorreo
+            };
+
+            transportadorSMTP.sendMail(opcionesCorreo, (err, info) => {
+                if (err) return res.status(500).json({ success: false });
+                res.json({ success: true });
+            });
+        } else {
+            res.json({ success: true, message: 'Nada pendiente' });
+        }
+    });
 });
 
 module.exports = router;
