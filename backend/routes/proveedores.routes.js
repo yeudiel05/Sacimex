@@ -190,20 +190,14 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
-    // 1. Obtener gastos operativos del mes actual (SÓLO LO PENDIENTE)
+    // 1. Obtener gastos operativos del mes actual
     const queryOperativos = `
         SELECT 
-            s.id,
-            s.fecha_limite_pago AS fecha_recepcion,
-            cp.descripcion AS tipo_gasto,
+            s.id, s.fecha_limite_pago AS fecha_recepcion, cp.descripcion AS tipo_gasto,
             COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
-            s.descripcion AS concepto,
-            s.monto AS monto,
-            'PENDIENTE' AS estatus_pago,
-            'OPERATIVO' AS origen_dato,
-            MONTH(s.fecha_limite_pago) AS mes_origen,
-            YEAR(s.fecha_limite_pago) AS anio_origen,
-            NULL AS id_contrato
+            s.descripcion AS concepto, s.monto AS monto, 'PENDIENTE' AS estatus_pago,
+            'OPERATIVO' AS origen_dato, MONTH(s.fecha_limite_pago) AS mes_origen,
+            YEAR(s.fecha_limite_pago) AS anio_origen, NULL AS id_contrato
         FROM solicitudes_recursos s
         LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
@@ -212,20 +206,14 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
         AND (MONTH(s.fecha_limite_pago) = ? AND YEAR(s.fecha_limite_pago) = ?)
     `;
 
-    // 2. Obtener gastos arrastrados de meses anteriores (SÓLO LO PENDIENTE)
+    // 2. Obtener gastos arrastrados
     const queryOperativosArrastrados = `
         SELECT 
-            s.id,
-            s.fecha_limite_pago AS fecha_recepcion,
-            cp.descripcion AS tipo_gasto,
+            s.id, s.fecha_limite_pago AS fecha_recepcion, cp.descripcion AS tipo_gasto,
             COALESCE(pprov.nombre_razon_social, 'Sin Proveedor') AS proveedor,
-            s.descripcion AS concepto,
-            s.monto AS monto,
-            'PENDIENTE' AS estatus_pago,
-            'OPERATIVO' AS origen_dato,
-            MONTH(s.fecha_limite_pago) AS mes_origen,
-            YEAR(s.fecha_limite_pago) AS anio_origen,
-            NULL AS id_contrato
+            s.descripcion AS concepto, s.monto AS monto, 'PENDIENTE' AS estatus_pago,
+            'OPERATIVO' AS origen_dato, MONTH(s.fecha_limite_pago) AS mes_origen,
+            YEAR(s.fecha_limite_pago) AS anio_origen, NULL AS id_contrato
         FROM solicitudes_recursos s
         LEFT JOIN conceptos_pago cp ON s.concepto_id = cp.clave
         LEFT JOIN proveedores prov ON s.id_proveedor = prov.id_persona
@@ -247,7 +235,6 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
         })
     ]).then(([operativosActuales, operativosArrastrados]) => {
         
-        // 3. Obtener Fondeadores usando la Bolsa Unificada FIFO
         const queryFondeadores = `
             SELECT 
                 ci.id AS id_contrato, ci.plan_json, ci.pagos_irregulares_json, 
@@ -274,7 +261,6 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
                 let bolsaTotal = parseFloat(contrato.total_pagado) || 0;
                 const tabla = calcularAmortizacionBackend(contrato);
 
-                // Paso FIFO
                 tabla.forEach(pago => {
                     if (pago.pagoTotal > 0.01) {
                         if (bolsaTotal >= pago.pagoTotal - 0.5) {
@@ -288,9 +274,8 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
                     }
                 });
 
-                // Extraemos ÚNICAMENTE lo que NO se ha pagado
                 tabla.forEach(pago => {
-                    if (pago.pagoTotal <= 0.01 || pago.pagado) return; // <-- AQUÍ ESTÁ LA MAGIA, SI ESTÁ PAGADO SE IGNORA
+                    if (pago.pagoTotal <= 0.01 || pago.pagado) return; 
 
                     const mesEvt = pago.fechaPura.getMonth() + 1;
                     const anioEvt = pago.fechaPura.getFullYear();
@@ -316,7 +301,6 @@ router.get('/reportes/lista-gastos', verificarToken, (req, res) => {
                 });
             });
 
-            // Combinar todos los gastos
             const gastosActuales = [...operativosActuales, ...fondeadoresActuales];
             const gastosArrastrados = [...operativosArrastrados, ...fondeadoresArrastrados];
             
@@ -539,28 +523,35 @@ router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (r
 });
 
 // ==========================================
-// CRUD NORMAL DE PROVEEDORES
+// CRUD NORMAL DE PROVEEDORES (CORREGIDO)
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
     const query = `
         SELECT 
             p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
             p.direccion AS ubicacion, p.telefono, p.email_contacto AS email, 
-            pr.categoria, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
+            pr.categoria, pr.numero_cuenta, pr.numero_cuenta AS clabe_bancaria, 
             pr.banco, pr.dias_credito, pr.estatus_activo 
         FROM personas p 
         INNER JOIN proveedores pr ON p.id = pr.id_persona 
-        WHERE p.eliminado = FALSE 
+        WHERE p.eliminado = 0 
         ORDER BY p.id DESC
     `;
     db.query(query, (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al cargar proveedores' });
+        if (err) {
+            console.log("🚨 ERROR SQL EN GET PROVEEDORES:", err.message);
+            return res.status(500).json({ success: false, message: err.message });
+        }
         res.json({ success: true, data: results });
     });
 });
 
 router.post('/', verificarToken, (req, res) => {
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
+    
+    // Unificamos en una sola variable para guardar
+    const cuentaFinal = numero_cuenta || clabe_bancaria || '';
+
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false, message: 'Fallo al iniciar transacción BD.' });
         db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
@@ -568,8 +559,10 @@ router.post('/', verificarToken, (req, res) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, message: `El RFC ya existe o formato inválido.` }));
             const idNuevaPersona = resultPersona.insertId;
             const catLimpia = categoria || 'OTROS';
-            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-            [idNuevaPersona, catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito || 0], (err) => {
+            
+            // Insertamos sin la columna 'cuenta_bancaria'
+            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)', 
+            [idNuevaPersona, catLimpia, cuentaFinal, banco, dias_credito || 0], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
@@ -584,14 +577,19 @@ router.post('/', verificarToken, (req, res) => {
 router.put('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
+    
+    const cuentaFinal = numero_cuenta || clabe_bancaria || '';
+
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false, message: 'Fallo en BD' });
         db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
         [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
             const catLimpia = categoria || 'OTROS';
-            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, cuenta_bancaria=?, banco=?, dias_credito=? WHERE id_persona=?', 
-            [catLimpia, numero_cuenta || '', clabe_bancaria || '', banco, dias_credito, id], (err) => {
+            
+            // Actualizamos sin la columna 'cuenta_bancaria'
+            db.query('UPDATE proveedores SET categoria=?, numero_cuenta=?, banco=?, dias_credito=? WHERE id_persona=?', 
+            [catLimpia, cuentaFinal, banco, dias_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
@@ -619,7 +617,7 @@ router.delete('/:id', verificarToken, (req, res) => {
     db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false });
         const nombreProveedor = results[0].nombre_razon_social;
-        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id], (err) => {
+        db.query('UPDATE personas SET eliminado = 1 WHERE id = ?', [req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
             registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
             res.json({ success: true });
@@ -721,7 +719,7 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
 router.get('/autorizaciones/pendientes', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, u.username as solicitante
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.numero_cuenta AS clabe_bancaria, u.username as solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
         JOIN personas p ON pr.id_persona = p.id
@@ -761,7 +759,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
 
 router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
     const query = `
-        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.cuenta_bancaria AS clabe_bancaria, 
+        SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.numero_cuenta AS clabe_bancaria, 
                u.username as solicitante, u.rol as rol_solicitante
         FROM pagos_a_proveedores pp
         JOIN proveedores pr ON pp.id_proveedor = pr.id_persona
@@ -849,32 +847,75 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// IMPORTAR PROVEEDORES DESDE EXCEL
+// IMPORTAR PROVEEDORES DESDE EXCEL (ESCÁNER MULTI-PESTAÑA)
 // ==========================================
 router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     try {
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0]; 
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        if (data.length === 0) return res.status(400).json({ success: false, message: 'El archivo Excel está vacío' });
+        
+        let rawData = [];
+        let headerIndex = -1;
+        let colNombre = -1;
+        let colRFC = -1;
+        
+        // 1. Escanear TODAS las pestañas del Excel
+        for (const sheetName of workbook.SheetNames) {
+            const tempRawData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+            
+            // Buscar cabeceras en las primeras 20 filas de esta pestaña
+            for (let i = 0; i < Math.min(tempRawData.length, 20); i++) {
+                // Convertir toda la fila a mayúsculas para buscar
+                const rowText = tempRawData[i].map(cell => String(cell).toUpperCase().trim());
+                
+                const nIdx = rowText.findIndex(col => col.includes('NOMBRE') || col.includes('PROVEEDOR') || col.includes('RAZON SOCIAL'));
+                const rIdx = rowText.findIndex(col => col.includes('RFC'));
+
+                // Si encontramos al menos una columna clave, ¡bingo! Es la pestaña correcta.
+                if (nIdx !== -1 || rIdx !== -1) {
+                    headerIndex = i;
+                    colNombre = nIdx !== -1 ? nIdx : 0;
+                    colRFC = rIdx !== -1 ? rIdx : 1;
+                    rawData = tempRawData; 
+                    break;
+                }
+            }
+            if (headerIndex !== -1) break; // Si ya encontró la pestaña, deja de buscar en las demás
+        }
+
+        if (headerIndex === -1) {
+            return res.status(400).json({ success: false, message: 'Revisé todas las pestañas y no encontré ninguna columna llamada NOMBRE o RFC.' });
+        }
 
         let procesados = 0, errores = 0;
-        for (const row of data) {
-            const rfc_original = row['RFC'] ? row['RFC'].toString().trim().toUpperCase() : null;
-            const nombre = row['NOMBRE'] ? row['NOMBRE'].toString().trim() : null;
-            if (!rfc_original || !nombre) { errores++; continue; }
-            let tipo_persona = rfc_original.length === 13 ? 'FISICA' : 'MORAL';
+
+        // 2. Empezar a guardar desde la fila siguiente a los encabezados
+        for (let i = headerIndex + 1; i < rawData.length; i++) {
+            const row = rawData[i];
+            if (!row || row.length === 0) continue;
+
+            const nombre = row[colNombre] ? String(row[colNombre]).trim() : null;
+            const rfc_original = (colRFC !== -1 && row[colRFC]) ? String(row[colRFC]).trim().toUpperCase() : null;
+
+            // Si la fila está en blanco o no tiene nombre, se la brinca
+            if (!nombre) { 
+                errores++; 
+                continue; 
+            }
+            
+            let tipo_persona = 'MORAL';
+            if (rfc_original && rfc_original.length === 13) tipo_persona = 'FISICA';
 
             try {
                 await new Promise((resolve, reject) => {
                     db.beginTransaction(err => {
                         if (err) return reject(err);
                         db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)', 
-                        [tipo_persona, nombre, rfc_original, '', '', ''], (err, resultPersona) => {
+                        [tipo_persona, nombre, rfc_original || '', '', '', ''], (err, resultPersona) => {
                             if (err) return db.rollback(() => reject(err));
-                            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, cuenta_bancaria, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, ?, 1)', 
-                            [resultPersona.insertId, 'OTROS', '', '', '', 0], (err) => {
+                            
+                            db.query('INSERT INTO proveedores (id_persona, categoria, numero_cuenta, banco, dias_credito, estatus_activo) VALUES (?, ?, ?, ?, ?, 1)', 
+                            [resultPersona.insertId, 'OTROS', '', '', 0], (err) => {
                                 if (err) return db.rollback(() => reject(err));
                                 db.commit(err => { if (err) return db.rollback(() => reject(err)); resolve(); });
                             });
@@ -882,11 +923,17 @@ router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), as
                     });
                 });
                 procesados++;
-            } catch (err) { errores++; }
+            } catch (err) { 
+                // Error de RFC duplicado
+                errores++; 
+            }
         }
-        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} con errores o duplicados.`);
-        res.json({ success: true, message: `Proceso completado. Proveedores importados: ${procesados}. Errores/Duplicados omitidos: ${errores}.` });
-    } catch (error) { res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' }); }
+        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} omitidos.`);
+        res.json({ success: true, message: `¡Se encontró la pestaña correcta! Proveedores importados: ${procesados}. Filas vacías o duplicados omitidos: ${errores}.` });
+    } catch (error) { 
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Ocurrió un error al intentar leer el archivo Excel.' }); 
+    }
 });
 
 module.exports = router;

@@ -252,7 +252,18 @@ function Inversores() {
         } catch(e) { console.error("Error al obtener pagos próximos", e); }
     };
 
-    useEffect(() => { fetchInversores(); fetchTasasActivas(); fetchPagosProximos(); }, []);
+    const [bancosDb, setBancosDb] = useState([]);
+
+    const fetchBancos = async () => {
+        const headers = getAuthHeaders(); if (!headers) return;
+        try {
+            const res = await fetch('http://localhost:3001/api/configuracion/bancos', { headers });
+            const data = await res.json();
+            if (data.success) setBancosDb(data.data.filter(b => b.estatus_activo === 1));
+        } catch (error) { console.error(error); }
+    };
+
+    useEffect(() => { fetchInversores(); fetchTasasActivas(); fetchPagosProximos(); fetchBancos(); }, []);
 
     // --- EFECTO: CALCULAR CUOTAS E INYECCIONES PENDIENTES (BOLSA UNIFICADA) ---
     useEffect(() => {
@@ -1505,7 +1516,12 @@ function Inversores() {
                                 <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
                                     <div className="form-group">
                                         <label style={labelStyle}>Banco del Cliente <span style={astStyle}>*</span></label>
-                                        <input type="text" required value={formData.banco} onChange={e => setFormData({ ...formData, banco: e.target.value })} style={inputStyle} />
+                                        <select required value={formData.banco} onChange={e => setFormData({ ...formData, banco: e.target.value })} style={inputStyle}>
+                                            <option value="">Selecciona un banco...</option>
+                                            {bancosDb.map(b => (
+                                                <option key={b.id} value={b.nombre}>{b.nombre}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div className="form-group">
                                         <label style={labelStyle}>Cuenta Bancaria / CLABE <span style={astStyle}>*</span></label>

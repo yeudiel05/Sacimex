@@ -25,9 +25,9 @@ const upload = multer({ storage });
 router.get('/', verificarToken, (req, res) => {
     const query = `
         SELECT u.id as id_usuario, u.username, u.rol, u.estatus_activo, 
-               u.puede_solicitar, u.nivel_autorizacion, u.ruta_firma_png,
+               u.puede_solicitar, u.nivel_autorizacion, u.ruta_firma_png AS firma,
                e.puesto, e.departamento, e.unidad_negocio, 
-               p.id as id_persona, p.nombre_razon_social AS nombre, p.email_contacto AS email, p.telefono, p.rfc
+               p.id as id_persona, p.nombre_razon_social AS nombre, p.email_contacto AS email, p.telefono
         FROM usuarios u
         INNER JOIN empleados e ON u.id_empleado = e.id_persona
         INNER JOIN personas p ON e.id_persona = p.id
@@ -40,9 +40,10 @@ router.get('/', verificarToken, (req, res) => {
     });
 });
 
-// ⚠️ Usamos upload.single('firma') para atrapar la imagen en la creación
+// Usamos upload.single('firma') para atrapar la imagen en la creación
 router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
-    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, puede_solicitar, nivel_autorizacion } = req.body;
+    // Ya no extraemos RFC ni fechas del body
+    const { nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, puede_solicitar, nivel_autorizacion } = req.body;
     
     // Si se subió un archivo, armamos la ruta
     const rutaFirma = req.file ? `uploads/firmas/${req.file.filename}` : null;
@@ -54,16 +55,18 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
         db.beginTransaction(err => {
             if (err) return res.status(500).json({ success: false, message: 'Error de servidor' });
 
-            db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, telefono, email_contacto) VALUES ("FISICA", ?, ?, ?, ?)',
-                [nombre, rfc, telefono, email], (err, resultPersona) => {
+            // Inserción limpia en Personas sin RFC ni Fechas
+            db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, telefono, email_contacto) VALUES ("FISICA", ?, ?, ?)',
+                [nombre, telefono, email], (err, resultPersona) => {
                     
                     if (err) {
-                        console.error("❌ Error en Personas:", err.message);
+                        console.error(" Error en Personas:", err.message);
                         return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Personas): ' + err.message }));
                     }
 
                     const idPersona = resultPersona.insertId;
 
+                    // Inserción en Empleados (dejamos CURDATE() por si tu BD exige una fecha de registro por defecto)
                     db.query('INSERT INTO empleados (id_persona, puesto, departamento, unidad_negocio, fecha_ingreso) VALUES (?, ?, ?, ?, CURDATE())',
                         [idPersona, puesto, departamento, unidad_negocio], (err) => {
                             
@@ -99,7 +102,8 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
 // ⚠️ Usamos upload.single('firma') para atrapar la imagen en la edición
 router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, res) => {
     const { id_usuario } = req.params;
-    const { nombre, rfc, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona, puede_solicitar, nivel_autorizacion } = req.body;
+    // Eliminamos RFC de la extracción
+    const { nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona, puede_solicitar, nivel_autorizacion } = req.body;
 
     // Si se subió un nuevo archivo, actualizamos la firma, si no, se queda la que ya estaba en la BD
     const rutaFirmaNueva = req.file ? `uploads/firmas/${req.file.filename}` : null;
@@ -113,8 +117,10 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
 
         db.beginTransaction(err => {
             if (err) return res.status(500).json({ success: false });
-            db.query('UPDATE personas SET nombre_razon_social=?, rfc=?, telefono=?, email_contacto=? WHERE id=?',
-                [nombre, rfc, telefono, email, id_persona], (err) => {
+            
+            // Actualización limpia en Personas
+            db.query('UPDATE personas SET nombre_razon_social=?, telefono=?, email_contacto=? WHERE id=?',
+                [nombre, telefono, email, id_persona], (err) => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Personas: ' + err.message }));
 
                     db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=? WHERE id_persona=?',
@@ -169,6 +175,53 @@ router.delete('/:id_persona', verificarToken, (req, res) => {
     db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id_persona], (err) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true });
+    });
+});
+
+// ==========================================
+// APIS DE CATÁLOGO DE PUESTOS
+// ==========================================
+
+router.get('/puestos', verificarToken, (req, res) => {
+    db.query('SELECT * FROM catalogo_puestos ORDER BY nombre ASC', (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: results });
+    });
+});
+
+router.post('/puestos', verificarToken, (req, res) => {
+    const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
+    db.query('INSERT INTO catalogo_puestos (nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default) VALUES (?, ?, ?, ?, ?)', 
+    [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'El puesto ya existe.' });
+        registrarBitacora(req.usuario.id, 'CREAR_PUESTO', `Agregó el puesto: ${nombre}`);
+        res.json({ success: true, message: 'Puesto agregado exitosamente.' });
+    });
+});
+
+router.put('/puestos/:id', verificarToken, (req, res) => {
+    const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
+    db.query('UPDATE catalogo_puestos SET nombre = ?, departamento_default = ?, nivel_default = ?, rol_default = ?, puede_solicitar_default = ? WHERE id = ?', 
+    [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        registrarBitacora(req.usuario.id, 'EDITAR_PUESTO', `Modificó el puesto ID ${req.params.id} a: ${nombre}`);
+        res.json({ success: true, message: 'Puesto actualizado.' });
+    });
+});
+
+router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
+    const { estatus_activo } = req.body;
+    db.query('UPDATE catalogo_puestos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true });
+    });
+});
+
+router.delete('/puestos/:id', verificarToken, (req, res) => {
+    db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto está en uso.' });
+        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Eliminó un puesto (ID: ${req.params.id})`);
+        res.json({ success: true, message: 'Puesto eliminado.' });
     });
 });
 

@@ -80,6 +80,27 @@ function Proveedores() {
     } catch (error) { console.error("Error al cargar datos:", error); }
   };
 
+  const [bancosDb, setBancosDb] = useState([]);
+  const [categoriasDb, setCategoriasDb] = useState([]);
+
+  const fetchBancos = async () => {
+      const headers = getAuthHeaders(); if (!headers) return;
+      try {
+          const res = await fetch('http://localhost:3001/api/configuracion/bancos', { headers });
+          const data = await res.json();
+          if (data.success) setBancosDb(data.data.filter(b => b.estatus_activo === 1));
+      } catch (error) { console.error(error); }
+  };
+
+  const fetchCategorias = async () => {
+  const headers = getAuthHeaders(); if (!headers) return;
+  try {
+      const res = await fetch('http://localhost:3001/api/configuracion/categorias', { headers });
+      const data = await res.json();
+      if (data.success) setCategoriasDb(data.data);
+  } catch (error) { console.error(error); }
+};
+
   const fetchReporteMaestro = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
@@ -99,7 +120,6 @@ function Proveedores() {
     }
   };
 
-  // Función para traer lista de gastos filtrada por mes
   const fetchListaGastos = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
@@ -129,7 +149,11 @@ function Proveedores() {
       }
   }, [mesFiltro, anioFiltro]);
 
-  useEffect(() => { fetchProveedores(); }, []);
+  useEffect(() => { 
+      fetchProveedores(); 
+      fetchBancos();
+      fetchCategorias(); 
+  }, []);
 
   const handlePagarFondeador = async (e) => {
       e.preventDefault();
@@ -1191,18 +1215,15 @@ function Proveedores() {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Categoria de Servicio</label>
-                    <select className="custom-select" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})}>
-                      <option value="EQUIPO_TRANSPORTE">Equipo de Transporte</option>
-                      <option value="LIMPIEZA">Limpieza</option>
-                      <option value="SEGUROS_VEHICULOS">Seguros de Vehiculos</option>
-                      <option value="SEGUROS_EMPRESARIALES">Seguros Empresariales</option>
-                      <option value="INTERESES_CREDITOS">Intereses de Creditos</option>
-                      <option value="MANTENIMIENTO">Mantenimiento</option>
-                      <option value="ACCESORIOS_COMPUTO">Accesorios de Computo</option>
-                      <option value="EQUIPO_COMPUTO">Equipo de Computo</option>
-                      <option value="ADQUISICION_MOBILIARIO">Adquisicion de Mobiliario</option>
-                      <option value="INSUMOS">Insumos y Papeleria</option>
-                      <option value="OTROS">Otro General</option>
+                    <select 
+                        className="custom-select" 
+                        value={formData.categoria} 
+                        onChange={(e) => setFormData({...formData, categoria: e.target.value})}
+                    >
+                        <option value="">Seleccione una categoría...</option>
+                        {categoriasDb.map(cat => (
+                            <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>
+                        ))}
                     </select>
                   </div>
                   <div className="form-group">
@@ -1220,18 +1241,10 @@ function Proveedores() {
                   <div className="form-group">
                     <label>Banco Destino</label>
                     <select className="custom-select" value={formData.banco} onChange={(e) => setFormData({...formData, banco: e.target.value})}>
-                      <option value="">Selecciona un banco...</option>
-                      <option value="BBVA">BBVA</option>
-                      <option value="Santander">Santander</option>
-                      <option value="Banamex">Citibanamex</option>
-                      <option value="Banorte">Banorte</option>
-                      <option value="HSBC">HSBC</option>
-                      <option value="Scotiabank">Scotiabank</option>
-                      <option value="Inbursa">Inbursa</option>
-                      <option value="Banco Azteca">Banco Azteca</option>
-                      <option value="Bancoppel">Bancoppel</option>
-                      <option value="Afirme">Afirme</option>
-                      <option value="Otro">Otro</option>
+                        <option value="">Selecciona un banco...</option>
+                        {bancosDb.map(b => (
+                            <option key={b.id} value={b.nombre}>{b.nombre}</option>
+                        ))}
                     </select>
                   </div>
                   <div className="form-group">

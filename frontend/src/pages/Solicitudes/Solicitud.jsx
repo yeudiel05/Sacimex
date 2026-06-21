@@ -3,33 +3,10 @@ import api from '../../api/axios';
 import { useNavigate } from 'react-router-dom';
 import './Solicitud.css';
 
-// ─── Catálogos ────────────────────────────────────────────────────────
-const CONCEPTOS = [
-    { id: 'C-01', label: 'C-01: ADQUISICIÓN DE ACTIVO FIJO - Cómputo (Corporativo)' },
-    { id: 'C-02', label: 'C-02: ADQUISICIÓN DE ACTIVO FIJO - Transporte (Corporativo)' },
-    { id: 'C-03', label: 'C-03: ADQUISICIÓN DE ACTIVO FIJO - Mobiliario (Corporativo)' },
-    { id: 'C-04', label: 'C-04: ADQUISICIÓN DE ACTIVO FIJO Otros - (Corporativo)' },
-    { id: 'C-05', label: 'C-05: APOYO FUNERARIO' },
-    { id: 'C-06', label: 'C-06: PAGO DE SERVICIOS EMPRESARIALES (Personas Morales)' },
-    { id: 'C-07', label: 'C-07: PAGO SERVICIOS, COMPRAS Y HONORARIOS (Personas físicas)' },
-    { id: 'C-08', label: 'C-08: PAGO DE SERVICIOS PÚBLICOS' },
-    { id: 'C-09', label: 'C-09: IMPUESTOS, DERECHOS, PRODUCTOS Y APROVECHAMIENTOS' },
-    { id: 'C-10', label: 'C-10: PRÉSTAMOS BANCARIOS Y DE OTROS ORGANISMOS' },
-    { id: 'C-11', label: 'C-11: RENTA DE BIENES MUEBLES E INMUEBLES' },
-    { id: 'C-12', label: 'C-12: COMBUSTIBLE' },
-    { id: 'C-13', label: 'C-13: NOMINA VIA PRESTADORA DE SERVICIOS' },
-    { id: 'C-14', label: 'C-14: OTROS ACREEDORES' },
-    { id: 'C-15', label: 'C-15: APOYOS A LA LOCALIDAD' },
-    { id: 'C-16', label: 'C-16: FONDO FIJO PARA GASTOS MENORES' },
-    { id: 'C-17', label: 'C-17: GASTOS A COMPROBAR' },
-    { id: 'C-18', label: 'C-18: OTROS GASTOS' },
-    { id: 'C-19', label: 'C-19: NOMINA REGISTRO PATRONAL SACIMEX' },
-];
-
 // ─── Pasos del flujo ──────────────────────────────────────────────────
 const FLUJO_PASOS = [
     { paso: '01', titulo: 'Envío', desc: 'Tu solicitud queda en revisión', color: '#10d440', bg: '#f0fdf4' },
-    { paso: '02', titulo: 'Revisión', desc: 'El responsable evalúa la solicitud', color: '#d97706', bg: '#fffbeb' },
+    { paso: '02', titulo: 'Revisión / VoBo', desc: 'El responsable evalúa la solicitud', color: '#d97706', bg: '#fffbeb' },
     { paso: '03', titulo: 'Autorización', desc: 'Aprobación final del monto', color: '#2563eb', bg: '#eff6ff' },
     { paso: '04', titulo: 'Pago', desc: 'Dispersión a la cuenta destino', color: '#7c3aed', bg: '#f5f3ff' },
 ];
@@ -109,6 +86,9 @@ const Solicitud = () => {
     const [submitted, setSubmitted] = useState(false);
     const [montoDisplay, setMontoDisplay] = useState('');
     
+    // Estado para guardar los conceptos traídos de la base de datos
+    const [conceptosDB, setConceptosDB] = useState([]);
+    
     // Estado para guardar los proveedores traídos de la base de datos
     const [proveedoresDB, setProveedoresDB] = useState([]);
     const [proveedoresFiltrados, setProveedoresFiltrados] = useState([]);
@@ -128,16 +108,26 @@ const Solicitud = () => {
         fecha_limite_pago: '',
     });
 
-    // ─── Efecto para cargar proveedores y unidades al abrir la pantalla ───
+    // ─── Efecto para cargar conceptos, proveedores y unidades al abrir la pantalla ───
     useEffect(() => {
         const fetchData = async () => {
             const token = localStorage.getItem('token');
+            const config = { headers: { Authorization: `Bearer ${token}` } };
             
+            // Cargar Conceptos desde BD
+            try {
+                const conceptosRes = await api.get('/configuracion/conceptos', config);
+                if (conceptosRes.data.success) {
+                    // Filtramos para mostrar solo los activos
+                    setConceptosDB(conceptosRes.data.data.filter(c => c.estatus_activo === 1 || c.estatus_activo === true));
+                }
+            } catch (error) {
+                console.error("No se pudieron cargar los conceptos", error);
+            }
+
             // Cargar proveedores
             try {
-                const proveedoresRes = await api.get('/proveedores', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+                const proveedoresRes = await api.get('/proveedores', config);
                 if (proveedoresRes.data.success) {
                     setProveedoresDB(proveedoresRes.data.data);
                     setProveedoresFiltrados(proveedoresRes.data.data);
@@ -146,10 +136,9 @@ const Solicitud = () => {
                 console.error("No se pudieron cargar los proveedores", error);
             }
             
+            // Cargar unidades de negocio
             try {
-                const unidadesRes = await api.get('/unidades', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+                const unidadesRes = await api.get('/unidades', config);
                 if (unidadesRes.data.success) {
                     setUnidadesNegocio(unidadesRes.data.data);
                 }
@@ -198,9 +187,18 @@ const Solicitud = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        
+        // Detectar si el concepto seleccionado requiere Visto Bueno
+        const conceptoElegido = conceptosDB.find((c) => String(c.id) === String(formData.concepto_id));
+        const payload = { 
+            ...formData, 
+            requiere_vobo: conceptoElegido?.requiere_vobo ? 1 : 0,
+            area_visto_bueno: conceptoElegido?.area_visto_bueno || null
+        };
+
         try {
             const token = localStorage.getItem('token');
-            const response = await api.post('/solicitudes/crear', formData, {
+            const response = await api.post('/solicitudes/crear', payload, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (response.data.success) {
@@ -214,7 +212,7 @@ const Solicitud = () => {
         }
     };
 
-    const conceptoSeleccionado = CONCEPTOS.find((c) => c.id === formData.concepto_id);
+    const conceptoSeleccionado = conceptosDB.find((c) => String(c.id) === String(formData.concepto_id));
     const unidadSeleccionada = unidadesNegocio.find((u) => u.nombre === formData.unidad_negocio);
     const proveedorSeleccionado = proveedoresDB.find((p) => String(p.id_persona || p.id) === String(formData.id_proveedor));
 
@@ -255,10 +253,15 @@ const Solicitud = () => {
                                 <label className="form-label">Concepto de Pago</label>
                                 <select name="concepto_id" className="form-select" value={formData.concepto_id} onChange={handleChange} required>
                                     <option value="">Seleccione...</option>
-                                    {CONCEPTOS.map((item) => (
-                                        <option key={item.id} value={item.id}>{item.label}</option>
+                                    {conceptosDB.map((item) => (
+                                        <option key={item.id} value={item.id}>{item.clave} - {item.descripcion}</option>
                                     ))}
                                 </select>
+                                {conceptoSeleccionado?.requiere_vobo === 1 && (
+                                    <span style={{ fontSize: '11px', color: '#d97706', display: 'block', marginTop: '4px', fontWeight: 'bold' }}>
+                                        ⚠️ Requiere Visto Bueno de: {conceptoSeleccionado.area_visto_bueno}
+                                    </span>
+                                )}
                             </div>
                             
                             {/* DINÁMICO DE UNIDADES DE NEGOCIO */}
@@ -538,7 +541,7 @@ const Solicitud = () => {
                         <div className="resumen-row">
                             <div className="resumen-row-label">Concepto</div>
                             {conceptoSeleccionado
-                                ? <div className="resumen-row-value">{conceptoSeleccionado.label}</div>
+                                ? <div className="resumen-row-value">{conceptoSeleccionado.clave} - {conceptoSeleccionado.descripcion}</div>
                                 : <div className="resumen-row-empty">Sin seleccionar</div>
                             }
                         </div>
