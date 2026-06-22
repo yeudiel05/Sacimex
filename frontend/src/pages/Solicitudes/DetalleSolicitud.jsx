@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import './DetalleSolicitud.css';
 
@@ -16,8 +15,9 @@ const formatFecha    = (d) => d ? new Date(d).toLocaleDateString('es-MX', { day:
 
 const getBadge = (estatus) => {
     const map = {
-        PENDIENTE:        { cls: 'badge-warning', label: 'Pendiente revisión' },
-        REVISION:         { cls: 'badge-warning', label: 'En revisión' },
+        PENDIENTE_VOBO:   { cls: 'badge-warning', label: 'Requiere VoBo' },
+        PENDIENTE:        { cls: 'badge-warning', label: 'Pendiente revision' },
+        REVISION:         { cls: 'badge-warning', label: 'En revision' },
         AUTORIZADO_1:     { cls: 'badge-info',    label: 'Autorizado nivel 1' },
         AUTORIZADO_2:     { cls: 'badge-info',    label: 'Autorizado nivel 2' },
         AUTORIZADO_FINAL: { cls: 'badge-success', label: 'Totalmente autorizado' },
@@ -28,12 +28,13 @@ const getBadge = (estatus) => {
     return <span className={`status-badge ${b.cls}`}>{b.label}</span>;
 };
 
-// ── LÓGICA DE 3 NIVELES SINCRONIZADA CON BACKEND ──
-function obtenerRolEsperado(monto, nivel) {
-    monto = parseFloat(monto);
-    if (nivel === 0) return 'REVISOR';
-    if (nivel === 1) return 'AUTORIZADOR_1';
-    if (nivel === 2 && monto > 100000) return 'AUTORIZADOR_2';
+function obtenerRolEsperado(sol) {
+    if (!sol) return null;
+    const m = parseFloat(sol.monto) || 0;
+    if (sol.nivel_actual === -1) return `VISTO BUENO (${sol.area_visto_bueno || 'Area Asignada'})`;
+    if (sol.nivel_actual === 0) return 'REVISOR';
+    if (sol.nivel_actual === 1) return 'AUTORIZADOR_1';
+    if (sol.nivel_actual === 2 && m > 30000) return 'AUTORIZADOR_2';
     return null;
 }
 
@@ -47,7 +48,6 @@ const TimelineItem = ({ firma, esUltimo }) => (
                 <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>{firma.aprobador}</span>
                 <span className="timeline-date">{formatFecha(firma.fecha_firma)}</span>
             </div>
-            {/* Ahora mostramos la Etapa (Ej. AUTORIZADOR_1) para que sea súper claro */}
             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                 {firma.aprobador_puesto} · {firma.etapa_firma}
             </div>
@@ -71,22 +71,29 @@ const DetalleSolicitud = () => {
     const [msgExito, setMsgExito]         = useState('');
 
     const miRol    = localStorage.getItem('rol')    || '';
-    
-    // BASE URL DEL BACKEND
     const API_URL = 'http://localhost:3001/api';
 
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('token');
+        if (!token) { navigate('/'); return null; }
+        return { 'Authorization': `Bearer ${token}` };
+    };
+
     const fetchDetalle = async () => {
+        const headers = getAuthHeaders(); if (!headers) return;
         try {
-            const token = localStorage.getItem('token');
-            const { data } = await axios.get(`${API_URL}/solicitudes/${id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await fetch(`${API_URL}/solicitudes/${id}`, { headers });
+            const data = await response.json();
+            
             if (data.success) {
                 setSolicitud(data.solicitud);
                 setFirmas(data.firmas || []);
+            } else {
+                setSolicitud(null);
             }
         } catch (e) {
             console.error(e);
+            setSolicitud(null);
         } finally {
             setLoading(false);
         }
@@ -95,15 +102,20 @@ const DetalleSolicitud = () => {
     useEffect(() => { fetchDetalle(); }, [id]);
 
     const handleAutorizar = async () => {
-        const comentario = window.prompt('Comentario para la autorización (opcional):');
+        const comentario = window.prompt('Comentario para la autorizacion (opcional):');
         if (comentario === null) return; 
+        
+        const headers = getAuthHeaders(); if (!headers) return;
         setProcesando(true);
+        
         try {
-            const token = localStorage.getItem('token');
-            const { data } = await axios.post(`${API_URL}/solicitudes/autorizar/${id}`,
-                { comentario: comentario || 'Aprobado' },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const response = await fetch(`${API_URL}/solicitudes/autorizar/${id}`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comentario: comentario || 'Aprobado' })
+            });
+            const data = await response.json();
+            
             if (data.success) {
                 setMsgExito(`✓ ${data.message} → ${data.nuevo_estatus}`);
                 fetchDetalle();
@@ -111,7 +123,7 @@ const DetalleSolicitud = () => {
                 alert(data.message);
             }
         } catch (e) {
-            alert(e.response?.data?.message || 'Error al autorizar');
+            alert('Error al autorizar');
         } finally {
             setProcesando(false);
         }
@@ -120,17 +132,26 @@ const DetalleSolicitud = () => {
     const handleRechazar = async () => {
         const motivo = window.prompt('Motivo del rechazo (obligatorio):');
         if (!motivo || !motivo.trim()) return;
+        
+        const headers = getAuthHeaders(); if (!headers) return;
         setProcesando(true);
+        
         try {
-            const token = localStorage.getItem('token');
-            const { data } = await axios.post(`${API_URL}/solicitudes/rechazar/${id}`,
-                { motivo },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            if (data.success) { setMsgExito('Solicitud rechazada.'); fetchDetalle(); }
-            else alert(data.message);
+            const response = await fetch(`${API_URL}/solicitudes/rechazar/${id}`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ motivo })
+            });
+            const data = await response.json();
+            
+            if (data.success) { 
+                setMsgExito('Solicitud rechazada.'); 
+                fetchDetalle(); 
+            } else {
+                alert(data.message);
+            }
         } catch (e) {
-            alert(e.response?.data?.message || 'Error al rechazar');
+            alert('Error al rechazar');
         } finally {
             setProcesando(false);
         }
@@ -138,16 +159,28 @@ const DetalleSolicitud = () => {
 
     const handleSubirComprobante = async () => {
         if (!fileComprobante) return alert('Selecciona un archivo primero.');
+        
+        const headers = getAuthHeaders(); if (!headers) return;
         setSubiendoFile(true);
+        
         try {
-            const token = localStorage.getItem('token');
-            const form  = new FormData();
+            const form = new FormData();
             form.append('comprobante', fileComprobante);
-            const { data } = await axios.post(`${API_URL}/solicitudes/comprobante/${id}`, form, {
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+            
+            const response = await fetch(`${API_URL}/solicitudes/comprobante/${id}`, {
+                method: 'POST',
+                headers: { 'Authorization': headers.Authorization },
+                body: form
             });
-            if (data.success) { setMsgExito('Comprobante subido y solicitud marcada como PAGADA.'); setFile(null); fetchDetalle(); }
-            else alert(data.message);
+            const data = await response.json();
+            
+            if (data.success) { 
+                setMsgExito('Comprobante subido y solicitud marcada como PAGADA.'); 
+                setFile(null); 
+                fetchDetalle(); 
+            } else {
+                alert(data.message);
+            }
         } catch (e) {
             alert('Error al subir comprobante');
         } finally {
@@ -156,22 +189,15 @@ const DetalleSolicitud = () => {
     };
 
     const handleVerPDF = async () => {
+        const headers = getAuthHeaders(); if (!headers) return;
+        
         try {
-            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_URL}/solicitudes/${id}/pdf`, { headers });
+            if (!response.ok) throw new Error('Network response was not ok');
             
-            // 1. Pedimos el PDF usando axios para poder enviar el token
-            // responseType: 'blob' es vital para decirle que es un archivo, no texto
-            const response = await axios.get(`${API_URL}/solicitudes/${id}/pdf`, {
-                headers: { Authorization: `Bearer ${token}` },
-                responseType: 'blob' 
-            });
-
-            // 2. Creamos un archivo temporal en la memoria del navegador
-            const fileURL = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
-            
-            // 3. Abrimos ese archivo temporal en una pestaña nueva
+            const blob = await response.blob();
+            const fileURL = window.URL.createObjectURL(blob);
             window.open(fileURL, '_blank');
-
         } catch (error) {
             console.error('Error al descargar el PDF:', error);
             alert('No se pudo generar el documento PDF.');
@@ -181,9 +207,9 @@ const DetalleSolicitud = () => {
     if (loading)   return <div className="detalle-container" style={{padding:'48px', textAlign:'center', color:'#64748b'}}>Cargando...</div>;
     if (!solicitud) return <div className="detalle-container" style={{padding:'48px', textAlign:'center', color:'#ef4444'}}>Solicitud no encontrada.</div>;
 
-    const rolEsperado    = obtenerRolEsperado(solicitud.monto, solicitud.nivel_actual);
+    const rolEsperado    = obtenerRolEsperado(solicitud);
     const yaTerminada    = ['PAGADO','RECHAZADO','AUTORIZADO_FINAL'].includes(solicitud.estatus);
-    const puedeAutorizar = !yaTerminada && rolEsperado && (miRol === 'ADMIN' || miRol === rolEsperado);
+    const puedeAutorizar = (solicitud.me_toca_firmar === true || solicitud.me_toca_firmar === 1) && !yaTerminada;
     const esTesorera     = miRol === 'TESORERIA' || miRol === 'ADMIN';
     const puedeSubirComp = esTesorera && solicitud.estatus === 'AUTORIZADO_FINAL' && !solicitud.comprobante_pago_path;
 
@@ -230,11 +256,11 @@ const DetalleSolicitud = () => {
                 <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
                     <div className="detalle-card">
                         <div className="detalle-card-header">
-                            <h3>Información General</h3>
+                            <h3>Informacion General</h3>
                         </div>
                         <div className="info-grid">
                             {[
-                                ['Concepto de Pago',    solicitud.concepto_id],
+                                ['Concepto de Pago',    solicitud.concepto_desc || solicitud.concepto_id],
                                 ['Unidad de Negocio',   solicitud.unidad_negocio],
                                 ['Fecha de Solicitud',  formatFecha(solicitud.fecha_solicitud)],
                                 ['Solicitante',         solicitud.solicitante_nombre],
@@ -246,7 +272,6 @@ const DetalleSolicitud = () => {
                             ))}
                         </div>
                         
-                        {/* Mostrar Proveedor Real si Existe en la Base de Datos */}
                         {solicitud.proveedor_nombre && (
                             <div style={{marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0'}}>
                                 <h4 style={{fontSize: '12px', color: '#64748b', marginBottom: '8px'}}>Datos del Proveedor / Beneficiario</h4>
@@ -265,25 +290,25 @@ const DetalleSolicitud = () => {
                     </div>
 
                     <div className="detalle-card">
-                        <div className="detalle-card-header"><h3>Justificación</h3></div>
+                        <div className="detalle-card-header"><h3>Justificacion</h3></div>
                         <div className="desc-block">
-                            <p>{solicitud.descripcion || 'Sin descripción.'}</p>
+                            <p>{solicitud.descripcion || 'Sin descripcion.'}</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="detalle-card" style={{ alignSelf:'start' }}>
                     <div className="detalle-card-header">
-                        <h3>Tracker de Aprobación</h3>
+                        <h3>Tracker de Aprobacion</h3>
                         <span style={{ fontSize:'11px', color:'#64748b' }}>
-                            Nivel {solicitud.nivel_actual}/{solicitud.niveles_requeridos || '?'}
+                            {solicitud.nivel_actual === -1 ? 'Fase Previa: VoBo' : `Nivel ${solicitud.nivel_actual}/${solicitud.niveles_requeridos || '?'}`}
                         </span>
                     </div>
 
                     {solicitud.niveles_requeridos > 0 && (
                         <div style={{ margin:'4px 0 20px', backgroundColor:'#e2e8f0', borderRadius:'10px', height:'6px' }}>
                             <div style={{
-                                width: `${Math.min(100, (solicitud.nivel_actual / solicitud.niveles_requeridos) * 100)}%`,
+                                width: `${Math.min(100, ((Math.max(solicitud.nivel_actual, 0)) / solicitud.niveles_requeridos) * 100)}%`,
                                 backgroundColor: solicitud.estatus === 'RECHAZADO' ? '#ef4444' : '#10d440',
                                 height:'100%', borderRadius:'10px',
                                 transition:'width 0.5s ease'
@@ -294,8 +319,8 @@ const DetalleSolicitud = () => {
                     {firmas.length === 0 ? (
                         <div style={{ textAlign:'center', padding:'40px 0', color:'#64748b' }}>
                             <IconClock />
-                            <p style={{ margin:'12px 0 4px', fontSize:'14px', fontWeight:'600' }}>Sin firmas aún</p>
-                            <span style={{ fontSize:'12px', color:'#94a3b8' }}>Esperando revisión inicial</span>
+                            <p style={{ margin:'12px 0 4px', fontSize:'14px', fontWeight:'600' }}>Sin firmas aun</p>
+                            <span style={{ fontSize:'12px', color:'#94a3b8' }}>Esperando validacion inicial</span>
                         </div>
                     ) : (
                         <div className="timeline">
@@ -311,7 +336,7 @@ const DetalleSolicitud = () => {
                             backgroundColor:'#fffbeb', border:'1px solid #fde68a',
                             borderRadius:'8px', fontSize:'12px', color:'#92400e'
                         }}>
-                            <strong>Próximo paso:</strong><br/>
+                            <strong>Proximo paso:</strong><br/>
                             Esperando firma de <strong>{rolEsperado}</strong>
                             {rolEsperado === 'REVISOR'       && ' (Asistente Contable)'}
                             {rolEsperado === 'AUTORIZADOR_1' && ' (Gerente)'}
@@ -322,7 +347,7 @@ const DetalleSolicitud = () => {
                     {solicitud.estatus === 'AUTORIZADO_FINAL' && !solicitud.comprobante_pago_path && (
                         <div style={{ marginTop:'16px', padding:'12px 16px', backgroundColor:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'8px', fontSize:'12px', color:'#1e40af' }}>
                             <strong>✓ Totalmente autorizado.</strong><br/>
-                            Esperando que Tesorería suba el comprobante de pago.
+                            Esperando que Tesoreria suba el comprobante de pago.
                         </div>
                     )}
 

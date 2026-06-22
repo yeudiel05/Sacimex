@@ -259,7 +259,7 @@ const Solicitud = () => {
                                 </select>
                                 {conceptoSeleccionado?.requiere_vobo === 1 && (
                                     <span style={{ fontSize: '11px', color: '#d97706', display: 'block', marginTop: '4px', fontWeight: 'bold' }}>
-                                        ⚠️ Requiere Visto Bueno de: {conceptoSeleccionado.area_visto_bueno}
+                                         Requiere Visto Bueno de: {conceptoSeleccionado.area_visto_bueno}
                                     </span>
                                 )}
                             </div>
@@ -453,11 +453,11 @@ const Solicitud = () => {
                             <div className="form-group">
                                 <label className="form-label">Monto Solicitado</label>
                                 <div className="input-monto-wrapper">
-                                    <span className="input-monto-prefix">$</span>
+                                    <span className="input-monto-prefix">$   </span>
                                     <input
                                         type="text"
                                         className="form-input-monto"
-                                        placeholder="  0.00"
+                                        placeholder="   0.00"
                                         value={montoDisplay}
                                         onChange={handleMontoChange}
                                         required

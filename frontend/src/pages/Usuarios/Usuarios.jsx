@@ -140,19 +140,20 @@ function Usuarios() {
     setFormError('');
     setArchivoFirma(null);
     
+    // MApeo robusto: Intenta leer el campo con varios nombres posibles que pueda arrojar el JOIN de SQL
     setFormData({ 
       username: user.username || '', 
       password: '',
       rol: user.rol || 'AUXILIAR', 
-      id_persona: user.id_persona || null,
+      id_persona: user.id_persona || user.id || null,
       puede_solicitar: user.puede_solicitar || 0,
-      nivel_autorizacion: user.nivel_autorizacion || 0,
+      nivel_autorizacion: user.nivel_autorizacion || user.nivel_autorizacion_pago || 0,
       
       titulo: user.titulo || '', 
-      nombre_completo: user.nombre_completo || user.nombre || '', 
+      nombre_completo: user.nombre_completo || user.nombre_razon_social || user.nombre || '', 
       iniciales: user.iniciales || '',
       telefono: user.telefono || '', 
-      correo_electronico: user.correo_electronico || user.email || '',
+      correo_electronico: user.correo_electronico || user.email_contacto || user.email || '',
       
       no_empleado: user.no_empleado || '', 
       empresa_maestra: user.empresa_maestra || '', 
@@ -304,7 +305,7 @@ function Usuarios() {
   };
 
   const usuariosFiltradosGeneral = usuarios.filter(u => 
-    (u.nombre_completo || u.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (u.nombre_completo || u.nombre_razon_social || u.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (u.rol || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (u.area_departamento || u.departamento || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -394,7 +395,7 @@ function Usuarios() {
                     </thead>
                     <tbody>
                         {usuariosDelDepartamento.map(user => {
-                            const nombreMostrar = user.nombre_completo || user.nombre || 'SIN NOMBRE REGISTRADO';
+                            const nombreMostrar = user.nombre_completo || user.nombre_razon_social || user.nombre || 'SIN NOMBRE REGISTRADO';
                             const iniciales = user.iniciales || nombreMostrar.substring(0, 2).toUpperCase();
 
                             return (
@@ -667,7 +668,7 @@ function Usuarios() {
                             <select value={formData.jefe_inmediato} onChange={e => setFormData({...formData, jefe_inmediato: e.target.value})} style={inputStyle}>
                                 <option value="">Selecciona al Jefe Directo...</option>
                                 {usuarios.map(u => {
-                                    const nombreMostrar = u.nombre_completo || u.nombre;
+                                    const nombreMostrar = u.nombre_completo || u.nombre_razon_social || u.nombre;
                                     if (!nombreMostrar) return null;
                                     return (
                                         <option key={u.id_usuario || u.id} value={nombreMostrar}>
