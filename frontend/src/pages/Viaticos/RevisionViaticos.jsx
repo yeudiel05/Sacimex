@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './Viaticos.css';
 
 function RevisionViaticos() {
+  const navigate = useNavigate();
   const [solicitudes, setSolicitudes] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [tabActiva, setTabActiva] = useState('PENDIENTES');
@@ -18,6 +20,11 @@ function RevisionViaticos() {
       const res = await fetch('http://localhost:3001/api/viaticos/todas', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (res.status === 401 || res.status === 403) {
+        localStorage.clear();
+        navigate('/');
+        return;
+      }
       const data = await res.json();
       if (data.success) setSolicitudes(data.data);
     } catch (error) {
@@ -36,6 +43,27 @@ function RevisionViaticos() {
     setMesReporte(currentMonth);
   }, []);
 
+  // ========================================================
+  // VER PDF DEL OFICIO DE COMISIÓN
+  // ========================================================
+  const handleVerPDF = async (id_solicitud) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (!res.ok) throw new Error("Error al obtener el PDF");
+      
+      const blob = await res.blob();
+      const fileURL = window.URL.createObjectURL(blob);
+      window.open(fileURL, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
+    } catch (error) {
+      console.error(error);
+      alert("Error al intentar abrir el Formato PDF de Comisión.");
+    }
+  };
+
   const cambiarEstatus = async (id, nuevoEstatus) => {
     if (!window.confirm(`¿Estás seguro de ${nuevoEstatus.toLowerCase()} esta solicitud?`)) return;
     
@@ -48,7 +76,7 @@ function RevisionViaticos() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(data.message);
+        alert(data.message || `Solicitud marcada como ${nuevoEstatus}`);
         fetchSolicitudes(); 
       }
     } catch (error) {
@@ -146,14 +174,15 @@ function RevisionViaticos() {
   };
 
   const solicitudesFiltradas = solicitudes.filter(sol => {
-    if (tabActiva === 'PENDIENTES') return sol.estatus === 'PENDIENTE';
+    if (tabActiva === 'PENDIENTES') return sol.estatus === 'PENDIENTE' || sol.estatus === 'PENDIENTE_VOBO';
     if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO';
+    if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'AUTORIZADO' || sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO';
     return true;
   });
 
   return (
     <div className="viaticos-premium-wrapper fade-in-up">
-      <div className="viaticos-header-block" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="viaticos-header-block" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1>Bandeja D.H.O.</h1>
           <p>Revisión y gestión de viáticos empresariales.</p>
@@ -205,7 +234,7 @@ function RevisionViaticos() {
             <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
               
               {/* --- ENCABEZADO DE LA TARJETA --- */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
                   <span style={{ 
                     fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px',
@@ -232,11 +261,18 @@ function RevisionViaticos() {
                       {expandidos[sol.id] ? '▲ Ocultar Detalle' : '▼ Ver Detalle'}
                     </button>
 
+                    {/* ✅ BOTÓN DE VER PDF AGREGADO */}
+                    <button 
+                      onClick={() => handleVerPDF(sol.id)} 
+                      style={{ padding: '6px 12px', background: 'white', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>
+                      Ver PDF
+                    </button>
+
                     {/* --- BOTONES DE ACCIÓN PRINCIPALES --- */}
                     {tabActiva === 'PENDIENTES' && (
                       <>
                         <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
-                        <button onClick={() => cambiarEstatus(sol.id, 'AUTORIZADO')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Autorizar</button>
+                        <button onClick={() => cambiarEstatus(sol.id, 'AUTORIZADO')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Autorizar Pago</button>
                       </>
                     )}
 

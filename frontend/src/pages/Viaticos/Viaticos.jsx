@@ -210,6 +210,33 @@ function Viaticos() {
     } catch (error) { alert('Error al subir el archivo.'); }
   };
 
+  // ✅ NUEVA FUNCIÓN: Descargar/Ver PDF del Formato Oficial
+  const handleVerPDF = async (id_solicitud) => {
+      try {
+          const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          });
+          
+          if (res.status === 401 || res.status === 403) {
+              localStorage.clear();
+              navigate('/');
+              return;
+          }
+          
+          if (!res.ok) throw new Error("Error al obtener el PDF");
+          
+          const blob = await res.blob();
+          const fileURL = window.URL.createObjectURL(blob);
+          window.open(fileURL, '_blank');
+          
+          setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
+      } catch (error) {
+          console.error(error);
+          alert("Error al intentar abrir el Formato PDF de Comisión.");
+      }
+  };
+
   const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
 
   return (
@@ -454,6 +481,14 @@ function Viaticos() {
                     <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
                     <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                      
+                      {/* ✅ BOTÓN DE PDF AGREGADO AQUÍ */}
+                      <button 
+                        onClick={() => handleVerPDF(sol.id)} 
+                        style={{ padding: '8px 16px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        Imprimir / Ver Formato
+                      </button>
+
                       {sol.url_comprobante_transferencia && (<a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>)}
                       
                       {(sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO') && (
