@@ -453,7 +453,7 @@ const Solicitud = () => {
                             <div className="form-group">
                                 <label className="form-label">Monto Solicitado</label>
                                 <div className="input-monto-wrapper">
-                                    <span className="input-monto-prefix">$   </span>
+                                    <span className="input-monto-prefix">$</span>
                                     <input
                                         type="text"
                                         className="form-input-monto"
@@ -461,6 +461,7 @@ const Solicitud = () => {
                                         value={montoDisplay}
                                         onChange={handleMontoChange}
                                         required
+                                        style={{ width: '100%' }} // Asegura que ocupe todo el espacio disponible
                                     />
                                 </div>
                             </div>
@@ -469,7 +470,7 @@ const Solicitud = () => {
                                 <input
                                     type="date"
                                     name="fecha_limite_pago"
-                                    className="form-select"
+                                    className="form-input" 
                                     style={{ paddingLeft: '12px' }}
                                     value={formData.fecha_limite_pago}
                                     onChange={handleChange}

@@ -134,41 +134,56 @@ function Usuarios() {
     setIsModalOpen(true);
   };
 
+  // --- NUEVA LÓGICA PARA TRAER EXPEDIENTE COMPLETO AL EDITAR ---
+  const fetchExpedienteCompleto = async (id) => {
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res = await fetch(`http://localhost:3001/api/usuarios/${id}`, { headers });
+      const data = await res.json();
+      if (data.success) {
+        const u = data.data; // Aquí vienen todos los campos de la BD cruzados
+        setFormData({
+            username: u.username || '',
+            password: '', // Por seguridad, siempre vacío
+            rol: u.rol || 'AUXILIAR',
+            puede_solicitar: u.puede_solicitar || 0,
+            nivel_autorizacion: u.nivel_autorizacion || 0,
+            id_persona: u.id_persona || null,
+            titulo: u.titulo || '',
+            nombre_completo: u.nombre_razon_social || u.nombre || '',
+            iniciales: u.iniciales || '',
+            telefono: u.telefono || '',
+            correo_electronico: u.email_contacto || u.correo_electronico || u.email || '',
+            no_empleado: u.no_empleado || '',
+            empresa_maestra: u.empresa_maestra || '',
+            puesto: u.puesto || '',
+            clave_puesto: u.clave_puesto || '',
+            nivel: u.nivel || '',
+            area_departamento: u.departamento || u.area_departamento || '',
+            sucursal_unidad: u.unidad_negocio || u.sucursal_unidad || '',
+            zona: u.zona || '',
+            jefe_inmediato: u.jefe_inmediato || '',
+            banco: u.banco || '',
+            cuenta_bancaria: u.cuenta_bancaria || ''
+        });
+      }
+    } catch (error) {
+      console.error("Error al cargar expediente completo:", error);
+    }
+  };
+
   const openEditModal = (user) => {
     setIsEditing(true);
-    setEditId(user.id_usuario || user.id); 
+    const userId = user.id_usuario || user.id;
+    setEditId(userId);
     setFormError('');
     setArchivoFirma(null);
     
-    // MApeo robusto: Intenta leer el campo con varios nombres posibles que pueda arrojar el JOIN de SQL
-    setFormData({ 
-      username: user.username || '', 
-      password: '',
-      rol: user.rol || 'AUXILIAR', 
-      id_persona: user.id_persona || user.id || null,
-      puede_solicitar: user.puede_solicitar || 0,
-      nivel_autorizacion: user.nivel_autorizacion || user.nivel_autorizacion_pago || 0,
-      
-      titulo: user.titulo || '', 
-      nombre_completo: user.nombre_completo || user.nombre_razon_social || user.nombre || '', 
-      iniciales: user.iniciales || '',
-      telefono: user.telefono || '', 
-      correo_electronico: user.correo_electronico || user.email_contacto || user.email || '',
-      
-      no_empleado: user.no_empleado || '', 
-      empresa_maestra: user.empresa_maestra || '', 
-      puesto: user.puesto || '', 
-      clave_puesto: user.clave_puesto || '',
-      nivel: user.nivel || '',
-      area_departamento: user.area_departamento || user.departamento || '', 
-      sucursal_unidad: user.sucursal_unidad || user.unidad_negocio || '', 
-      zona: user.zona || '',
-      jefe_inmediato: user.jefe_inmediato || '',
-      
-      banco: user.banco || '', 
-      cuenta_bancaria: user.cuenta_bancaria || ''
-    });
+    // Abrimos el modal rápido
     setIsModalOpen(true);
+    
+    // Llamamos a la API para rellenar los datos completos del empleado
+    fetchExpedienteCompleto(userId);
   };
 
   const handleSubmit = async (e) => {

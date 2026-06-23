@@ -9,23 +9,21 @@ function Autorizaciones() {
   
   const rolUsuario = (localStorage.getItem('rol') || '').trim().toUpperCase();
 
-  // 1. DETERMINAR LA PESTAÑA INICIAL SEGÚN EL ROL
+  // 1. DETERMINAR LA PESTAÑA INICIAL
   const getInitialTab = () => {
+    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(rolUsuario)) return 'VALIDAR';
     if (rolUsuario === 'REVISOR') return 'VALIDAR';
     if (rolUsuario.startsWith('AUTORIZADOR')) return 'AUTORIZAR';
     if (rolUsuario === 'TESORERIA') return 'POR_PAGAR';
-    return 'VALIDAR'; // Por defecto para ADMIN
+    return 'VALIDAR'; 
   };
 
   const [activeTab, setActiveTab] = useState(getInitialTab()); 
   const [busqueda, setBusqueda] = useState('');
   const [filtroHistorial, setFiltroHistorial] = useState('TODOS');
-
-  // Paginación
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
-  // Estados para el Modal
   const [modalConfig, setModalConfig] = useState({ isOpen: false, tipo: '', id_solicitud: null, folio: '' });
   const [comentario, setComentario] = useState('');
   const [archivoFirma, setArchivoFirma] = useState(null);
@@ -38,9 +36,7 @@ function Autorizaciones() {
   };
 
   const handleAuthError = (status) => {
-    if (status === 401 || status === 403) { 
-      localStorage.clear(); navigate('/'); return true; 
-    }
+    if (status === 401 || status === 403) { localStorage.clear(); navigate('/'); return true; }
     return false;
   };
 
@@ -50,10 +46,17 @@ function Autorizaciones() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/solicitudes/', { headers });
+      const res = await fetch('http://localhost:3001/api/solicitudes/pendientes', { headers });
       if (handleAuthError(res.status)) return;
       const data = await res.json();
-      if (data.success) setSolicitudes(data.data);
+      if (data.success) {
+          const resHistorial = await fetch('http://localhost:3001/api/solicitudes/', { headers });
+          const dataHistorial = await resHistorial.json();
+          
+          const todas = [...data.data, ...(dataHistorial.success ? dataHistorial.data.filter(s => s.estatus === 'PAGADO' || s.estatus === 'RECHAZADO') : [])];
+          const unicas = Array.from(new Map(todas.map(item => [item.id, item])).values());
+          setSolicitudes(unicas);
+      }
     } catch (error) { 
       console.error("Error al cargar solicitudes:", error); 
     } finally {
@@ -74,9 +77,7 @@ function Autorizaciones() {
       const fileURL = window.URL.createObjectURL(blob);
       window.open(fileURL, '_blank');
       setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
-    } catch (error) {
-      console.error(error); alert("Error al intentar abrir el documento PDF.");
-    }
+    } catch (error) { console.error(error); alert("Error al intentar abrir el documento PDF."); }
   };
 
   const abrirModal = (tipo, id_solicitud, folio) => {
@@ -97,53 +98,40 @@ function Autorizaciones() {
       if (modalConfig.tipo === 'PAGAR') {
         if (!archivoFirma) { setIsProcessing(false); return alert("Debes adjuntar el comprobante de pago bancario."); }
         const formData = new FormData(); formData.append('comprobante', archivoFirma);
-        res = await fetch(`http://localhost:3001/api/solicitudes/comprobante/${modalConfig.id_solicitud}`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
-        });
+        res = await fetch(`http://localhost:3001/api/solicitudes/comprobante/${modalConfig.id_solicitud}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData });
       } else {
         if (modalConfig.tipo === 'RECHAZAR' && !comentario.trim()) { setIsProcessing(false); return alert("Debes ingresar un motivo para el rechazo."); }
         const endpoint = modalConfig.tipo === 'RECHAZAR' ? `http://localhost:3001/api/solicitudes/rechazar/${modalConfig.id_solicitud}` : `http://localhost:3001/api/solicitudes/autorizar/${modalConfig.id_solicitud}`;
         const payload = modalConfig.tipo === 'RECHAZAR' ? { motivo: comentario } : { comentario: comentario || 'Aprobado' };
-        res = await fetch(endpoint, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        });
+        res = await fetch(endpoint, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       }
       const data = await res.json();
       if (data.success) { cerrarModal(); fetchSolicitudes(); } else { alert(data.message || "Error al procesar la solicitud."); }
-    } catch (error) {
-      console.error(error); alert('Error de conexión con el servidor.');
-    } finally {
-      setIsProcessing(false);
-    }
+    } catch (error) { console.error(error); alert('Error de conexión con el servidor.'); } finally { setIsProcessing(false); }
   };
 
-  // 2. REGLAS DE ACCESO (PERMISOS)
+  // 2. REGLAS DE ACCESO (Ahora confiamos 100% en el Backend)
   const esAdmin = rolUsuario === 'ADMIN';
-  const puedeValidar = esAdmin || rolUsuario === 'REVISOR';
+  const esRevisor = rolUsuario === 'REVISOR';
   const esAutorizador = rolUsuario.startsWith('AUTORIZADOR');
-  const puedeAutorizar = esAdmin || esAutorizador;
-  const puedePagar = esAdmin || rolUsuario === 'TESORERIA';
+  const esTesoreria = rolUsuario === 'TESORERIA';
 
-  // 3. FILTRADO INTELIGENTE DE SOLICITUDES
-  const porValidar = solicitudes.filter(s => s.estatus === 'PENDIENTE');
-  
-  const porAutorizar = solicitudes.filter(s => {
-    if (esAdmin) return s.estatus === 'AUTORIZADO_1' || s.estatus === 'AUTORIZADO_2' || s.estatus === 'AUTORIZADO_3';
-    // Si es AUTORIZADOR_1, solo ve AUTORIZADO_1. Si es AUTORIZADOR_2, solo ve AUTORIZADO_2, etc.
-    if (esAutorizador) return s.estatus === rolUsuario; 
-    return false;
-  });
-
-  const porPagar = solicitudes.filter(s => s.estatus === 'AUTORIZADO_FINAL'); 
+  // 3. FILTRADO EXTREMADAMENTE SENCILLO (La Verdad Absoluta)
+  const porValidar = solicitudes.filter(s => s.me_toca_firmar && (s.estatus === 'PENDIENTE_VOBO' || s.estatus === 'PENDIENTE'));
+  const porAutorizar = solicitudes.filter(s => s.me_toca_firmar && (s.estatus === 'AUTORIZADO_1' || s.estatus === 'AUTORIZADO_2' || s.estatus === 'AUTORIZADO_3'));
+  const porPagar = solicitudes.filter(s => s.me_toca_firmar && s.estatus === 'AUTORIZADO_FINAL'); 
   const historial = solicitudes.filter(s => s.estatus === 'PAGADO' || s.estatus === 'RECHAZADO');
+
+  // Si el backend dijo "te toca firmar" en el filtro de Validación, mostramos la tarjeta
+  const puedeValidar = esAdmin || esRevisor || porValidar.length > 0;
+  const puedeAutorizar = esAdmin || esAutorizador;
+  const puedePagar = esAdmin || esTesoreria;
 
   let listaBase = [];
   if (activeTab === 'VALIDAR') listaBase = porValidar;
   else if (activeTab === 'AUTORIZAR') listaBase = porAutorizar;
   else if (activeTab === 'POR_PAGAR') listaBase = porPagar;
-  else {
-    listaBase = filtroHistorial === 'TODOS' ? historial : historial.filter(s => s.estatus === filtroHistorial);
-  }
+  else { listaBase = filtroHistorial === 'TODOS' ? historial : historial.filter(s => s.estatus === filtroHistorial); }
 
   const listaActual = listaBase.filter(s => {
     if (!busqueda) return true;
@@ -171,6 +159,17 @@ function Autorizaciones() {
   };
   const modalUI = getModalUI(modalConfig.tipo);
 
+  const LeyendaFirma = ({ estatus, areaVobo }) => {
+      let texto = ""; let colorBg = "#f1f5f9"; let colorText = "#475569";
+      if (estatus === 'PENDIENTE_VOBO') { texto = `Falta VoBo: ${areaVobo || 'Área Solicitada'}`; colorBg = '#fef3c7'; colorText = '#d97706'; } 
+      else if (estatus === 'PENDIENTE') { texto = "Falta: REVISOR"; colorBg = '#ffedd5'; colorText = '#dc2626'; } 
+      else if (estatus === 'AUTORIZADO_1') { texto = "Falta: AUTORIZADOR 1"; colorBg = '#dbeafe'; colorText = '#2563eb'; } 
+      else if (estatus === 'AUTORIZADO_2') { texto = "Falta: AUTORIZADOR 2"; colorBg = '#e0e7ff'; colorText = '#4338ca'; } 
+      else if (estatus === 'AUTORIZADO_FINAL') { texto = "Listo para Pago"; colorBg = '#dcfce3'; colorText = '#059669'; }
+      if(!texto) return null;
+      return (<div style={{ marginTop: '6px' }}><span style={{ backgroundColor: colorBg, color: colorText, fontSize: '10px', padding: '4px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{texto}</span></div>);
+  };
+
   return (
     <div className="autorizar-container" style={{ paddingTop: '0px' }}>
       
@@ -180,7 +179,7 @@ function Autorizaciones() {
         {puedeValidar && (
           <div className="metric-card warning" onClick={() => setActiveTab('VALIDAR')} style={{cursor: 'pointer', border: activeTab === 'VALIDAR' ? '2px solid #d97706' : '1px solid transparent'}}>
             <div className="metric-data">
-              <span>1. Por Validar</span>
+              <span>{esRevisor ? '1. Por Revisar' : 'Visto Bueno Solicitado'}</span>
               <h3>{porValidar.length} <span>({formatMoney(totalMontoValidar)})</span></h3>
             </div>
           </div>
@@ -204,10 +203,9 @@ function Autorizaciones() {
           </div>
         )}
 
-        {/* El historial lo ven todos */}
         <div className="metric-card" onClick={() => setActiveTab('HISTORIAL')} style={{cursor: 'pointer', border: activeTab === 'HISTORIAL' ? '2px solid #64748b' : '1px solid transparent', backgroundColor: '#f8fafc'}}>
           <div className="metric-data">
-            <span>Historial</span>
+            <span>Historial (Mis Firmas)</span>
             <h3>{historial.length} <span>registros</span></h3>
           </div>
         </div>
@@ -217,16 +215,13 @@ function Autorizaciones() {
       <div className="table-responsive" style={{ marginTop: '24px' }}>
         <div className="list-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>
-            {activeTab === 'VALIDAR' ? 'Bandeja de Validación (Revisor)' : 
+            {activeTab === 'VALIDAR' ? (esRevisor ? 'Bandeja de Validación (Revisor)' : `Bandeja de Visto Bueno`) : 
              activeTab === 'AUTORIZAR' ? `Bandeja de Autorizaciones (${esAdmin ? 'Niveles 1, 2 y 3' : rolUsuario})` : 
              activeTab === 'POR_PAGAR' ? 'Pendientes de Liquidación' : 'Historial General'}
           </h2>
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input 
-              type="text" placeholder="Buscar folio o nombre..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
-              style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '200px', fontSize: '13px' }}
-            />
+            <input type="text" placeholder="Buscar folio o nombre..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '200px', fontSize: '13px' }} />
             {activeTab === 'HISTORIAL' && (
               <div style={{ display: 'flex', gap: '4px' }}>
                 <button onClick={() => setFiltroHistorial('TODOS')} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer', background: filtroHistorial === 'TODOS' ? '#e2e8f0' : '#fff' }}>Todos</button>
@@ -242,7 +237,7 @@ function Autorizaciones() {
           <thead>
             <tr>
               <th style={{ width: '15%' }}>Folio / Fecha</th>
-              <th style={{ width: '25%' }}>Solicitante</th>
+              <th style={{ width: '25%' }}>Solicitante / Estado</th>
               <th style={{ width: '20%' }}>Unidad de Negocio</th>
               <th style={{ width: '15%' }}>Monto</th>
               <th style={{ width: '25%', textAlign: 'right' }}>Acciones</th>
@@ -258,7 +253,10 @@ function Autorizaciones() {
                     <strong style={{ display: 'block', color: '#0f172a', fontSize: '13px' }}>{sol.folio}</strong>
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(sol.fecha_solicitud).toLocaleDateString('es-MX')}</span>
                   </td>
-                  <td><span style={{ color: 'var(--text-main)', fontSize: '14px', fontWeight: '500' }}>{sol.solicitante_nombre}</span></td>
+                  <td>
+                      <span style={{ display: 'block', color: 'var(--text-main)', fontSize: '14px', fontWeight: '500' }}>{sol.solicitante_nombre}</span>
+                      {activeTab !== 'HISTORIAL' && <LeyendaFirma estatus={sol.estatus} areaVobo={sol.area_visto_bueno} />}
+                  </td>
                   <td><span style={{ backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', color: '#475569', fontWeight: '600' }}>{sol.unidad_negocio || 'Corporativo'}</span></td>
                   <td>
                     <strong style={{ fontSize: '15px', color: sol.estatus === 'RECHAZADO' ? '#94a3b8' : '#0f172a' }}>{formatMoney(sol.monto)}</strong>
@@ -270,21 +268,21 @@ function Autorizaciones() {
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
                       <button onClick={() => verPDFSeguro(sol.id)} className="btn-view" style={{borderColor: '#cbd5e1', color: '#475569', backgroundColor: 'transparent', cursor: 'pointer'}}>Ver PDF</button>
 
-                      {activeTab === 'VALIDAR' && puedeValidar && (
+                      {activeTab === 'VALIDAR' && sol.me_toca_firmar && (
                         <>
                           <button className="btn-view" onClick={() => abrirModal('RECHAZAR', sol.id, sol.folio)} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }}>✕</button>
-                          <button className="btn-view" onClick={() => abrirModal('VALIDAR', sol.id, sol.folio)} style={{ borderColor: '#d97706', color: '#d97706', backgroundColor: '#fef3c7', fontWeight: 'bold' }}>Validar</button>
+                          <button className="btn-view" onClick={() => abrirModal('VALIDAR', sol.id, sol.folio)} style={{ borderColor: '#d97706', color: '#d97706', backgroundColor: '#fef3c7', fontWeight: 'bold' }}>Firmar</button>
                         </>
                       )}
 
-                      {activeTab === 'AUTORIZAR' && puedeAutorizar && (
+                      {activeTab === 'AUTORIZAR' && sol.me_toca_firmar && (
                         <>
                           <button className="btn-view" onClick={() => abrirModal('RECHAZAR', sol.id, sol.folio)} style={{ borderColor: '#ef4444', color: '#ef4444', backgroundColor: '#fef2f2' }}>✕</button>
                           <button className="btn-view" onClick={() => abrirModal('AUTORIZAR', sol.id, sol.folio)} style={{ borderColor: '#2563eb', color: '#ffffff', backgroundColor: '#2563eb', fontWeight: 'bold' }}>Autorizar</button>
                         </>
                       )}
 
-                      {activeTab === 'POR_PAGAR' && puedePagar && (
+                      {activeTab === 'POR_PAGAR' && sol.me_toca_firmar && (
                         <button className="btn-view" onClick={() => abrirModal('PAGAR', sol.id, sol.folio)} style={{ borderColor: '#059669', color: '#ffffff', backgroundColor: '#059669', fontWeight: 'bold' }}>Liquidar</button>
                       )}
                     </div>

@@ -21,20 +21,26 @@ import DetalleSolicitud from './pages/Solicitudes/DetalleSolicitud';
 
 // ==========================================
 // ==========================================
-const ProtectedRoute = ({ children, rolesPermitidos }) => {
+const ProtectedRoute = ({ children, rolesPermitidos, deptosPermitidos = [] }) => {
   const token = localStorage.getItem('token');
   
   // LIMPIEZA EXTREMA DEL ROL (Evita bugs por espacios o saltos de línea \r de la BD)
   const rawRole = localStorage.getItem('rol') || '';
   const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
+  
+  const rawDepto = localStorage.getItem('departamento') || '';
+  const userDepto = rawDepto.trim().replace(/\r?\n|\r/g, '').toUpperCase();
 
   // Si no hay sesión (token), lo mandamos a la pantalla de Login
   if (!token) {
     return <Navigate to="/" replace />;
   }
 
-  // Si tiene sesión pero su rol no está autorizado para esta pantalla, lo mandamos al Dashboard
-  if (rolesPermitidos && !rolesPermitidos.includes(userRole)) {
+  // Comprobar si el usuario tiene permiso por ROL o por DEPARTAMENTO
+  const tieneRolPermitido = rolesPermitidos && rolesPermitidos.includes(userRole);
+  const tieneDeptoPermitido = deptosPermitidos && deptosPermitidos.includes(userDepto);
+
+  if (!tieneRolPermitido && !tieneDeptoPermitido) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -48,6 +54,9 @@ const ProtectedRoute = ({ children, rolesPermitidos }) => {
 function App() {
   // Lista universal de todos los roles operativos que pueden ver lo básico (Dashboard, Solicitudes)
   const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
+  
+  // Departamentos que dan Visto Bueno a las solicitudes
+  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL'];
 
   return (
     <Router>
@@ -92,9 +101,14 @@ function App() {
             <ProtectedRoute rolesPermitidos={['D.H.O', 'ADMIN']}><RevisionViaticos /></ProtectedRoute>
           } />
 
-          {/* Autorizaciones (Solo los que firman) */}
+          {/* Autorizaciones (Solo los que firman O los que dan Visto Bueno Y Tesorería) */}
           <Route path="/autorizaciones" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2']}><Autorizaciones /></ProtectedRoute>
+            <ProtectedRoute 
+                rolesPermitidos={['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA']} 
+                deptosPermitidos={deptosVistoBueno}
+            >
+                <Autorizaciones />
+            </ProtectedRoute>
           } />
 
           {/* Reportes */}

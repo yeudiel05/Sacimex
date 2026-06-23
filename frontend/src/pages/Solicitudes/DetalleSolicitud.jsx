@@ -28,6 +28,7 @@ const getBadge = (estatus) => {
     return <span className={`status-badge ${b.cls}`}>{b.label}</span>;
 };
 
+// Se reparó la firma de la función para que evalúe correctamente el Nivel -1
 function obtenerRolEsperado(sol) {
     if (!sol) return null;
     const m = parseFloat(sol.monto) || 0;

@@ -1,6 +1,4 @@
-/* =====================================================
-   Solicitud.css — Estilo SACIMEX
-   ===================================================== */
+
 
 .solicitud-container {
     padding: 24px 32px;
@@ -67,7 +65,6 @@
 /* ── GRID PRINCIPAL ── */
 .solicitud-grid {
     display: grid;
-    /* La columna izquierda toma el espacio restante, la derecha se queda fija en 360px */
     grid-template-columns: 1fr 360px;
     gap: 24px;
     align-items: start;
@@ -82,7 +79,7 @@
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
-/* ── CARD HEADER (icono + título) ── */
+/* ── CARD HEADER ── */
 .card-header {
     display: flex;
     align-items: center;
@@ -132,7 +129,7 @@
 .form-row-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 20px; /* Suficiente aire entre los dos campos */
+    gap: 20px; 
 }
 
 .form-group {
@@ -166,7 +163,7 @@
     color: #0f172a;
     font-family: 'Inter', sans-serif;
     transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
-    box-sizing: border-box; /* CLAVE para que no se desborden */
+    box-sizing: border-box; 
 }
 
 .form-input:focus,
@@ -206,37 +203,43 @@
     min-height: 100px;
 }
 
-/* Input monto (con prefijo $) */
+/* Corrección para el contenedor del monto */
 .input-monto-wrapper {
     position: relative;
     display: flex;
     align-items: center;
+    width: 100%;
 }
 
 .input-monto-prefix {
     position: absolute;
-    left: 14px;
-    color: #64748b;
-    font-weight: 700;
-    font-size: 15px;
-    user-select: none;
-    pointer-events: none;
+    left: 8px; 
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 14px;
+    z-index: 10;
 }
 
 .form-input-monto {
     width: 100%;
-    height: 42px;
-    padding: 0 12px 0 28px;
-    font-size: 16px;
-    font-weight: 700;
+    height: 44px;
+    padding-left: 28px; 
+    padding-right: 12px;
+    font-size: 14px;
+    font-weight: 600;
     color: #0f172a;
     border-radius: 8px;
     border: 1px solid #cbd5e1;
     outline: none;
-    background-color: #f8fafc;
-    font-family: 'Inter', sans-serif;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    background-color: white;
     box-sizing: border-box;
+}
+
+.form-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    width: 100%;
 }
 
 .form-input-monto:focus {
@@ -318,9 +321,7 @@
     box-shadow: none;
 }
 
-/* ══════════════════════════════
-   COLUMNA DERECHA — RESUMEN
-   ══════════════════════════════ */
+/* COLUMNA DERECHA — RESUMEN */
 .resumen-col {
     display: flex;
     flex-direction: column;
@@ -449,9 +450,7 @@
     font-weight: 800;
 }
 
-/* ══════════════════════════════
-   TARJETA FLUJO DE APROBACIÓN
-   ══════════════════════════════ */
+/*  TARJETA FLUJO DE APROBACIÓN */
 .flujo-card {
     background-color: white;
     border-radius: 16px;
@@ -503,7 +502,7 @@
     font-size: 11px;
     font-weight: 800;
     flex-shrink: 0;
-    z-index: 1; /* Para que tape la línea */
+    z-index: 1; 
 }
 
 .flujo-step-text {
@@ -525,16 +524,14 @@
     line-height: 1.4;
 }
 
-/* =========================================================
-   RESPONSIVE DESIGN (Pantallas pequeñas)
-========================================================= */
+/* RESPONSIVE DESIGN (Pantallas pequeñas) */
 @media (max-width: 1024px) {
     .solicitud-grid {
-        grid-template-columns: 1fr; /* Todo en una sola columna */
+        grid-template-columns: 1fr; 
     }
     
     .resumen-col {
-        flex-direction: row; /* En tablet, el resumen y flujo se ponen lado a lado */
+        flex-direction: row;
     }
     
     .resumen-card, .flujo-card {
@@ -544,11 +541,11 @@
 
 @media (max-width: 768px) {
     .resumen-col {
-        flex-direction: column; /* En celular, vuelven a estar uno debajo del otro */
+        flex-direction: column; 
     }
     
     .form-row-2 {
-        grid-template-columns: 1fr; /* Inputs de formulario a una sola columna */
+        grid-template-columns: 1fr; 
         gap: 16px;
     }
 }
