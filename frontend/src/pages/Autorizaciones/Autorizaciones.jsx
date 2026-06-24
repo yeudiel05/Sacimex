@@ -266,6 +266,15 @@ function Autorizaciones() {
                   
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
+                      
+                      {/* BOTÓN NUEVO: VER COTIZACIÓN ADJUNTA */}
+                      {sol.cotizacion_path && (
+                          <a href={`http://localhost:3001/${sol.cotizacion_path}`} target="_blank" rel="noreferrer" className="btn-view" style={{ borderColor: '#3b82f6', color: '#3b82f6', backgroundColor: '#eff6ff', textDecoration: 'none' }} title="Ver Cotización/Soporte Adjunto">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '14px', marginRight: '4px' }}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                              Cotización
+                          </a>
+                      )}
+
                       <button onClick={() => verPDFSeguro(sol.id)} className="btn-view" style={{borderColor: '#cbd5e1', color: '#475569', backgroundColor: 'transparent', cursor: 'pointer'}}>Ver PDF</button>
 
                       {activeTab === 'VALIDAR' && sol.me_toca_firmar && (

@@ -9,6 +9,8 @@ const IconCheck   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 const IconX       = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{width:'12px'}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 const IconUpload  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px'}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>;
 const IconClock   = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{width:'40px', opacity:0.4}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+// Nuevo Icono para Adjuntos (Clip)
+const IconAttachment = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px'}}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>;
 
 const formatCurrency = (n) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
 const formatFecha    = (d) => d ? new Date(d).toLocaleDateString('es-MX', { day:'2-digit', month:'long', year:'numeric' }) : '---';
@@ -230,6 +232,24 @@ const DetalleSolicitud = () => {
                 </div>
 
                 <div style={{ display:'flex', gap:'10px', flexWrap:'wrap', justifyContent:'flex-end' }}>
+                    
+                    {/* NUEVO BOTÓN: VISUALIZAR COTIZACIÓN/SOPORTE ADJUNTO */}
+                    {solicitud.cotizacion_path && (
+                        <a 
+                            href={`http://localhost:3001/${solicitud.cotizacion_path}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            style={{ 
+                                display: 'inline-flex', alignItems: 'center', gap: '6px', 
+                                padding: '8px 16px', borderRadius: '6px', border: '1px solid #3b82f6', 
+                                color: '#3b82f6', backgroundColor: '#eff6ff', textDecoration: 'none', 
+                                fontSize: '13px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                        >
+                            <IconAttachment /> Ver Cotización / Soporte
+                        </a>
+                    )}
+
                     <button className="btn-outline-red" onClick={handleVerPDF}>
                         <IconPDF /> Ver SAC-TSR-RCS
                     </button>

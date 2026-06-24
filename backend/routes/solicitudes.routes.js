@@ -91,7 +91,10 @@ const getEmailByDepto = (deptoBuscado) => {
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
-    filename: (req, file, cb) => cb(null, `solicitud-${req.params.id}-${Date.now()}${path.extname(file.originalname)}`)
+    filename: (req, file, cb) => {
+        const id = req.params.id || 'nueva';
+        cb(null, `solicitud-${id}-${Date.now()}${path.extname(file.originalname)}`);
+    }
 });
 const upload = multer({ storage });
 
@@ -345,9 +348,9 @@ router.get('/:id', verificarToken, (req, res) => {
     });
 });
 
-router.post('/crear', verificarToken, (req, res) => {
+router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) => {
     try {
-        const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago } = req.body;
+        const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago, unidad_negocio } = req.body;
         
         const solicitante_id = req.usuario.id;
         const miRol = req.usuario.rol;
@@ -357,85 +360,75 @@ router.post('/crear', verificarToken, (req, res) => {
         const anio = new Date().getFullYear();
         const folioBase = `SAC-TSR-RCS-${anio}`;
 
-        const idProvFinal = (id_proveedor === '' || id_proveedor === null) ? null : id_proveedor;
-        const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null) ? null : fecha_limite_pago;
+        const idProvFinal = (id_proveedor === '' || id_proveedor === null || id_proveedor === 'null') ? null : id_proveedor;
+        const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null || fecha_limite_pago === 'null') ? null : fecha_limite_pago;
 
-        db.query(`SELECT u.*, e.unidad_negocio FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?`, [solicitante_id], (errUsuario, rowsUsuario) => {
-            if (errUsuario || rowsUsuario.length === 0) return res.status(500).json({ success: false, message: 'No se pudo verificar tu unidad de negocio.' });
+        // MAGIA: Capturamos el archivo de cotización si el usuario lo subió
+        const cotizacionPath = req.file ? `uploads/${req.file.filename}` : null;
 
-            const unidadRealDelEmpleado = rowsUsuario[0].unidad_negocio || '01.CRP - Corporativo';
-            let unidad_negocio_final = req.body.unidad_negocio;
+        db.query(`
+            SELECT e.unidad_negocio 
+            FROM usuarios u 
+            JOIN empleados e ON u.id_empleado = e.id_persona 
+            WHERE u.id = ?
+        `, [solicitante_id], (errUsuario, rowsUsuario) => {
+            if (errUsuario || rowsUsuario.length === 0) {
+                return res.status(500).json({ success: false, message: 'No se pudo verificar tu unidad de negocio.' });
+            }
+
+            const unidadRealDelEmpleado = rowsUsuario[0].unidad_negocio;
+            let unidad_negocio_final = unidad_negocio;
             
-            if (miRol !== 'ADMIN') unidad_negocio_final = unidadRealDelEmpleado; 
+            if (miRol !== 'ADMIN') {
+                unidad_negocio_final = unidadRealDelEmpleado || '01.CRP - Corporativo'; 
+            }
 
-            db.query('SELECT clave, requiere_vobo, area_visto_bueno FROM conceptos_pago WHERE id = ? OR clave = ? OR descripcion = ? LIMIT 1', 
-            [concepto_id, concepto_id, concepto_id], (errC, resC) => {
-                
-                let reqVobo = false;
-                let areaVobo = null;
-                let claveReal = concepto_id;
+            // MAGIA: Agregamos cotizacion_path al INSERT
+            const query = `
+                INSERT INTO solicitudes_recursos 
+                (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
+                 id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago, cotizacion_path) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?, ?)
+            `;
 
-                if (resC && resC.length > 0) {
-                    const val = resC[0].requiere_vobo;
-                    reqVobo = (val == 1 || val === '1' || val === true || val === 'true' || val === 'SI' || (Buffer.isBuffer(val) && val[0] === 1));
-                    areaVobo = (resC[0].area_visto_bueno || '').trim().toUpperCase();
-                    claveReal = resC[0].clave || concepto_id;
+            db.query(query, [
+                solicitante_id, concepto_id, descripcion, montoNum,
+                unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal, cotizacionPath
+            ], async (err, result) => {
+                if (err) {
+                    console.error("Error BD en Crear Solicitud:", err);
+                    return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
                 }
-
-                const requiereFasePrevia = (reqVobo && areaVobo && areaVobo !== '' && areaVobo !== 'NULL');
-                const nivelInicial = requiereFasePrevia ? -1 : 0;
-                const estatusInicial = requiereFasePrevia ? 'PENDIENTE_VOBO' : 'PENDIENTE';
-
-                const query = `
-                    INSERT INTO solicitudes_recursos 
-                    (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-
-                db.query(query, [solicitante_id, claveReal, descripcion, montoNum, unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', estatusInicial, nivelInicial, niveles, fechaLimiteFinal], async (errIns, result) => {
-                    if (errIns) return res.status(500).json({ success: false, message: errIns.message });
+                
+                const solicitudId = result.insertId;
+                const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
+                
+                db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
+                    res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
                     
-                    const solicitudId = result.insertId;
-                    const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
-                    
-                    db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
-                        res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
-                        
-                        if (requiereFasePrevia) {
-                            const emailVoBo = await getEmailByDepto(areaVobo);
-                            if (emailVoBo) {
-                                const mensaje = `
-                                    <h3 style="color: #0f172a;">Visto Bueno Requerido</h3>
-                                    <p>Se ha generado una solicitud de recursos que requiere autorizacion de tu area: <strong>${areaVobo}</strong>.</p>
-                                    <ul>
-                                        <li><strong>Folio:</strong> ${folio}</li>
-                                        <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
-                                    </ul>
-                                    <p>Por favor, ingresa al sistema para validar el gasto.</p>
-                                `;
-                                enviarCorreo(emailVoBo, `Visto Bueno Requerido: ${folio}`, mensaje);
-                            }
-                        } else {
-                            const emailRevisor = await getEmailByRol('REVISOR');
-                            if (emailRevisor) {
-                                const mensaje = `
-                                    <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
-                                    <p>Se ha generado una nueva solicitud de recursos pendiente de tu validacion (Revisor).</p>
-                                    <ul>
-                                        <li><strong>Folio:</strong> ${folio}</li>
-                                        <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
-                                    </ul>
-                                `;
-                                enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
-                            }
-                        }
-                    });
+                    // =====================================================
+                    // CORREO 1: AVISAR AL REVISOR QUE HAY UNA NUEVA SOLICITUD
+                    // =====================================================
+                    const emailRevisor = await getEmailByRol('REVISOR');
+                    if (emailRevisor) {
+                        const mensaje = `
+                            <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
+                            <p>Se ha generado una nueva solicitud de recursos en el sistema y está pendiente de tu validación (Revisor).</p>
+                            <ul>
+                                <li><strong>Folio:</strong> ${folio}</li>
+                                <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
+                                <li><strong>Unidad:</strong> ${unidad_negocio_final}</li>
+                            </ul>
+                            <p>Por favor, ingresa al sistema para revisarla.</p>
+                        `;
+                        enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
+                    }
                 });
             });
         });
 
     } catch (catastrofe) {
-        console.error("[POST /crear] Catástrofe:", catastrofe);
+        console.error("Error catastrófico en Crear Solicitud:", catastrofe);
         res.status(500).json({ success: false, message: String(catastrofe) });
     }
 });

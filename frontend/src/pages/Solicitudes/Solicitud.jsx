@@ -5,10 +5,10 @@ import './Solicitud.css';
 
 // ─── Pasos del flujo ──────────────────────────────────────────────────
 const FLUJO_PASOS = [
-    { paso: '01', titulo: 'Envío', desc: 'Tu solicitud queda en revisión', color: '#10d440', bg: '#f0fdf4' },
-    { paso: '02', titulo: 'Revisión / VoBo', desc: 'El responsable evalúa la solicitud', color: '#d97706', bg: '#fffbeb' },
-    { paso: '03', titulo: 'Autorización', desc: 'Aprobación final del monto', color: '#2563eb', bg: '#eff6ff' },
-    { paso: '04', titulo: 'Pago', desc: 'Dispersión a la cuenta destino', color: '#7c3aed', bg: '#f5f3ff' },
+    { paso: '01', titulo: 'Envio', desc: 'Tu solicitud queda en revision', color: '#10d440', bg: '#f0fdf4' },
+    { paso: '02', titulo: 'Revision / VoBo', desc: 'El responsable evalua la solicitud', color: '#d97706', bg: '#fffbeb' },
+    { paso: '03', titulo: 'Autorizacion', desc: 'Aprobacion final del monto', color: '#2563eb', bg: '#eff6ff' },
+    { paso: '04', titulo: 'Pago', desc: 'Dispersion a la cuenta destino', color: '#7c3aed', bg: '#f5f3ff' },
 ];
 
 // ─── Formateador de monto ─────────────────────────────────────────────
@@ -97,6 +97,9 @@ const Solicitud = () => {
     
     const [unidadesNegocio, setUnidadesNegocio] = useState([]);
     const [loadingUnidades, setLoadingUnidades] = useState(true);
+
+    // NUEVO: Estado para el archivo adjunto
+    const [archivoCotizacion, setArchivoCotizacion] = useState(null);
 
     const [formData, setFormData] = useState({
         concepto_id: '',
@@ -190,16 +193,31 @@ const Solicitud = () => {
         
         // Detectar si el concepto seleccionado requiere Visto Bueno
         const conceptoElegido = conceptosDB.find((c) => String(c.id) === String(formData.concepto_id));
-        const payload = { 
-            ...formData, 
-            requiere_vobo: conceptoElegido?.requiere_vobo ? 1 : 0,
-            area_visto_bueno: conceptoElegido?.area_visto_bueno || null
-        };
+        
+        // Usamos FormData en lugar de un objeto JSON para permitir la subida de archivos
+        const formDataToSend = new FormData();
+        formDataToSend.append('concepto_id', formData.concepto_id);
+        formDataToSend.append('unidad_negocio', formData.unidad_negocio);
+        formDataToSend.append('id_proveedor', formData.id_proveedor);
+        formDataToSend.append('forma_pago', formData.forma_pago);
+        formDataToSend.append('monto', formData.monto);
+        formDataToSend.append('descripcion', formData.descripcion);
+        formDataToSend.append('fecha_limite_pago', formData.fecha_limite_pago);
+        formDataToSend.append('requiere_vobo', conceptoElegido?.requiere_vobo ? 1 : 0);
+        formDataToSend.append('area_visto_bueno', conceptoElegido?.area_visto_bueno || '');
+
+        // Si hay archivo, lo agregamos
+        if (archivoCotizacion) {
+            formDataToSend.append('cotizacion', archivoCotizacion);
+        }
 
         try {
             const token = localStorage.getItem('token');
-            const response = await api.post('/solicitudes/crear', payload, {
-                headers: { Authorization: `Bearer ${token}` },
+            const response = await api.post('/solicitudes/crear', formDataToSend, {
+                headers: { 
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'multipart/form-data'
+                },
             });
             if (response.data.success) {
                 setSubmitted(true);
@@ -264,7 +282,7 @@ const Solicitud = () => {
                                 )}
                             </div>
                             
-                            {/* DINÁMICO DE UNIDADES DE NEGOCIO */}
+                            {/* DINAMICO DE UNIDADES DE NEGOCIO */}
                             <div className="form-group">
                                 <label className="form-label">Unidad de Negocio (Sucursal)</label>
                                 <select 
@@ -285,7 +303,7 @@ const Solicitud = () => {
                                 </select>
                                 {userRole !== 'ADMIN' && (
                                     <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px', fontWeight: '500' }}>
-                                        * Asignado automáticamente a tu sucursal.
+                                        * Asignado automaticamente a tu sucursal.
                                     </span>
                                 )}
                                 {loadingUnidades && (
@@ -306,7 +324,7 @@ const Solicitud = () => {
                             <div className="form-group" style={{ position: 'relative' }}>
                                 <label className="form-label">Proveedor / Beneficiario</label>
                                 
-                                {/* Selector personalizado con búsqueda */}
+                                {/* Selector personalizado con busqueda */}
                                 <div 
                                     className="custom-select-trigger"
                                     onClick={() => setDropdownProveedorOpen(!dropdownProveedorOpen)}
@@ -347,7 +365,7 @@ const Solicitud = () => {
                                         boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.02)',
                                         overflow: 'hidden'
                                     }}>
-                                        {/* Campo de búsqueda */}
+                                        {/* Campo de busqueda */}
                                         <div style={{ padding: '12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
                                             <div style={{
                                                 display: 'flex',
@@ -442,13 +460,13 @@ const Solicitud = () => {
                             <div className="form-group">
                                 <label className="form-label">Forma de Pago</label>
                                 <select name="forma_pago" className="form-select" value={formData.forma_pago} onChange={handleChange} required>
-                                    <option value="TRANSFERENCIA">Transferencia Electrónica</option>
-                                    <option value="CHEQUE">Póliza de Cheque</option>
+                                    <option value="TRANSFERENCIA">Transferencia Electronica</option>
+                                    <option value="CHEQUE">Poliza de Cheque</option>
                                 </select>
                             </div>
                         </div>
 
-                        {/* ── FILA: Monto + Fecha Límite de Pago ── */}
+                        {/* ── FILA: Monto + Fecha Limite de Pago ── */}
                         <div className="form-row-2">
                             <div className="form-group">
                                 <label className="form-label">Monto Solicitado</label>
@@ -466,7 +484,7 @@ const Solicitud = () => {
                                 </div>
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Fecha Límite de Pago</label>
+                                <label className="form-label">Fecha Limite de Pago</label>
                                 <input
                                     type="date"
                                     name="fecha_limite_pago"
@@ -479,9 +497,9 @@ const Solicitud = () => {
                             </div>
                         </div>
 
-                        {/* Descripción */}
+                        {/* Descripcion */}
                         <div className="form-group">
-                            <label className="form-label">Descripción / Justificación</label>
+                            <label className="form-label">Descripcion / Justificacion</label>
                             <textarea
                                 name="descripcion"
                                 className="form-textarea"
@@ -489,11 +507,26 @@ const Solicitud = () => {
                                 value={formData.descripcion}
                                 onChange={handleChange}
                                 required
-                                placeholder="Describe el motivo exacto de la solicitud o número de factura a pagar..."
+                                placeholder="Describe el motivo exacto de la solicitud o numero de factura a pagar..."
                             />
                         </div>
 
-                        {/* Mensaje éxito */}
+                        {/* Archivo adjunto / Cotizacion */}
+                        <div className="form-group" style={{ marginBottom: '24px' }}>
+                            <label className="form-label">Adjuntar Cotizacion / Ticket (Opcional)</label>
+                            <input 
+                                type="file" 
+                                className="form-input"
+                                accept=".pdf,.jpg,.jpeg,.png" 
+                                onChange={(e) => setArchivoCotizacion(e.target.files[0])} 
+                                style={{ padding: '8px', cursor: 'pointer', backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1' }}
+                            />
+                            <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>
+                                Formatos permitidos: PDF, JPG, PNG. Útil para auditoría y validación del gasto.
+                            </span>
+                        </div>
+
+                        {/* Mensaje exito */}
                         {submitted && (
                             <div className="success-msg">
                                 <IconCheck />
@@ -576,7 +609,7 @@ const Solicitud = () => {
                             }
                         </div>
 
-                        {/* Fecha Límite Resumen */}
+                        {/* Fecha Limite Resumen */}
                         <div className="resumen-row">
                             <div className="resumen-row-label">Vencimiento</div>
                             {formData.fecha_limite_pago
@@ -590,7 +623,7 @@ const Solicitud = () => {
 
                     {/* Tarjeta flujo */}
                     <div className="flujo-card">
-                        <h4>Flujo de Aprobación</h4>
+                        <h4>Flujo de Aprobacion</h4>
                         {FLUJO_PASOS.map((s) => (
                             <div key={s.paso} className="flujo-step">
                                 <div className="flujo-num" style={{ backgroundColor: s.bg, color: s.color }}>
