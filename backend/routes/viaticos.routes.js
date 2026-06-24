@@ -4,6 +4,8 @@ const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const PDFDocument = require('pdfkit');
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) { cb(null, path.join(__dirname, '../uploads')); },
@@ -13,31 +15,17 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// ==========================================
-// 0. OBTENER PERFIL PARA AUTO-LLENADO
-// ==========================================
+const formatMoney = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 router.get('/perfil', verificarToken, (req, res) => {
-    const query = `
-        SELECT 
-            e.puesto, 
-            e.departamento, 
-            e.unidad_negocio AS ubicacion
-        FROM usuarios u
-        JOIN empleados e ON u.id_empleado = e.id_persona
-        WHERE u.id = ?
-    `;
+    const query = `SELECT e.puesto, e.departamento, e.unidad_negocio AS ubicacion FROM usuarios u JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?`;
     db.query(query, [req.usuario.id], (err, results) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error en BD' });
-        
-        // Si encontramos al empleado, mandamos sus datos. Si no, mandamos un objeto vacío.
+        if (err) return res.status(500).json({ success: false });
         const perfil = results.length > 0 ? results[0] : { puesto: '', departamento: '', ubicacion: '' };
         res.json({ success: true, perfil });
     });
 });
 
-// ==========================================
-// 1. CREAR NUEVA SOLICITUD
-// ==========================================
 router.post('/', verificarToken, (req, res) => {
     const id_usuario = req.usuario.id;
     const { 
@@ -54,15 +42,12 @@ router.post('/', verificarToken, (req, res) => {
     ];
 
     db.query(query, values, (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al guardar la solicitud' });
+        if (err) return res.status(500).json({ success: false });
         registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicitó viáticos por $${num(total_solicitado).toFixed(2)} para ${destino}`);
         res.json({ success: true, message: 'Solicitud enviada correctamente' });
     });
 });
 
-// ==========================================
-// 2. OBTENER MIS SOLICITUDES
-// ==========================================
 router.get('/mis-solicitudes', verificarToken, (req, res) => {
     db.query('SELECT * FROM solicitudes_viaticos WHERE id_usuario = ? ORDER BY fecha_solicitud DESC', [req.usuario.id], (err, results) => {
         if (err) return res.status(500).json({ success: false });
@@ -70,53 +55,311 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
     });
 });
 
-// ==========================================
-// 3. OBTENER TODAS (Para la Bandeja de D.H.O)
-// ==========================================
 router.get('/todas', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false, message: 'Acceso denegado' });
+    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false });
     db.query('SELECT sv.*, u.username as solicitante_usuario FROM solicitudes_viaticos sv JOIN usuarios u ON sv.id_usuario = u.id ORDER BY sv.fecha_solicitud DESC', (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
     });
 });
 
-// ==========================================
-// 4. AUTORIZAR / RECHAZAR (Por D.H.O)
-// ==========================================
 router.put('/:id/estatus', verificarToken, (req, res) => {
     if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false });
-    db.query('UPDATE solicitudes_viaticos SET estatus = ? WHERE id = ?', [req.body.estatus, req.params.id], (err) => {
+    db.query('UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?', [req.body.estatus, req.usuario.id, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
         registrarBitacora(req.usuario.id, `VIATICO_${req.body.estatus}`, `Marcó viático #${req.params.id} como ${req.body.estatus}`);
-        res.json({ success: true, message: `Solicitud ${req.body.estatus.toLowerCase()} correctamente.` });
+        res.json({ success: true });
     });
 });
 
-// ==========================================
-// 5. D.H.O SUBE COMPROBANTE DE TRANSFERENCIA
-// ==========================================
+// ✅ NUEVA RUTA: El empleado confirma que ya tiene el dinero en su cuenta
+router.put('/:id/recibido', verificarToken, (req, res) => {
+    db.query('UPDATE solicitudes_viaticos SET estatus = "RECIBIDO" WHERE id = ? AND id_usuario = ?', [req.params.id, req.usuario.id], (err, result) => {
+        if (err) return res.status(500).json({ success: false });
+        if (result.affectedRows === 0) return res.status(403).json({ success: false, message: 'No autorizado' });
+        registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `Confirmó recepción de fondos del viático #${req.params.id}`);
+        res.json({ success: true, message: 'Recepción confirmada.' });
+    });
+});
+
 router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, message: 'No hay archivo.' });
+    if (!req.file) return res.status(400).json({ success: false });
     const urlArchivo = `uploads/${req.file.filename}`;
     db.query('UPDATE solicitudes_viaticos SET url_comprobante_transferencia = ? WHERE id = ?', [urlArchivo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'COMPROBANTE_TRANSF', `Subió transferencia de viático #${req.params.id}`);
-        res.json({ success: true, message: 'Transferencia adjuntada.', url: urlArchivo });
+        res.json({ success: true, url: urlArchivo });
     });
 });
 
-// ==========================================
-// 6. EMPLEADO SUBE SUS FACTURAS DE GASTOS
-// ==========================================
 router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobante_gastos'), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, message: 'No hay archivo.' });
+    if (!req.file) return res.status(400).json({ success: false });
     const urlArchivo = `uploads/${req.file.filename}`;
-    // Al subir gastos, cambiamos el estatus a COMPROBADO
     db.query('UPDATE solicitudes_viaticos SET url_comprobante_gastos = ?, estatus = "COMPROBADO" WHERE id = ? AND id_usuario = ?', [urlArchivo, req.params.id, req.usuario.id], (err) => {
         if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'COMPROBACION_GASTOS', `Comprobó gastos del viático #${req.params.id}`);
-        res.json({ success: true, message: 'Gastos comprobados con éxito.', url: urlArchivo });
+        res.json({ success: true, url: urlArchivo });
+    });
+});
+
+// ==============================================================================
+// 7. CLON EXACTO DEL PDF (LÓGICA DE FIRMAS CONDICIONADA)
+// ==============================================================================
+router.get('/:id/pdf', verificarToken, (req, res) => {
+    const query = `
+        SELECT sv.*, 
+               p.nombre_razon_social AS solicitante_nombre,
+               e.puesto AS solicitante_puesto,
+               e.unidad_negocio AS solicitante_unidad,
+               e.empresa_maestra AS solicitante_empresa,
+               u.ruta_firma_png AS solicitante_firma,
+               p_aut.nombre_razon_social AS autorizador_nombre,
+               e_aut.puesto AS autorizador_puesto,
+               e_aut.empresa_maestra AS autorizador_empresa,
+               u_aut.ruta_firma_png AS autorizador_firma
+        FROM solicitudes_viaticos sv
+        LEFT JOIN usuarios u ON sv.id_usuario = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p ON e.id_persona = p.id
+        LEFT JOIN usuarios u_aut ON sv.id_autorizador = u_aut.id
+        LEFT JOIN empleados e_aut ON u_aut.id_empleado = e_aut.id_persona
+        LEFT JOIN personas p_aut ON e_aut.id_persona = p_aut.id
+        WHERE sv.id = ?
+    `;
+
+    db.query(query, [req.params.id], (err, results) => {
+        if (err || results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
+        
+        const sol = results[0];
+        const doc = new PDFDocument({ size: 'LETTER', margin: 30, autoFirstPage: true });
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=Comision_${sol.id}.pdf`);
+        doc.pipe(res);
+
+        const COLOR_TEXTO_AZUL = '#0000FF';
+        const COLOR_VERDE_TITULO = '#008000';
+        const BG_VERDE_CLARO = '#eaffea';
+        let y = 30;
+
+        const drawCell = (x, cy, w, h, text, fill, textColor = '#000', font = 'Helvetica', size = 8, align = 'left', noBorder = false) => {
+            if (fill) doc.rect(x, cy, w, h).fill(fill);
+            if (!noBorder) doc.rect(x, cy, w, h).stroke('#000');
+            if (text) {
+                doc.fillColor(textColor).font(font).fontSize(size);
+                const textHeight = doc.heightOfString(text, { width: w });
+                const textY = cy + (h - textHeight) / 2;
+                const isCentered = align === 'center' || align === 'right';
+                doc.text(text, isCentered ? x : x + 5, textY, { width: w - (isCentered ? 0 : 5), align: align });
+            }
+        };
+
+        const anio = new Date(sol.fecha_solicitud || Date.now()).getFullYear();
+        doc.font('Helvetica-Bold').fontSize(14).fillColor(COLOR_VERDE_TITULO).text(`OFICIO DE COMISIÓN ${anio}`, 0, y, { align: 'center' });
+        doc.fontSize(10).text(`SAC-TSR-CMS-${anio}`, 0, y, { align: 'right', underline: true });
+        
+        y += 20;
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'NOMBRE DEL COLABORADOR', 30, y);
+        y += 10;
+        doc.font('Helvetica-Bold').fillColor('#000').text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, 30, y);
+        y += 10;
+        doc.font('Helvetica-Oblique').fillColor(COLOR_TEXTO_AZUL).text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 30, y);
+        y += 10;
+        doc.text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', 30, y);
+
+        const f = new Date(sol.fecha_solicitud || Date.now());
+        const diasSemana = ['dom','lun','mar','mié','jue','vie','sáb'];
+        const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        const fechaStr = `${diasSemana[f.getDay()]} ${f.getDate().toString().padStart(2, '0')} de ${meses[f.getMonth()]} del ${f.getFullYear().toString().substr(-2)}`;
+        
+        doc.font('Helvetica-Bold').fillColor('#000').fontSize(9).text('Fecha', 380, y - 14);
+        drawCell(420, y - 20, 132, 14, fechaStr, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'center', true);
+        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('Fecha (dd/mm/aa)', 420, y - 6, { width: 132, align: 'center' });
+        y += 15;
+
+        const tX = 30, tW1 = 70, tW2 = 452, rowH1 = 16;
+        const fSalida = new Date(sol.fecha_salida).toLocaleDateString('es-MX', {timeZone: 'UTC'});
+        const fRegreso = new Date(sol.fecha_regreso).toLocaleDateString('es-MX', {timeZone: 'UTC'});
+        
+        drawCell(tX, y, tW1, rowH1, 'Lugar:', null, '#000', 'Helvetica-Bold', 9, 'left');
+        drawCell(tX+tW1, y, tW2, rowH1, (sol.destino || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+        y += rowH1;
+        drawCell(tX, y, tW1, rowH1, 'Período:', null, '#000', 'Helvetica-Bold', 9, 'left');
+        drawCell(tX+tW1, y, tW2, rowH1, `DEL ${fSalida} AL ${fRegreso}`, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+        y += rowH1;
+        drawCell(tX, y, tW1, rowH1, 'Objetivo:', null, '#000', 'Helvetica-Bold', 9, 'left');
+        drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+        y += 20;
+
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text(
+            'Por lo anterior deberá solicitar a la gerencia de finanzas los viáticos en los formatos autorizados. Al finalizar la comisión deberá requisitar la "Comprobación universal de gastos" (SAC-GTSR-GST) en un máximo de 3 (TRES) días posterior a su término, so pena de cargo a nómina.\nSin más por el momento le envío un cordial saludo.\n',
+            30, y, { width: 522, align: 'justify' }
+        );
+        y += 35;
+
+        // 3. FIRMAS MEDIAS
+        const wSMid = 180;
+        const gapMid = 60;
+        const startXMid = (doc.page.width - ((wSMid * 2) + gapMid)) / 2;
+        const xAten = startXMid;
+        const xRev = startXMid + wSMid + gapMid;
+
+        doc.font('Helvetica').fontSize(9).text('Atentamente', xAten, y, { width: wSMid, align: 'center' });
+        doc.text('Revisión de gasto', xRev, y, { width: wSMid, align: 'center' });
+        
+        // La firma de "Atentamente" siempre va porque él pide el dinero
+        if (sol.solicitante_firma) {
+            const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
+            if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xAten + 60, y + 5, { height: 25 }); } catch (e) {}
+        }
+        if (sol.autorizador_firma) {
+            const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
+            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xRev + 60, y + 5, { height: 25 }); } catch (e) {}
+        }
+
+        y += 35; 
+        doc.moveTo(xAten, y).lineTo(xAten + wSMid, y).stroke();
+        doc.moveTo(xRev, y).lineTo(xRev + wSMid, y).stroke();
+        y += 3;
+        
+        doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'FIRMA DEL SOLICITANTE', xAten, y, { width: wSMid, align: 'center' });
+        doc.text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE REVISIÓN', xRev, y, { width: wSMid, align: 'center' });
+        y += 10;
+        doc.font('Helvetica-BoldOblique').fillColor('#000').text(sol.solicitante_puesto || '', xAten, y, { width: wSMid, align: 'center' });
+        doc.text(sol.autorizador_puesto || 'D.H.O / FINANZAS', xRev, y, { width: wSMid, align: 'center' });
+        y += 10;
+        doc.font('Helvetica').text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', xAten, y, { width: wSMid, align: 'center' });
+        doc.text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xRev, y, { width: wSMid, align: 'center' });
+        y += 20;
+
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Personas adicionales autorizadas:', 30, y);
+        y += 12;
+        drawCell(30, y, 522, 40, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true); 
+        const accArr = sol.nombres_acompanantes ? sol.nombres_acompanantes.split(',') : [];
+        let curY = y + 5;
+        for(let i=1; i<=4; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 60, curY); curY += 8; }
+        curY = y + 5;
+        for(let i=5; i<=8; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 320, curY); curY += 8; }
+        y += 45; 
+        doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
+        y += 10;
+
+        // 5. LA CUADRÍCULA EXCEL
+        const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 15; 
+        let gy = y;
+
+        drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
+        const dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        let rx = 30 + colMain;
+        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, dias[i], '#fff', '#000', 'Helvetica-Bold', 8, 'center'); rx += colDay; }
+        drawCell(rx, gy, colTotal, rowH, 'TOTAL', '#fff', '#000', 'Helvetica-Bold', 8, 'center');
+        gy += rowH;
+
+        drawCell(30, gy, colMain, rowH, 'Hospedaje', null, '#000', 'Helvetica-Bold', 8, 'left');
+        rx = 30 + colMain;
+        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
+        doc.lineWidth(2);
+        drawCell(rx, gy, colTotal, rowH, sol.monto_hospedaje > 0 ? formatMoney(sol.monto_hospedaje) : '', null, '#000', 'Helvetica', 8, 'right');
+        doc.lineWidth(1);
+        gy += rowH;
+
+        drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
+        const drawSubRow = (label, amt) => {
+            drawCell(80, gy, colSub, rowH, label, null, '#000', 'Helvetica', 8, 'left');
+            rx = 30 + colMain;
+            for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
+            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, amt > 0 ? formatMoney(amt) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1);
+            gy += rowH;
+        };
+        const esAereo = sol.medio_transporte === 'AEREO';
+        const esBus = sol.medio_transporte === 'AUTOBUS' || sol.medio_transporte === 'Autobús';
+        drawSubRow('Aéreo', esAereo ? sol.monto_pasajes : 0);
+        drawSubRow('Terrestre', esBus ? sol.monto_pasajes : 0);
+        drawSubRow('Vehículo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
+
+        drawCell(30, gy, 50, rowH*3, 'Alimentos', null, '#000', 'Helvetica-Bold', 8, 'center');
+        drawSubRow('Almuerzo', 0);
+        drawSubRow('Comida', sol.monto_alimentos);
+        drawSubRow('Cena', 0);
+
+        drawCell(30, gy, 50, rowH, 'Comunicación', null, '#000', 'Helvetica-Bold', 7, 'center');
+        drawSubRow('Tarjeta', 0);
+        
+        drawCell(30, gy, colMain, rowH, 'Otros', null, '#000', 'Helvetica-Bold', 8, 'left');
+        rx = 30 + colMain;
+        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
+        doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, sol.monto_otros > 0 ? formatMoney(sol.monto_otros) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
+
+        drawCell(30, gy, colMain, rowH, 'Especifique', null, '#000', 'Helvetica', 8, 'left');
+        rx = 30 + colMain;
+        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
+        doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
+
+        doc.lineWidth(2);
+        let anchoMerge = colMain + (colDay*7);
+        drawCell(30, gy, anchoMerge, 18, 'TOTAL', null, '#000', 'Helvetica-Bold', 9, 'left');
+        drawCell(30+colMain, gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*2), gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*4), gy, colDay*3, 18, '');
+        drawCell(30+anchoMerge, gy, colTotal, 18, formatMoney(sol.total_solicitado), null, '#000', 'Helvetica-Bold', 9, 'right');
+        doc.lineWidth(1);
+        gy += 20;
+
+        doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o después de impresión).', 30, gy);
+        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aquí!', 200, gy);
+        gy += 12;
+        drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
+        gy += 35; 
+
+        // ==========================================================
+        // 6. FIRMAS FINALES (Otorgó / Recibió) - BLOQUE REESCRITO
+        // ==========================================================
+        const wSBot = 180; 
+        const gapBot = 60; 
+        const startXBot = (doc.page.width - ((wSBot * 2) + gapBot)) / 2;
+        const xOtor = startXBot;
+        const xReci = startXBot + wSBot + gapBot;
+
+        // 1. Dibujar Líneas primero (esto será la base)
+        const yLineaFirma = gy + 45; // Bajamos la línea
+        doc.moveTo(xOtor, yLineaFirma).lineTo(xOtor + wSBot, yLineaFirma).stroke();
+        doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
+
+        // 2. Dibujar Firmas (Imagen) centradas SOBRE la línea
+        // Ajustamos la altura y el offset vertical para que floten sobre la línea
+        const imgHeight = 35; 
+        if (sol.autorizador_firma) {
+            const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
+            if (fs.existsSync(pathFirmaAut)) try { 
+                doc.image(pathFirmaAut, xOtor + 40, yLineaFirma - imgHeight, { width: 100, height: imgHeight }); 
+            } catch (e) {}
+        }
+        
+        if (['RECIBIDO', 'COMPROBADO'].includes(sol.estatus)) {
+            if (sol.solicitante_firma) {
+                const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
+                if (fs.existsSync(pathFirmaSol)) try { 
+                    doc.image(pathFirmaSol, xReci + 40, yLineaFirma - imgHeight, { width: 100, height: imgHeight }); 
+                } catch (e) {}
+            }
+        }
+
+        // 3. Dibujar Etiquetas (Otorgó/Recibió) arriba de la firma
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgó', xOtor, gy, { width: wSBot, align: 'center' });
+        doc.text('Recibió', xReci, gy, { width: wSBot, align: 'center' });
+
+        // 4. Dibujar Textos debajo de la línea
+        const yTexto = yLineaFirma + 5;
+        const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
+
+        doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE AUTORIZAR', xOtor, yTexto, { width: wSBot, align: 'center' });
+        doc.text(textoRecibio, xReci, yTexto, { width: wSBot, align: 'center' });
+        
+        const yPuesto = yTexto + 10;
+        doc.font('Helvetica-BoldOblique').fillColor('#000').text(sol.autorizador_puesto || 'D.H.O / FINANZAS', xOtor, yPuesto, { width: wSBot, align: 'center' });
+        doc.text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, xReci, yPuesto, { width: wSBot, align: 'center' });
+        
+        const yEmpresa = yPuesto + 10;
+        doc.font('Helvetica').text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xOtor, yEmpresa, { width: wSBot, align: 'center' });
+        doc.text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', xReci, yEmpresa, { width: wSBot, align: 'center' });
+
+        doc.end();
     });
 });
 

@@ -357,17 +357,26 @@ router.post('/inversion', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// PAGOS IRREGULARES Y ALERTAS REALES (SMTP)
+// REESTRUCTURACIÓN, PAGOS IRREGULARES Y ALERTAS
 // ==========================================
 
 router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
-    const { pagos_irregulares } = req.body;
+    const { pagos_irregulares, plan_json, huboInyeccion } = req.body;
     const jsonStr = JSON.stringify(pagos_irregulares);
+    const planStr = JSON.stringify(plan_json);
     
-    db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ? WHERE id = ?', [jsonStr, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al guardar abonos a capital.' });
-        registrarBitacora(req.usuario.id, 'ABONO_CAPITAL', `Se registraron abonos a capital y se reestructuró el saldo del contrato #${req.params.id}`);
-        res.json({ success: true, message: 'Abonos a capital guardados correctamente.' });
+    // Actualizamos tanto el plan personalizado como las inyecciones
+    db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ?, plan_json = ?, tipo_amortizacion = "personalizado" WHERE id = ?', 
+    [jsonStr, planStr, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al actualizar.' });
+        
+        // Diferenciamos en la bitácora
+        const mensaje = huboInyeccion 
+            ? `Se registraron nuevas inyecciones y reestructuración en contrato #${req.params.id}`
+            : `Se reestructuró la tabla de amortización (fechas/abonos) del contrato #${req.params.id}`;
+            
+        registrarBitacora(req.usuario.id, 'REESTRUCTURACION', mensaje);
+        res.json({ success: true, message: 'Actualización exitosa.' });
     });
 });
 
