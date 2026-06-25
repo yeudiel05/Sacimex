@@ -157,7 +157,6 @@ function Clientes() {
     setFileToUpload(null);
     setClienteActivo(null);
     setArchivosCliente([]);
-    // Resetear input file
     const fileInput = document.getElementById('file-upload-input');
     if (fileInput) fileInput.value = '';
   };
@@ -217,28 +216,56 @@ function Clientes() {
 
   return (
     <div className="clientes-container">
-      <div className="page-header">
-        <div>
-          <h1>Directorio de Clientes</h1>
-          <p>Gestión de acreditados, expedientes y líneas de crédito</p>
-        </div>
-        <button className="btn-primary" onClick={openNewModal}>+ Agregar Cliente</button>
-      </div>
+      {/* Se eliminó el div page-header que quedaba oculto por la barra superior */}
 
-      <div className="clientes-list-container">
-        <div className="list-header">
+      <div className="clientes-list-container" style={{ marginTop: '20px' }}>
+        <div className="list-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <h2>Cartera de Acreditados</h2>
-          <div className="search-bar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input 
-              type="text" 
-              placeholder="Buscar cliente por nombre o RFC..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-            />
+          
+          {/* Contenedor para el Buscador y el Botón Verde */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div className="search-bar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input 
+                type="text" 
+                placeholder="Buscar cliente por nombre o RFC..." 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+              />
+            </div>
+            
+            {/* NUEVO BOTÓN VERDE */}
+            <button 
+              onClick={openNewModal}
+              style={{
+                backgroundColor: '#10d440',
+                color: 'white',
+                border: 'none',
+                padding: '10px 24px',
+                borderRadius: '8px',
+                fontWeight: '700',
+                fontSize: '15px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(16, 212, 64, 0.35)',
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = '#0ebf39';
+                e.target.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = '#10d440';
+                e.target.style.transform = 'translateY(0)';
+              }}
+            >
+              + Agregar Cliente
+            </button>
           </div>
         </div>
 
@@ -463,7 +490,7 @@ function Clientes() {
               </div>
               <div className="modal-footer" style={{ padding: '20px 32px', borderTop: '1px solid var(--border-light)' }}>
                 <button type="button" className="btn-cancel" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary" disabled={isLoading} style={{ backgroundColor: '#4f46e5' }}>
+                <button type="submit" className="btn-primary" disabled={isLoading} style={{ backgroundColor: '#10d440', borderColor: '#10d440' }}>
                   {isLoading ? 'Guardando...' : 'Guardar Cliente'}
                 </button>
               </div>
