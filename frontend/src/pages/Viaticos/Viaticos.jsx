@@ -42,9 +42,13 @@ function Viaticos() {
   const [mostrarCatalogo, setMostrarCatalogo] = useState(false);
   const [destinoOtro, setDestinoOtro] = useState('');
   
-  // ✅ NUEVO: Estado para unidades de negocio dinámicas
+  // Estado para unidades de negocio dinámicas
   const [unidadesNegocio, setUnidadesNegocio] = useState([]);
   const [loadingUnidades, setLoadingUnidades] = useState(true);
+
+  // NUEVO ESTADO: Para el manejo individual de comprobantes de recepción
+  const [archivosRecepcion, setArchivosRecepcion] = useState({});
+  const [subiendoRecepcion, setSubiendoRecepcion] = useState({});
 
   const [formData, setFormData] = useState({
     solicitante_nombre: '', puesto: '', unidad_negocio: '', area: '', departamento: '', jefe_inmediato: '', 
@@ -197,6 +201,40 @@ function Viaticos() {
     } catch (error) { alert("Error de conexión al servidor."); } finally { setIsSubmitting(false); }
   };
 
+  // ✅ NUEVA FUNCIÓN: Confirmar Recepción (Firma Digital)
+  const handleConfirmarRecepcion = async (idSolicitud) => {
+    const file = archivosRecepcion[idSolicitud];
+    if (!file) {
+        return alert("Por favor, selecciona tu comprobante (captura o foto del ticket) primero.");
+    }
+
+    setSubiendoRecepcion(prev => ({ ...prev, [idSolicitud]: true }));
+    const formData = new FormData();
+    formData.append('comprobante_empleado', file);
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`http://localhost:3001/api/viaticos/${idSolicitud}/confirmar-recepcion`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+            alert("¡Recepción confirmada! Tu firma ha sido estampada en el oficio.");
+            setArchivosRecepcion(prev => ({ ...prev, [idSolicitud]: null }));
+            fetchMisSolicitudes();
+        } else {
+            alert(data.message);
+        }
+    } catch (error) {
+        alert("Error de conexión al subir el comprobante.");
+    } finally {
+        setSubiendoRecepcion(prev => ({ ...prev, [idSolicitud]: false }));
+    }
+  };
+
   const handleSubirGastos = async (id_solicitud, event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -210,7 +248,6 @@ function Viaticos() {
     } catch (error) { alert('Error al subir el archivo.'); }
   };
 
-  // ✅ NUEVA FUNCIÓN: Descargar/Ver PDF del Formato Oficial
   const handleVerPDF = async (id_solicitud) => {
       try {
           const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
@@ -255,7 +292,6 @@ function Viaticos() {
         <form onSubmit={handleSubmit} className="viaticos-grid-layout">
           <div className="viaticos-form-column">
             
-            {/* --- LEYENDA DE ANTICIPACIÓN OBLIGATORIA --- */}
             <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '13px', color: '#b45309' }}>
               <strong>IMPORTANTE:</strong> Todas las solicitudes de viáticos deberán realizarse con al menos <strong>1 día de anticipación</strong> a su fecha de salida para poder ser gestionadas correctamente.
             </div>
@@ -275,25 +311,14 @@ function Viaticos() {
               <div className="input-row-2">
                 <div className="form-field">
                   <label>Unidad de Negocio</label>
-                  {/* ✅ SELECTOR DINÁMICO DE UNIDADES DE NEGOCIO */}
                   <select name="unidad_negocio" required value={formData.unidad_negocio} onChange={handleChange} disabled={loadingUnidades}>
                     <option value="" disabled>Seleccione unidad</option>
                     {unidadesNegocio.map(unidad => (
-                      <option key={unidad.id} value={unidad.nombre}>
-                        {unidad.nombre}
-                      </option>
+                      <option key={unidad.id} value={unidad.nombre}>{unidad.nombre}</option>
                     ))}
                   </select>
-                  {loadingUnidades && (
-                    <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>
-                      Cargando unidades...
-                    </span>
-                  )}
-                  {!loadingUnidades && unidadesNegocio.length === 0 && (
-                    <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px' }}>
-                      No hay unidades de negocio registradas. Contacta al administrador.
-                    </span>
-                  )}
+                  {loadingUnidades && <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginTop: '4px' }}>Cargando unidades...</span>}
+                  {!loadingUnidades && unidadesNegocio.length === 0 && <span style={{ fontSize: '11px', color: '#dc2626', display: 'block', marginTop: '4px' }}>No hay unidades registradas.</span>}
                 </div>
                 <div className="form-field">
                   <label>Área a la que pertenece</label>
@@ -464,52 +489,92 @@ function Viaticos() {
               const limiteVencido = diasPasados > 3;
 
               return (
-                <div key={sol.id} className="premium-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px' }}>
-                  <div>
-                    <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : sol.estatus === 'AUTORIZADO' ? '#dcfce7' : '#e0e7ff', color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : sol.estatus === 'AUTORIZADO' ? '#16a34a' : '#4f46e5' }}>{sol.estatus}</span>
-                    <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
-                    <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
-                    
-                    {sol.estatus === 'AUTORIZADO' && (
-                      <div style={{ marginTop: '12px', color: '#10b981', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width: '16px'}}><polyline points="20 6 9 17 4 12"></polyline></svg>
-                        ¡Tu recurso ha sido aceptado y depositado!
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
-                    <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
-                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+                    <div>
+                      <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : (sol.estatus === 'AUTORIZADO' || sol.estatus === 'PAGADO') ? '#dcfce7' : '#e0e7ff', color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : (sol.estatus === 'AUTORIZADO' || sol.estatus === 'PAGADO') ? '#16a34a' : '#4f46e5' }}>{sol.estatus}</span>
+                      <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
+                      <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
                       
-                      {/* ✅ BOTÓN DE PDF AGREGADO AQUÍ */}
-                      <button 
-                        onClick={() => handleVerPDF(sol.id)} 
-                        style={{ padding: '8px 16px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
-                        Imprimir / Ver Formato
-                      </button>
+                      {sol.estatus === 'PAGADO' && (
+                        <div style={{ marginTop: '12px', color: '#ea580c', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                          ¡Tesorería ha depositado tu viático! Confirma de recibido para poder comprobar gastos.
+                        </div>
+                      )}
 
-                      {sol.url_comprobante_transferencia && (<a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>)}
-                      
-                      {(sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO') && (
-                        <>
-                          <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
-                          
-                          {sol.url_comprobante_gastos ? (
-                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
-                          ) : (
-                            limiteVencido ? (
-                              <div style={{ padding: '8px 12px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
-                                Plazo vencido (3 días). Ya no es posible subir documentos.
-                              </div>
-                            ) : (
-                              <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>
-                            )
-                          )}
-                        </>
+                      {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
+                        <div style={{ marginTop: '12px', color: '#10b981', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width: '16px'}}><polyline points="20 6 9 17 4 12"></polyline></svg>
+                          ¡Recurso recibido y firmado digitalmente!
+                        </div>
                       )}
                     </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
+                      <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
+                      
+                      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button 
+                          onClick={() => handleVerPDF(sol.id)} 
+                          style={{ padding: '8px 16px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+                          Imprimir / Ver Formato
+                        </button>
+
+                        {sol.url_comprobante_transferencia && (<a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>)}
+                        
+                        {/* BOTÓN DE SUBIR FACTURAS (SOLO SI YA RECIBIÓ EL DINERO) */}
+                        {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
+                          <>
+                            <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
+                            
+                            {sol.url_comprobante_gastos ? (
+                              <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
+                            ) : (
+                              limiteVencido ? (
+                                <div style={{ padding: '8px 12px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
+                                  Plazo vencido (3 días). Ya no es posible subir documentos.
+                                </div>
+                              ) : (
+                                <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>
+                              )
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* ✅ NUEVA SECCIÓN DE CONFIRMACIÓN DE RECEPCIÓN (FIRMA) */}
+                  {sol.estatus === 'PAGADO' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', padding: '16px', backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'left', width: '100%' }}>
+                          <label style={{ fontSize: '13px', color: '#334155', fontWeight: 'bold' }}>
+                              Sube tu comprobante de ingreso (captura de estado de cuenta) para firmar de recibido:
+                          </label>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input 
+                                  type="file" 
+                                  accept=".pdf, image/*" 
+                                  onChange={(e) => setArchivosRecepcion(prev => ({ ...prev, [sol.id]: e.target.files[0] }))} 
+                                  style={{ fontSize: '13px', padding: '6px', border: '1px solid #cbd5e1', borderRadius: '6px', backgroundColor: 'white', flexGrow: 1 }}
+                              />
+                              <button 
+                                  className="btn-success" 
+                                  onClick={() => handleConfirmarRecepcion(sol.id)}
+                                  disabled={subiendoRecepcion[sol.id] || !archivosRecepcion[sol.id]}
+                                  style={{ padding: '10px 20px', fontSize: '13px', justifyContent: 'center', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: subiendoRecepcion[sol.id] || !archivosRecepcion[sol.id] ? 'not-allowed' : 'pointer', opacity: subiendoRecepcion[sol.id] || !archivosRecepcion[sol.id] ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: '8px', minWidth: '220px' }}
+                              >
+                                  {subiendoRecepcion[sol.id] ? 'Firmando y Subiendo...' : (
+                                    <>
+                                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                      Confirmar Recepción y Firmar
+                                    </>
+                                  )}
+                              </button>
+                          </div>
+                      </div>
+                  )}
+
                 </div>
               );
             })

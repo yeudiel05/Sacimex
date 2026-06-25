@@ -65,7 +65,7 @@ function RevisionViaticos() {
   };
 
   const cambiarEstatus = async (id, nuevoEstatus) => {
-    if (!window.confirm(`¿Estás seguro de ${nuevoEstatus.toLowerCase()} esta solicitud?`)) return;
+    if (!window.confirm(`¿Estás seguro de marcar esta solicitud como ${nuevoEstatus}?`)) return;
     
     const token = localStorage.getItem('token');
     try {
@@ -75,12 +75,26 @@ function RevisionViaticos() {
         body: JSON.stringify({ estatus: nuevoEstatus })
       });
       const data = await res.json();
+      
       if (data.success) {
         alert(data.message || `Solicitud marcada como ${nuevoEstatus}`);
-        fetchSolicitudes(); 
+        
+        // MAGIA: Forzamos a la interfaz a actualizar la tabla en tiempo real
+        setSolicitudes(prev => prev.map(s => s.id === id ? { ...s, estatus: nuevoEstatus } : s));
+        
+        // Recargamos el fondo con un sello de tiempo para evitar la caché del navegador
+        fetch('http://localhost:3001/api/viaticos/todas?t=' + Date.now(), {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).then(d => {
+          if(d.success) setSolicitudes(d.data);
+        });
+
+      } else {
+        // Si el backend detectó un error (ej. falta una columna), te lo mostrará aquí
+        alert("No se pudo actualizar: " + data.message);
       }
     } catch (error) {
-      alert('Error al procesar la solicitud.');
+      alert('Error al procesar la solicitud con el servidor.');
     }
   };
 
@@ -175,10 +189,20 @@ function RevisionViaticos() {
 
   const solicitudesFiltradas = solicitudes.filter(sol => {
     if (tabActiva === 'PENDIENTES') return sol.estatus === 'PENDIENTE' || sol.estatus === 'PENDIENTE_VOBO';
-    if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'AUTORIZADO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO';
-    if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'AUTORIZADO' || sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO';
+    if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'PAGADO' || sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO' || sol.estatus === 'AUTORIZADO';
     return true;
   });
+
+  const getBadgeStyle = (estatus) => {
+    switch(estatus) {
+      case 'PENDIENTE': return { bg: '#fef3c7', text: '#f59e0b' };
+      case 'PAGADO': return { bg: '#eff6ff', text: '#3b82f6' }; // Pagado por tesorería, esperando firma
+      case 'RECIBIDO': return { bg: '#ccfbf1', text: '#0d9488' }; // Empleado ya firmó
+      case 'COMPROBADO': return { bg: '#dcfce7', text: '#16a34a' }; // Proceso finalizado
+      case 'RECHAZADO': return { bg: '#fee2e2', text: '#ef4444' };
+      default: return { bg: '#f1f5f9', text: '#64748b' };
+    }
+  };
 
   return (
     <div className="viaticos-premium-wrapper fade-in-up">
@@ -230,123 +254,133 @@ function RevisionViaticos() {
         </div>
       ) : (
         <div style={{ display: 'grid', gap: '24px' }}>
-          {solicitudesFiltradas.map(sol => (
-            <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
-              
-              {/* --- ENCABEZADO DE LA TARJETA --- */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                  <span style={{ 
-                    fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px',
-                    backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : sol.estatus === 'RECHAZADO' ? '#fee2e2' : '#dcfce7',
-                    color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : sol.estatus === 'RECHAZADO' ? '#ef4444' : '#16a34a'
-                  }}>
-                    {sol.estatus}
-                  </span>
-                  <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino}</h3>
-                  <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.4' }}>
-                    <strong>Solicitante:</strong> {sol.solicitante_usuario} ({sol.departamento}) <br/>
-                    <strong>Fechas:</strong> {new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}
-                  </p>
-                </div>
+          {solicitudesFiltradas.map(sol => {
+            const badge = getBadgeStyle(sol.estatus);
+            
+            return (
+              <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
+                
+                {/* --- ENCABEZADO DE LA TARJETA --- */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px', flexWrap: 'wrap', gap: '16px' }}>
+                  <div>
+                    <span style={{ 
+                      fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px',
+                      backgroundColor: badge.bg, color: badge.text
+                    }}>
+                      {sol.estatus}
+                    </span>
+                    <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino}</h3>
+                    <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.4' }}>
+                      <strong>Solicitante:</strong> {sol.solicitante_usuario} ({sol.departamento}) <br/>
+                      <strong>Fechas:</strong> {new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}
+                    </p>
+                  </div>
 
-                <div style={{ textAlign: 'right', minWidth: '220px' }}>
-                  <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
-                  <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
-                  
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button 
-                      onClick={() => toggleDetalle(sol.id)} 
-                      style={{ padding: '6px 12px', border: '1px solid #cbd5e1', color: '#475569', background: '#f8fafc', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                      {expandidos[sol.id] ? '▲ Ocultar Detalle' : '▼ Ver Detalle'}
-                    </button>
+                  <div style={{ textAlign: 'right', minWidth: '220px' }}>
+                    <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
+                    <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
+                    
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button 
+                        onClick={() => toggleDetalle(sol.id)} 
+                        style={{ padding: '6px 12px', border: '1px solid #cbd5e1', color: '#475569', background: '#f8fafc', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                        {expandidos[sol.id] ? '▲ Ocultar Detalle' : '▼ Ver Detalle'}
+                      </button>
 
-                    {/* ✅ BOTÓN DE VER PDF AGREGADO */}
-                    <button 
-                      onClick={() => handleVerPDF(sol.id)} 
-                      style={{ padding: '6px 12px', background: 'white', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>
-                      Ver PDF
-                    </button>
+                      {/* ✅ BOTÓN DE VER PDF */}
+                      <button 
+                        onClick={() => handleVerPDF(sol.id)} 
+                        style={{ padding: '6px 12px', background: 'white', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        Ver PDF
+                      </button>
 
-                    {/* --- BOTONES DE ACCIÓN PRINCIPALES --- */}
-                    {tabActiva === 'PENDIENTES' && (
-                      <>
-                        <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
-                        <button onClick={() => cambiarEstatus(sol.id, 'AUTORIZADO')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Autorizar Pago</button>
-                      </>
-                    )}
+                      {/* --- BOTONES DE ACCIÓN PRINCIPALES --- */}
+                      {tabActiva === 'PENDIENTES' && (
+                        <>
+                          <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
+                          <button onClick={() => cambiarEstatus(sol.id, 'PAGADO')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Autorizar y Marcar Pagado</button>
+                        </>
+                      )}
 
-                    {tabActiva === 'AUTORIZADOS' && sol.estatus !== 'RECHAZADO' && (
-                      <>
-                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirComprobante(sol.id, e)} />
-                        
-                        {sol.url_comprobante_transferencia ? (
-                          <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #cbd5e1', color: '#3b82f6', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
-                            Ver Comprobante
-                          </a>
-                        ) : (
-                          <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '6px 12px', border: '1px dashed #3b82f6', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                            + Transferencia
-                          </button>
-                        )}
+                      {tabActiva === 'AUTORIZADOS' && sol.estatus !== 'RECHAZADO' && (
+                        <>
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirComprobante(sol.id, e)} />
+                          
+                          {sol.url_comprobante_transferencia ? (
+                            <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #cbd5e1', color: '#3b82f6', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
+                              Ver Transferencia
+                            </a>
+                          ) : (
+                            <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '6px 12px', border: '1px dashed #3b82f6', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                              + Transferencia
+                            </button>
+                          )}
 
-                        {sol.url_comprobante_gastos && (
-                          <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
-                            Ver Facturas
-                          </a>
-                        )}
-                      </>
-                    )}
+                          {/* ✅ NUEVO: BOTÓN PARA VER EL ACUSE DE RECIBIDO DEL EMPLEADO */}
+                          {sol.comprobante_recepcion_path && (
+                            <a href={`http://localhost:3001/${sol.comprobante_recepcion_path}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #14b8a6', color: '#14b8a6', background: '#ccfbf1', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
+                              Ver Acuse Firmado
+                            </a>
+                          )}
+
+                          {sol.url_comprobante_gastos && (
+                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
+                              Ver Facturas de Gasto
+                            </a>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* --- SECCIÓN DE DETALLE EXPANSIBLE --- */}
+                {expandidos[sol.id] && (
+                  <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', animation: 'fadeIn 0.2s' }}>
+                    
+                    <div>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Logística de la Comisión</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                        <div><span style={{ color: '#64748b' }}>Origen:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.origen}</strong></div>
+                        <div><span style={{ color: '#64748b' }}>Transporte:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.medio_transporte}</strong></div>
+                        <div><span style={{ color: '#64748b' }}>Días de Comisión:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.dias_comision} días</strong></div>
+                        <div><span style={{ color: '#64748b' }}>Sede del Empleado:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.ubicacion}</strong></div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <span style={{ color: '#64748b' }}>Motivo de la visita:</span> 
+                          <p style={{ margin: '4px 0 0 0', padding: '8px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>{sol.motivo}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Desglose de Gastos Solicitados</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Alimentos</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_alimentos)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Hospedaje</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_hospedaje)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Pasajes/Urban</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_pasajes)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Gasolina</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_gasolina)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Taxis</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_taxis)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ color: '#64748b' }}>Peajes/Otros</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_otros)}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                )}
               </div>
-
-              {/* --- SECCIÓN DE DETALLE EXPANSIBLE --- */}
-              {expandidos[sol.id] && (
-                <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', animation: 'fadeIn 0.2s' }}>
-                  
-                  <div>
-                    <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Logística de la Comisión</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
-                      <div><span style={{ color: '#64748b' }}>Origen:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.origen}</strong></div>
-                      <div><span style={{ color: '#64748b' }}>Transporte:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.medio_transporte}</strong></div>
-                      <div><span style={{ color: '#64748b' }}>Días de Comisión:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.dias_comision} días</strong></div>
-                      <div><span style={{ color: '#64748b' }}>Sede del Empleado:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.ubicacion}</strong></div>
-                      <div style={{ gridColumn: 'span 2' }}>
-                        <span style={{ color: '#64748b' }}>Motivo de la visita:</span> 
-                        <p style={{ margin: '4px 0 0 0', padding: '8px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>{sol.motivo}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Desglose de Gastos Solicitados</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Alimentos</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_alimentos)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Hospedaje</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_hospedaje)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Pasajes/Urban</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_pasajes)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Gasolina</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_gasolina)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Taxis</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_taxis)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                        <span style={{ color: '#64748b' }}>Peajes/Otros</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_otros)}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

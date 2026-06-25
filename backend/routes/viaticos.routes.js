@@ -64,21 +64,62 @@ router.get('/todas', verificarToken, (req, res) => {
 });
 
 router.put('/:id/estatus', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false });
-    db.query('UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?', [req.body.estatus, req.usuario.id, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, `VIATICO_${req.body.estatus}`, `Marcó viático #${req.params.id} como ${req.body.estatus}`);
-        res.json({ success: true });
-    });
+    // Verificamos permisos
+    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') {
+        return res.status(403).json({ success: false, message: 'Permisos insuficientes para autorizar.' });
+    }
+
+    const { estatus } = req.body;
+
+    // Ejecutamos la actualización
+    db.query(
+        'UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?', 
+        [estatus, req.usuario.id, req.params.id], 
+        (err, result) => {
+            if (err) {
+                console.error("Error SQL al autorizar viático:", err);
+                return res.status(500).json({ success: false, message: 'Error BD: ' + err.sqlMessage });
+            }
+            
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ success: false, message: 'No se encontró la solicitud en la Base de Datos.' });
+            }
+
+            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marcó viático #${req.params.id} como ${estatus}`);
+            res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
+        }
+    );
 });
 
-// ✅ NUEVA RUTA: El empleado confirma que ya tiene el dinero en su cuenta
-router.put('/:id/recibido', verificarToken, (req, res) => {
-    db.query('UPDATE solicitudes_viaticos SET estatus = "RECIBIDO" WHERE id = ? AND id_usuario = ?', [req.params.id, req.usuario.id], (err, result) => {
-        if (err) return res.status(500).json({ success: false });
-        if (result.affectedRows === 0) return res.status(403).json({ success: false, message: 'No autorizado' });
-        registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `Confirmó recepción de fondos del viático #${req.params.id}`);
-        res.json({ success: true, message: 'Recepción confirmada.' });
+// El empleado confirma que ya tiene el dinero subiendo su comprobante
+router.post('/:id/confirmar-recepcion', verificarToken, upload.single('comprobante_empleado'), (req, res) => {
+    const { id } = req.params;
+    
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Debes adjuntar el comprobante de que recibiste el dinero.' });
+    }
+
+    const comprobantePath = `uploads/${req.file.filename}`;
+
+    db.query('SELECT estatus FROM solicitudes_viaticos WHERE id = ? AND id_usuario = ?', [id, req.usuario.id], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al buscar la solicitud.' });
+        if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes permiso sobre esta solicitud.' });
+        
+        if (rows[0].estatus !== 'PAGADO') {
+            return res.status(400).json({ success: false, message: 'Tesorería aún no ha marcado esta solicitud como pagada.' });
+        }
+
+        db.query(
+            'UPDATE solicitudes_viaticos SET estatus = "RECIBIDO", comprobante_recepcion_path = ? WHERE id = ?', 
+            [comprobantePath, id], 
+            (errUpdate) => {
+                if (errUpdate) return res.status(500).json({ success: false, message: 'Error al guardar la recepción.' });
+                
+                registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmó recepción de fondos con comprobante para el viático #${id}`);
+                
+                res.json({ success: true, message: 'Recepción confirmada y documento firmado exitosamente.', url: comprobantePath });
+            }
+        );
     });
 });
 
@@ -101,7 +142,7 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
 });
 
 // ==============================================================================
-// 7. CLON EXACTO DEL PDF (LÓGICA DE FIRMAS CONDICIONADA)
+// 7. CLON EXACTO DEL PDF (LÓGICA DE FIRMAS CONDICIONADA Y COMPACTADA)
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const query = `
@@ -129,7 +170,8 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         if (err || results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
         
         const sol = results[0];
-        const doc = new PDFDocument({ size: 'LETTER', margin: 30, autoFirstPage: true });
+        // Redujimos los márgenes para ganar espacio vertical
+        const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename=Comision_${sol.id}.pdf`);
@@ -189,13 +231,17 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
         y += 20;
 
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text(
-            'Por lo anterior deberá solicitar a la gerencia de finanzas los viáticos en los formatos autorizados. Al finalizar la comisión deberá requisitar la "Comprobación universal de gastos" (SAC-GTSR-GST) en un máximo de 3 (TRES) días posterior a su término, so pena de cargo a nómina.\nSin más por el momento le envío un cordial saludo.\n',
-            30, y, { width: 522, align: 'justify' }
-        );
-        y += 35;
+        // ==========================================================
+        // AJUSTE DINÁMICO: Altura del párrafo calculada automáticamente
+        // ==========================================================
+        const textoDespedida = 'Por lo anterior deberá solicitar a la gerencia de finanzas los viáticos en los formatos autorizados. Al finalizar la comisión deberá requisitar la "Comprobación universal de gastos" (SAC-GTSR-GST) en un máximo de 3 (TRES) días posterior a su término, so pena de cargo a nómina.\nSin más por el momento le envío un cordial saludo.\n';
+        
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text(textoDespedida, 30, y, { width: 522, align: 'justify' });
+        
+        // Sumamos la altura exacta que ocupó el texto + 20 pixeles de margen de seguridad
+        y += doc.heightOfString(textoDespedida, { width: 522 }) + 20;
 
-        // 3. FIRMAS MEDIAS
+        // 3. FIRMAS MEDIAS (COMPACTADO Y AISLADO)
         const wSMid = 180;
         const gapMid = 60;
         const startXMid = (doc.page.width - ((wSMid * 2) + gapMid)) / 2;
@@ -205,20 +251,21 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica').fontSize(9).text('Atentamente', xAten, y, { width: wSMid, align: 'center' });
         doc.text('Revisión de gasto', xRev, y, { width: wSMid, align: 'center' });
         
-        // La firma de "Atentamente" siempre va porque él pide el dinero
+        // FIRMAS MEDIAS: Dibujadas exactamente entre el texto y la línea (altura controlada)
+        const imgHeightMid = 30;
         if (sol.solicitante_firma) {
             const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
-            if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xAten + 60, y + 5, { height: 25 }); } catch (e) {}
+            if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xAten + 40, y + 15, { width: 100, height: imgHeightMid }); } catch (e) {}
         }
         if (sol.autorizador_firma) {
             const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
-            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xRev + 60, y + 5, { height: 25 }); } catch (e) {}
+            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xRev + 40, y + 15, { width: 100, height: imgHeightMid }); } catch (e) {}
         }
 
-        y += 35; 
+        y += 50; // Línea empujada hacia abajo para no cortar la firma
         doc.moveTo(xAten, y).lineTo(xAten + wSMid, y).stroke();
         doc.moveTo(xRev, y).lineTo(xRev + wSMid, y).stroke();
-        y += 3;
+        y += 4;
         
         doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'FIRMA DEL SOLICITANTE', xAten, y, { width: wSMid, align: 'center' });
         doc.text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE REVISIÓN', xRev, y, { width: wSMid, align: 'center' });
@@ -228,7 +275,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         y += 10;
         doc.font('Helvetica').text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', xAten, y, { width: wSMid, align: 'center' });
         doc.text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xRev, y, { width: wSMid, align: 'center' });
-        y += 20;
+        y += 15;
 
         doc.font('Helvetica').fontSize(9).fillColor('#000').text('Personas adicionales autorizadas:', 30, y);
         y += 12;
@@ -242,8 +289,8 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
         y += 10;
 
-        // 5. LA CUADRÍCULA EXCEL
-        const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 15; 
+        // 5. LA CUADRÍCULA EXCEL (COMPACTADA: rowH baja a 13)
+        const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 13; 
         let gy = y;
 
         drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
@@ -308,7 +355,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         gy += 35; 
 
         // ==========================================================
-        // 6. FIRMAS FINALES (Otorgó / Recibió) - BLOQUE REESCRITO
+        // 6. FIRMAS FINALES (ESPACIADO Y AISLAMIENTO)
         // ==========================================================
         const wSBot = 180; 
         const gapBot = 60; 
@@ -316,18 +363,16 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         const xOtor = startXBot;
         const xReci = startXBot + wSBot + gapBot;
 
-        // 1. Dibujar Líneas primero (esto será la base)
-        const yLineaFirma = gy + 45; // Bajamos la línea
-        doc.moveTo(xOtor, yLineaFirma).lineTo(xOtor + wSBot, yLineaFirma).stroke();
-        doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
+        // Títulos Superiores
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgó', xOtor, gy, { width: wSBot, align: 'center' });
+        doc.text('Recibió', xReci, gy, { width: wSBot, align: 'center' });
 
-        // 2. Dibujar Firmas (Imagen) centradas SOBRE la línea
-        // Ajustamos la altura y el offset vertical para que floten sobre la línea
-        const imgHeight = 35; 
+        // Imágenes de Firma flotando exactamente en el medio
+        const imgHeightBot = 30; 
         if (sol.autorizador_firma) {
             const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
             if (fs.existsSync(pathFirmaAut)) try { 
-                doc.image(pathFirmaAut, xOtor + 40, yLineaFirma - imgHeight, { width: 100, height: imgHeight }); 
+                doc.image(pathFirmaAut, xOtor + 40, gy + 15, { width: 100, height: imgHeightBot }); 
             } catch (e) {}
         }
         
@@ -335,16 +380,17 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             if (sol.solicitante_firma) {
                 const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
                 if (fs.existsSync(pathFirmaSol)) try { 
-                    doc.image(pathFirmaSol, xReci + 40, yLineaFirma - imgHeight, { width: 100, height: imgHeight }); 
+                    doc.image(pathFirmaSol, xReci + 40, gy + 15, { width: 100, height: imgHeightBot }); 
                 } catch (e) {}
             }
         }
 
-        // 3. Dibujar Etiquetas (Otorgó/Recibió) arriba de la firma
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgó', xOtor, gy, { width: wSBot, align: 'center' });
-        doc.text('Recibió', xReci, gy, { width: wSBot, align: 'center' });
+        // Línea de firma empujada 50px abajo
+        const yLineaFirma = gy + 50; 
+        doc.moveTo(xOtor, yLineaFirma).lineTo(xOtor + wSBot, yLineaFirma).stroke();
+        doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
 
-        // 4. Dibujar Textos debajo de la línea
+        // Textos inferiores
         const yTexto = yLineaFirma + 5;
         const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
 
