@@ -1,16 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import './Layout.css';
-
-// --- IMPORTACIÓN DEL LOGO OFICIAL ---
 import logoSacimex from '../../assets/logo.png';
 
 function Layout() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [notificaciones, setNotificaciones] = useState([]);
-
-  // --- NUEVOS ESTADOS PARA BUSCADOR Y SIDEBAR COLAPSABLE ---
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -19,25 +15,35 @@ function Layout() {
   const location = useLocation();
   const menuRef = useRef(null);
   const notifRef = useRef(null);
-
-  // --- REFERENCIAS PARA EL BUSCADOR ---
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
-  // ==============================================================
-  // 🛡️ LIMPIEZA EXTREMA DEL ROL (Para evitar fallos por saltos de línea \r o espacios en BD)
-  // ==========================================
+  // 🛡️ LIMPIEZA EXTREMA DEL ROL Y USUARIO
   const rawRole = localStorage.getItem('rol') || 'AUXILIAR';
   const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
-  const username = localStorage.getItem('username') || 'Usuario';
+  
+  const rawUsername = localStorage.getItem('username') || 'Usuario';
+  const currentUsername = rawUsername.trim().toLowerCase();
   
   const rawDepto = localStorage.getItem('departamento') || '';
   const userDepto = rawDepto.trim().replace(/\r?\n|\r/g, '').toUpperCase();
 
-  const fetchNotificaciones = async () => {
-    // AHORA PERMITIMOS QUE ADMIN Y D.H.O CONSULTEN NOTIFICACIONES
-    if (userRole !== 'ADMIN' && userRole !== 'D.H.O') return;
+  // Lista blanca flexible
+  const usuariosClave = ['icruz', 'treyes', 'ecruz'];
+  const permisoUsuariosEspeciales = usuariosClave.some(u => currentUsername.includes(u));
 
+  // ================= DEPURACIÓN =================
+  useEffect(() => {
+    console.log("--- MENÚ (Layout.jsx) ---");
+    console.log("Rol guardado:", userRole);
+    console.log("Depto guardado:", userDepto);
+    console.log("Username guardado:", currentUsername);
+    console.log("¿Debe ver módulo Clientes?:", (['ADMIN', 'CONTADOR'].includes(userRole) || ['DIRECCION', 'GERENCIA GENERAL'].includes(userDepto) || permisoUsuariosEspeciales));
+  }, [userRole, userDepto, currentUsername, permisoUsuariosEspeciales]);
+  // ==============================================
+
+  const fetchNotificaciones = async () => {
+    if (userRole !== 'ADMIN' && userRole !== 'D.H.O') return;
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -56,7 +62,6 @@ function Layout() {
     fetchNotificaciones();
   }, [location.pathname]);
 
-  // --- EFECTO PARA ATAJO DE TECLADO (CTRL + K)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -68,18 +73,11 @@ function Layout() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // --- CERRAR MENÚS Y BUSCADOR AL HACER CLIC AFUERA ---
   useEffect(() => {
     function handleClickOutside(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setShowProfileMenu(false);
-      }
-      if (notifRef.current && !notifRef.current.contains(event.target)) {
-        setShowNotifMenu(false);
-      }
-      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
-        setIsSearchFocused(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(event.target)) setShowProfileMenu(false);
+      if (notifRef.current && !notifRef.current.contains(event.target)) setShowNotifMenu(false);
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) setIsSearchFocused(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -92,139 +90,92 @@ function Layout() {
 
   const handleNotifClick = (notif) => {
     setShowNotifMenu(false);
-
-    if (notif.id === 'auth_pagos') {
-      navigate('/autorizaciones');
-    } else if (notif.id === 'viaticos_pendientes') {
-      navigate('/revision-viaticos'); // <--- RUTA A LA BANDEJA DHO
-    } else if (notif.id.startsWith('cont_')) {
-      navigate('/inversores');
-    } else if (notif.id.startsWith('cli_')) {
-      navigate('/clientes');
-    }
+    if (notif.id === 'auth_pagos') navigate('/autorizaciones');
+    else if (notif.id === 'viaticos_pendientes') navigate('/revision-viaticos');
+    else if (notif.id.startsWith('cont_')) navigate('/inversores');
+    else if (notif.id.startsWith('cli_')) navigate('/clientes');
   };
 
-  // --- MATRIZ DE PERMISOS POR ROL ---
   const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
-  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL'];
+  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL', 'DIRECCION'];
 
   const menuItems = [
     {
       path: '/dashboard',
       label: 'Dashboard',
       mostrar: rolesGenerales.includes(userRole), 
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
     },
     {
       path: '/usuarios',
       label: 'Usuarios y Roles',
       mostrar: ['ADMIN'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
     },
     {
       path: '/clientes',
       label: 'Clientes',
-      mostrar: ['ADMIN', 'CONTADOR', 'AUXILIAR'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-      )
+      mostrar: ['ADMIN', 'CONTADOR'].includes(userRole) || ['DIRECCION', 'GERENCIA GENERAL'].includes(userDepto) || permisoUsuariosEspeciales,
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
     },
     {
       path: '/inversores',
       label: 'Fondeadores',
       mostrar: ['ADMIN', 'CONTADOR'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
     },
     {
       path: '/proveedores',
       label: 'Proveedores',
       mostrar: ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
     },
     {
       path: '/solicitudes/nueva',
       label: 'Solicitudes',
       mostrar: rolesGenerales.includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-        </svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
     },
     {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
       mostrar: rolesGenerales.includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-        </svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
     },
     {
       path: '/revision-viaticos',
       label: 'Bandeja D.H.O.',
       mostrar: ['D.H.O', 'ADMIN'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
     },
     {
       path: '/autorizaciones',
       label: 'Autorizar Pagos',
-      // Aquí está la magia: agregamos 'TESORERIA' a los que pueden ver este menú
       mostrar: ['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(userRole) || deptosVistoBueno.includes(userDepto),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
     },
     {
       path: '/configuracion',
       label: 'Configuraciones',
       mostrar: ['ADMIN'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-          <circle cx="12" cy="12" r="3"></circle>
-        </svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
     },
     {
       path: '/reportes',
       label: 'Reportes y Export.',
       mostrar: ['ADMIN', 'CONTADOR'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
     },
     {
       path: '/auditoria',
       label: 'Auditoría (Log)',
       mostrar: ['ADMIN'].includes(userRole),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-      )
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
     }
   ];
 
   const menusPermitidos = menuItems.filter(item => item.mostrar);
-
-  // --- LÓGICA DE FILTRADO PARA EL BUSCADOR ---
-  const searchResults = menusPermitidos.filter(menu =>
-    menu.label.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const searchResults = menusPermitidos.filter(menu => menu.label.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const getPageTitle = () => {
     const currentItem = menuItems.find(item => item.path === location.pathname);
@@ -233,7 +184,6 @@ function Layout() {
 
   return (
     <div className={`dashboard-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-
       <aside className="sidebar fade-in-left">
         <div className="sidebar-brand">
           <div className="brand-logo" style={{ width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderRadius: '10px', padding: '4px', flexShrink: 0 }}>
@@ -249,12 +199,7 @@ function Layout() {
           <p className="nav-title">Navegación Principal</p>
           <ul>
             {menusPermitidos.map((item) => (
-              <li
-                key={item.path}
-                className={location.pathname === item.path ? 'active' : ''}
-                onClick={() => navigate(item.path)}
-                title={isSidebarCollapsed ? item.label : ''} 
-              >
+              <li key={item.path} className={location.pathname === item.path ? 'active' : ''} onClick={() => navigate(item.path)} title={isSidebarCollapsed ? item.label : ''} >
                 {item.icon}
                 <span className="nav-label">{item.label}</span>
               </li>
@@ -265,7 +210,7 @@ function Layout() {
         <div className="sidebar-footer">
           <div className="user-avatar">{userRole.substring(0, 2)}</div>
           <div className="user-info">
-            <p className="user-name" style={{ textTransform: 'capitalize' }}>{username}</p>
+            <p className="user-name" style={{ textTransform: 'capitalize' }}>{rawUsername}</p>
             <p className="user-email">{userRole}</p>
           </div>
         </div>
@@ -273,36 +218,18 @@ function Layout() {
 
       <main className="main-content">
         <header className="top-header fade-in-down">
-
           <div className="header-left">
             <button className="toggle-sidebar-btn" onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
             </button>
-            <h2 className="current-page-title" style={{ margin: 0, fontSize: '22px', fontWeight: '800' }}>
-              {getPageTitle()}
-            </h2>
+            <h2 className="current-page-title" style={{ margin: 0, fontSize: '22px', fontWeight: '800' }}>{getPageTitle()}</h2>
           </div>
 
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-
             <div className="header-search-wrapper" ref={searchContainerRef} style={{ position: 'relative' }}>
               <div className={`header-search ${isSearchFocused ? 'focused' : ''}`}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Buscar módulos (Ctrl+K)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => setIsSearchFocused(true)}
-                />
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input ref={searchInputRef} type="text" placeholder="Buscar módulos (Ctrl+K)..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => setIsSearchFocused(true)} />
                 <span className="search-shortcut">Ctrl+K</span>
               </div>
 
@@ -311,11 +238,7 @@ function Layout() {
                   <p className="search-title">RESULTADOS</p>
                   {searchResults.length > 0 ? (
                     searchResults.map(result => (
-                      <div
-                        key={result.path}
-                        className="search-item"
-                        onClick={() => { navigate(result.path); setSearchQuery(''); setIsSearchFocused(false); }}
-                      >
+                      <div key={result.path} className="search-item" onClick={() => { navigate(result.path); setSearchQuery(''); setIsSearchFocused(false); }}>
                         {result.icon}
                         <span>Ir a <strong>{result.label}</strong></span>
                       </div>
@@ -328,17 +251,11 @@ function Layout() {
             </div>
 
             <div className="header-actions">
-
               <div className="notification-wrapper" ref={notifRef} style={{ position: 'relative' }}>
                 <button className="icon-button notification-bell" onClick={() => setShowNotifMenu(!showNotifMenu)}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                  </svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
                   {(userRole === 'ADMIN' || userRole === 'D.H.O') && notificaciones.length > 0 && (
-                    <span className="badge pulse-animation" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '9px', width: '14px', height: '14px', top: '-4px', right: '-4px' }}>
-                      {notificaciones.length}
-                    </span>
+                    <span className="badge pulse-animation" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '9px', width: '14px', height: '14px', top: '-4px', right: '-4px' }}>{notificaciones.length}</span>
                   )}
                 </button>
 
@@ -352,12 +269,7 @@ function Layout() {
                     <div className="notif-body" style={{ maxHeight: '350px', overflowY: 'auto' }}>
                       {notificaciones.length > 0 ? (
                         notificaciones.map((notif) => (
-                          <div
-                            key={notif.id}
-                            className="notif-item"
-                            style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }}
-                            onClick={() => handleNotifClick(notif)}
-                          >
+                          <div key={notif.id} className="notif-item" style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => handleNotifClick(notif)}>
                             <strong style={{ display: 'block', fontSize: '13px', color: notif.tipo === 'urgente' ? '#ef4444' : '#d97706', marginBottom: '6px' }}>{notif.titulo}</strong>
                             <p style={{ margin: 0, fontSize: '13px', color: '#475569', lineHeight: '1.5' }}>{notif.mensaje}</p>
                           </div>
@@ -373,30 +285,17 @@ function Layout() {
                 )}
               </div>
 
-              <div
-                className="header-profile"
-                ref={menuRef}
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                style={{ position: 'relative', cursor: 'pointer' }}
-              >
-                <img
-                  src={`https://ui-avatars.com/api/?name=${userRole}&background=10d440&color=fff&rounded=true&bold=true`}
-                  alt="Avatar"
-                  style={{ width: '40px', height: '40px', borderRadius: '50%' }}
-                />
+              <div className="header-profile" ref={menuRef} onClick={() => setShowProfileMenu(!showProfileMenu)} style={{ position: 'relative', cursor: 'pointer' }}>
+                <img src={`https://ui-avatars.com/api/?name=${userRole}&background=10d440&color=fff&rounded=true&bold=true`} alt="Avatar" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
 
                 {showProfileMenu && (
                   <div className="dropdown-menu fade-in-up-fast" style={{ position: 'absolute', top: '50px', right: '0', background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', width: '220px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100 }}>
                     <div className="dropdown-header" style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                      <p className="dropdown-name" style={{ margin: 0, fontWeight: 'bold' }}>{username}</p>
+                      <p className="dropdown-name" style={{ margin: 0, fontWeight: 'bold' }}>{rawUsername}</p>
                       <p className="dropdown-email" style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Rol: {userRole}</p>
                     </div>
                     <button onClick={handleLogout} className="dropdown-item logout" style={{ width: '100%', padding: '16px', background: 'none', border: 'none', textAlign: 'left', color: '#ef4444', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '18px' }}>
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                        <polyline points="16 17 21 12 16 7"></polyline>
-                        <line x1="21" y1="12" x2="9" y2="12"></line>
-                      </svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '18px' }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                       Cerrar Sesión
                     </button>
                   </div>

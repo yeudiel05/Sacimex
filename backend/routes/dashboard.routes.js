@@ -17,7 +17,7 @@ router.get('/stats', verificarToken, async (req, res) => {
 
         const añoActual = new Date().getFullYear();
 
-        // Ejecutamos las consultas en paralelo para máxima velocidad
+        // Ejecutamos las consultas en paralelo uniendo con la tabla PERSONAS (p.eliminado = 0)
         const [
             clientes, 
             fondeadores, 
@@ -27,28 +27,48 @@ router.get('/stats', verificarToken, async (req, res) => {
             graficaColocacion,
             actividadReciente
         ] = await Promise.all([
-            // 1. Total de Clientes y Capital Colocado
-            dbQuery("SELECT COUNT(id_persona) AS total, SUM(limite_credito) AS capital_colocado FROM clientes WHERE estatus = 'Activo'"),
-            
-            // 2. Total de Inversores (Fondeadores) y Capital Captado
-            dbQuery("SELECT COUNT(id_persona) AS total FROM inversores WHERE estatus_activo = 1"),
-            
-            // 3. Proveedores Activos
-            dbQuery("SELECT COUNT(id_persona) AS total FROM proveedores WHERE estatus_activo = 1"),
-
-            // 4. Pagos por Autorizar (Dinero atorado en autorizaciones)
-            dbQuery("SELECT COUNT(id) AS total, SUM(monto_pago) AS monto_pendiente FROM pagos_a_proveedores WHERE estatus IN ('PENDIENTE_VALIDACION', 'PENDIENTE_AUTORIZACION')"),
-
-            // 5. Gráfica: Crecimiento de Fondeo por Mes (Año Actual)
+            // 1. Total de Clientes (Excluye los eliminados lógicamente)
             dbQuery(`
-                SELECT MONTH(fecha_inicio) as mes, SUM(monto_inicial) as total
-                FROM contratos_inversion
-                WHERE YEAR(fecha_inicio) = ? AND estatus = 'ACTIVO'
-                GROUP BY MONTH(fecha_inicio)
+                SELECT COUNT(c.id_persona) AS total, SUM(c.limite_credito) AS capital_colocado 
+                FROM clientes c 
+                JOIN personas p ON c.id_persona = p.id 
+                WHERE c.estatus = 'Activo' AND p.eliminado = 0
+            `),
+            
+            // 2. Total de Fondeadores (Excluye los eliminados en la tabla personas)
+            dbQuery(`
+                SELECT COUNT(i.id_persona) AS total 
+                FROM inversores i 
+                JOIN personas p ON i.id_persona = p.id 
+                WHERE i.estatus_activo = 1 AND p.eliminado = 0
+            `),
+            
+            // 3. Proveedores Activos (Excluye los eliminados)
+            dbQuery(`
+                SELECT COUNT(pr.id_persona) AS total 
+                FROM proveedores pr 
+                JOIN personas p ON pr.id_persona = p.id 
+                WHERE pr.estatus_activo = 1 AND p.eliminado = 0
+            `),
+
+            // 4. Pagos por Autorizar
+            dbQuery(`
+                SELECT COUNT(id) AS total, SUM(monto_pago) AS monto_pendiente 
+                FROM pagos_a_proveedores 
+                WHERE estatus IN ('PENDIENTE_VALIDACION', 'PENDIENTE_AUTORIZACION')
+            `),
+
+            // 5. Gráfica: Crecimiento de Fondeo por Mes (Año Actual) - Asegurando que el fondeador no esté eliminado
+            dbQuery(`
+                SELECT MONTH(c.fecha_inicio) as mes, SUM(c.monto_inicial) as total
+                FROM contratos_inversion c
+                JOIN personas p ON c.id_inversor = p.id
+                WHERE YEAR(c.fecha_inicio) = ? AND c.estatus = 'ACTIVO' AND p.eliminado = 0
+                GROUP BY MONTH(c.fecha_inicio)
                 ORDER BY mes ASC
             `, [añoActual]),
 
-            // 6. Gráfica: Nuevos Clientes por Mes (Año Actual)
+            // 6. Gráfica: Nuevos Clientes
             dbQuery(`
                 SELECT MONTH(fecha) as mes, COUNT(id) as total_nuevos
                 FROM bitacora_auditoria
@@ -57,7 +77,7 @@ router.get('/stats', verificarToken, async (req, res) => {
                 ORDER BY mes ASC
             `, [añoActual]),
 
-            // 7. Bitácora de Actividad Reciente (Últimos 6 movimientos limpios)
+            // 7. Bitácora de Actividad Reciente
             dbQuery(`
                 SELECT b.id, b.accion, b.detalle, b.fecha, 
                        IFNULL(u.username, 'SISTEMA') as usuario
@@ -68,15 +88,20 @@ router.get('/stats', verificarToken, async (req, res) => {
             `)
         ]);
 
-        // Obtenemos el capital activo total aparte para no romper la lógica
-        const capitalAct = await dbQuery("SELECT SUM(monto_inicial) AS total_capital FROM contratos_inversion WHERE estatus = 'ACTIVO'");
+        // Obtenemos el capital activo total (solo de fondeadores que no están eliminados)
+        const capitalAct = await dbQuery(`
+            SELECT SUM(c.monto_inicial) AS total_capital 
+            FROM contratos_inversion c
+            JOIN personas p ON c.id_inversor = p.id
+            WHERE c.estatus = 'ACTIVO' AND p.eliminado = 0
+        `);
 
-        // Armamos el objeto JSON final súper ordenado para el Frontend
+        // Armamos el objeto JSON final
         const stats = {
             metricas: {
                 clientesActivos: clientes[0].total || 0,
                 capitalColocado: clientes[0].capital_colocado || 0,
-                inversoresActivos: fondeadores[0].total || 0,
+                fondeadoresActivos: fondeadores[0].total || 0,
                 capitalActivo: capitalAct[0].total_capital || 0,
                 proveedoresActivos: proveedores[0].total || 0,
                 pagosPendientesCount: pagosPendientes[0].total || 0,

@@ -7,7 +7,7 @@ function Dashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     clientesActivos: 0, 
-    inversoresActivos: 0, 
+    fondeadoresActivos: 0, 
     capitalActivo: 0, 
     proveedoresActivos: 0,
     pagosPendientesCount: 0,
@@ -25,7 +25,6 @@ function Dashboard() {
     return { 'Authorization': `Bearer ${token}` };
   };
 
-  // Función principal de carga de datos
   const fetchStats = async (showLoader = true) => {
     const headers = getAuthHeaders();
     if (!headers) return;
@@ -51,15 +50,14 @@ function Dashboard() {
     }
   };
 
-  // SISTEMA DE TIEMPO REAL (Polling silencioso cada 15 segundos)
   useEffect(() => {
-    fetchStats(true); // Carga inicial con loader
+    fetchStats(true); 
     
     const intervalId = setInterval(() => {
-      fetchStats(false); // Cargas posteriores ocultas (sin loader) para sensación de tiempo real
+      fetchStats(false);
     }, 15000); 
 
-    return () => clearInterval(intervalId); // Limpiar al salir de la pantalla
+    return () => clearInterval(intervalId); 
   }, []);
 
   const procesarDatosGrafica = (datosFondeo, datosColocacion) => {
@@ -136,7 +134,6 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* --- GRID ADAPTATIVO EXACTO A LA MAQUETA --- */}
       <div className="kpi-grid stagger-2">
         
         {/* Card 1: Fondeo (Verde) */}
@@ -172,14 +169,14 @@ function Dashboard() {
           </div>
         </div>
         
-        {/* Card 4: Inversores (Blanca) */}
+        {/* Card 4: Fondeadores (Blanca) */}
         <div className="kpi-card white-card grid-col-span-1-5">
           <div className="kpi-icon icon-green">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
           </div>
           <div className="kpi-info">
-            <span className="dark-label">INVERSORES ACTIVOS</span>
-            <h3 className="dark-value">{stats.inversoresActivos}</h3>
+            <span className="dark-label">FONDEADORES ACTIVOS</span>
+            <h3 className="dark-value">{stats.fondeadoresActivos}</h3>
           </div>
         </div>
 
@@ -200,7 +197,6 @@ function Dashboard() {
       </div>
 
       <div className="dashboard-content stagger-2">
-        {/* --- GRÁFICA --- */}
         <div className="chart-panel">
           <div className="panel-header-simple">
             <div>
@@ -213,7 +209,7 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="colorInv" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorFon" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
@@ -226,14 +222,13 @@ function Dashboard() {
                 <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value/1000}k`} />
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="Fondeo" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorInv)" activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="Fondeo" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorFon)" activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} />
                 <Area type="monotone" dataKey="NuevosClientes" name="Colocación" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCol)" activeDot={{ r: 6, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* --- ACTIVIDAD RECIENTE (TIMELINE) --- */}
         <div className="activity-panel">
           <div className="panel-header-simple">
             <h3 style={{ margin: 0 }}>Actividad Reciente</h3>
@@ -261,7 +256,6 @@ function Dashboard() {
             )}
           </div>
         </div>
-
       </div>
     </div>
   );

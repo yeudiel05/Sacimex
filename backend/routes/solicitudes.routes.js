@@ -363,9 +363,10 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
         const idProvFinal = (id_proveedor === '' || id_proveedor === null || id_proveedor === 'null') ? null : id_proveedor;
         const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null || fecha_limite_pago === 'null') ? null : fecha_limite_pago;
 
-        // MAGIA: Capturamos el archivo de cotización si el usuario lo subió
+        // Capturamos el archivo de cotización si el usuario lo subió
         const cotizacionPath = req.file ? `uploads/${req.file.filename}` : null;
 
+        // 1. Obtener la unidad de negocio del empleado
         db.query(`
             SELECT e.unidad_negocio 
             FROM usuarios u 
@@ -383,46 +384,68 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                 unidad_negocio_final = unidadRealDelEmpleado || '01.CRP - Corporativo'; 
             }
 
-            // MAGIA: Agregamos cotizacion_path al INSERT
-            const query = `
-                INSERT INTO solicitudes_recursos 
-                (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
-                 id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago, cotizacion_path) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', 0, ?, ?, ?)
-            `;
+            // 2. NUEVO: Revisar si el concepto seleccionado requiere Visto Bueno (VoBo)
+            db.query(`
+                SELECT requiere_vobo, area_visto_bueno 
+                FROM conceptos_pago 
+                WHERE clave = ? OR id = ? OR descripcion = ? LIMIT 1
+            `, [concepto_id, concepto_id, concepto_id], (errConcepto, rowsConcepto) => {
+                
+                let nivelInicial = 0;
+                let estatusInicial = 'PENDIENTE';
+                let requiereVobo = false;
 
-            db.query(query, [
-                solicitante_id, concepto_id, descripcion, montoNum,
-                unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', niveles, fechaLimiteFinal, cotizacionPath
-            ], async (err, result) => {
-                if (err) {
-                    console.error("Error BD en Crear Solicitud:", err);
-                    return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
-                }
-                
-                const solicitudId = result.insertId;
-                const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
-                
-                db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
-                    res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
-                    
-                    // =====================================================
-                    // CORREO 1: AVISAR AL REVISOR QUE HAY UNA NUEVA SOLICITUD
-                    // =====================================================
-                    const emailRevisor = await getEmailByRol('REVISOR');
-                    if (emailRevisor) {
-                        const mensaje = `
-                            <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
-                            <p>Se ha generado una nueva solicitud de recursos en el sistema y está pendiente de tu validación (Revisor).</p>
-                            <ul>
-                                <li><strong>Folio:</strong> ${folio}</li>
-                                <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
-                                <li><strong>Unidad:</strong> ${unidad_negocio_final}</li>
-                            </ul>
-                            <p>Por favor, ingresa al sistema para revisarla.</p>
-                        `;
-                        enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
+                if (!errConcepto && rowsConcepto.length > 0) {
+                    requiereVobo = rowsConcepto[0].requiere_vobo === 1;
+                    if (requiereVobo) {
+                        nivelInicial = -1;
+                        estatusInicial = 'PENDIENTE_VOBO';
                     }
+                }
+
+                // 3. Insertar con los valores dinámicos
+                const query = `
+                    INSERT INTO solicitudes_recursos 
+                    (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
+                     id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago, cotizacion_path) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+
+                db.query(query, [
+                    solicitante_id, concepto_id, descripcion, montoNum,
+                    unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', 
+                    estatusInicial, nivelInicial, niveles, fechaLimiteFinal, cotizacionPath
+                ], async (err, result) => {
+                    if (err) {
+                        console.error("Error BD en Crear Solicitud:", err);
+                        return res.status(500).json({ success: false, message: err.sqlMessage || err.message });
+                    }
+                    
+                    const solicitudId = result.insertId;
+                    const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
+                    
+                    db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
+                        res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
+                        
+                        // Si no requiere VoBo, notificar directamente al Revisor.
+                        // Si requiere VoBo, el área correspondiente ya lo verá en su bandeja.
+                        if (!requiereVobo) {
+                            const emailRevisor = await getEmailByRol('REVISOR');
+                            if (emailRevisor) {
+                                const mensaje = `
+                                    <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
+                                    <p>Se ha generado una nueva solicitud de recursos en el sistema y está pendiente de tu validación (Revisor).</p>
+                                    <ul>
+                                        <li><strong>Folio:</strong> ${folio}</li>
+                                        <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
+                                        <li><strong>Unidad:</strong> ${unidad_negocio_final}</li>
+                                    </ul>
+                                    <p>Por favor, ingresa al sistema para revisarla.</p>
+                                `;
+                                enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
+                            }
+                        }
+                    });
                 });
             });
         });

@@ -21,30 +21,41 @@ import DetalleSolicitud from './pages/Solicitudes/DetalleSolicitud';
 
 // ==========================================
 // ==========================================
-const ProtectedRoute = ({ children, rolesPermitidos, deptosPermitidos = [] }) => {
+const ProtectedRoute = ({ children, rolesPermitidos, deptosPermitidos = [], usuariosPermitidos = [] }) => {
   const token = localStorage.getItem('token');
   
-  // LIMPIEZA EXTREMA DEL ROL (Evita bugs por espacios o saltos de línea \r de la BD)
+  // LIMPIEZA EXTREMA DEL ROL Y DEPTO
   const rawRole = localStorage.getItem('rol') || '';
   const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
   
   const rawDepto = localStorage.getItem('departamento') || '';
   const userDepto = rawDepto.trim().replace(/\r?\n|\r/g, '').toUpperCase();
 
-  // Si no hay sesión (token), lo mandamos a la pantalla de Login
+  // LIMPIEZA FLEXIBLE DEL USERNAME
+  const rawUsername = localStorage.getItem('username') || '';
+  const currentUsername = rawUsername.trim().toLowerCase();
+
   if (!token) {
     return <Navigate to="/" replace />;
   }
 
-  // Comprobar si el usuario tiene permiso por ROL o por DEPARTAMENTO
+  // Comprobaciones
   const tieneRolPermitido = rolesPermitidos && rolesPermitidos.includes(userRole);
   const tieneDeptoPermitido = deptosPermitidos && deptosPermitidos.includes(userDepto);
+  
+  // Magia: Usamos .some() y .includes() para que detecte el usuario aunque tenga espacios o sufijos
+  const tieneUsuarioPermitido = usuariosPermitidos && usuariosPermitidos.some(u => currentUsername.includes(u.toLowerCase()));
 
-  if (!tieneRolPermitido && !tieneDeptoPermitido) {
+  // ================= DEPURACIÓN =================
+  console.log("--- RUTAS (App.jsx) ---");
+  console.log("Usuario actual intentando entrar:", currentUsername);
+  console.log("¿Está en la lista blanca?:", tieneUsuarioPermitido);
+  // ==============================================
+
+  if (!tieneRolPermitido && !tieneDeptoPermitido && !tieneUsuarioPermitido) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // Si pasa todas las pruebas de seguridad, mostramos la pantalla
   return children;
 };
 
@@ -52,11 +63,8 @@ const ProtectedRoute = ({ children, rolesPermitidos, deptosPermitidos = [] }) =>
 //  ENRUTADOR PRINCIPAL (App)
 // ==========================================
 function App() {
-  // Lista universal de todos los roles operativos que pueden ver lo básico (Dashboard, Solicitudes)
   const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
-  
-  // Departamentos que dan Visto Bueno a las solicitudes
-  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL'];
+  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL', 'DIRECCION'];
 
   return (
     <Router>
@@ -65,67 +73,30 @@ function App() {
         
         <Route element={<Layout />}>
           
-          <Route path="/dashboard" element={
-            <ProtectedRoute rolesPermitidos={rolesGenerales}><Dashboard /></ProtectedRoute>
-          } />
+          <Route path="/dashboard" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Dashboard /></ProtectedRoute>} />
 
           <Route path="/clientes" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR', 'AUXILIAR']}><Clientes /></ProtectedRoute>
-          } />
-
-          <Route path="/inversores" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Inversores /></ProtectedRoute>
-          } />
-
-          {/* Tesorería necesita acceso a Proveedores para ver el Reporte Maestro de Egresos */}
-          <Route path="/proveedores" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']}><Proveedores /></ProtectedRoute>
-          } />
-
-          {/* Solicitudes (Todos pueden entrar a crear y ver su historial) */}
-          <Route path="/solicitudes/nueva" element={
-            <ProtectedRoute rolesPermitidos={rolesGenerales}><Solicitud /></ProtectedRoute>
-          } />
-          <Route path="/solicitudes/historial" element={
-            <ProtectedRoute rolesPermitidos={rolesGenerales}><Historial /></ProtectedRoute>
-          } />
-          <Route path="/solicitudes/detalle/:id" element={
-            <ProtectedRoute rolesPermitidos={rolesGenerales}><DetalleSolicitud /></ProtectedRoute>
-          } />
-
-          {/* Viáticos */}
-          <Route path="/viaticos" element={
-            <ProtectedRoute rolesPermitidos={rolesGenerales}><Viaticos /></ProtectedRoute>
-          } />
-          <Route path="/revision-viaticos" element={
-            <ProtectedRoute rolesPermitidos={['D.H.O', 'ADMIN']}><RevisionViaticos /></ProtectedRoute>
-          } />
-
-          {/* Autorizaciones (Solo los que firman O los que dan Visto Bueno Y Tesorería) */}
-          <Route path="/autorizaciones" element={
             <ProtectedRoute 
-                rolesPermitidos={['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA']} 
-                deptosPermitidos={deptosVistoBueno}
+                rolesPermitidos={['ADMIN', 'CONTADOR']} 
+                deptosPermitidos={['DIRECCION', 'GERENCIA GENERAL']}
+                usuariosPermitidos={['icruz', 'treyes', 'ecruz']}
             >
-                <Autorizaciones />
+                <Clientes />
             </ProtectedRoute>
           } />
 
-          {/* Reportes */}
-          <Route path="/reportes" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Reportes /></ProtectedRoute>
-          } />
-
-          {/* Configuración Administrativa */}
-          <Route path="/usuarios" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN']}><Usuarios /></ProtectedRoute>
-          } />
-          <Route path="/configuracion" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN']}><Configuracion /></ProtectedRoute>
-          } />
-          <Route path="/auditoria" element={
-            <ProtectedRoute rolesPermitidos={['ADMIN']}><Auditoria /></ProtectedRoute>
-          } />
+          <Route path="/inversores" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Inversores /></ProtectedRoute>} />
+          <Route path="/proveedores" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']}><Proveedores /></ProtectedRoute>} />
+          <Route path="/solicitudes/nueva" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Solicitud /></ProtectedRoute>} />
+          <Route path="/solicitudes/historial" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Historial /></ProtectedRoute>} />
+          <Route path="/solicitudes/detalle/:id" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><DetalleSolicitud /></ProtectedRoute>} />
+          <Route path="/viaticos" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Viaticos /></ProtectedRoute>} />
+          <Route path="/revision-viaticos" element={<ProtectedRoute rolesPermitidos={['D.H.O', 'ADMIN']}><RevisionViaticos /></ProtectedRoute>} />
+          <Route path="/autorizaciones" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA']} deptosPermitidos={deptosVistoBueno}><Autorizaciones /></ProtectedRoute>} />
+          <Route path="/reportes" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Reportes /></ProtectedRoute>} />
+          <Route path="/usuarios" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Usuarios /></ProtectedRoute>} />
+          <Route path="/configuracion" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Configuracion /></ProtectedRoute>} />
+          <Route path="/auditoria" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Auditoria /></ProtectedRoute>} />
 
         </Route>
       </Routes>
