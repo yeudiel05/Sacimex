@@ -11,7 +11,7 @@ router.post('/login', (req, res) => {
   // 1. MODIFICACIÓN: Hacemos un JOIN para traer el puesto desde la tabla empleados
   // y leemos los nuevos permisos de la tabla usuarios.
   const query = `
-    SELECT u.*, e.puesto 
+    SELECT u.*, e.puesto, e.departamento 
     FROM usuarios u 
     LEFT JOIN empleados e ON u.id_empleado = e.id_persona 
     WHERE u.username = ? AND u.estatus_activo = TRUE
@@ -69,6 +69,8 @@ router.post('/login', (req, res) => {
             message: 'Login exitoso', 
             token, 
             rol: user.rol,
+            username: user.username,
+            departamento: user.departamento || '',
             puesto: user.puesto || 'Sin Puesto',
             puedeSolicitar: user.puede_solicitar || 0,
             nombre: user.nombre_completo || user.username

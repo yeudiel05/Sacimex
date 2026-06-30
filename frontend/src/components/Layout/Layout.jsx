@@ -29,7 +29,7 @@ function Layout() {
   const userDepto = rawDepto.trim().replace(/\r?\n|\r/g, '').toUpperCase();
 
   // Lista blanca flexible
-  const usuariosClave = ['icruz', 'treyes', 'ecruz'];
+  const usuariosClave = ['icruz', 'treyes', 'ecruz', 'kserrano'];
   const permisoUsuariosEspeciales = usuariosClave.some(u => currentUsername.includes(u));
 
   // ================= DEPURACIÓN =================
@@ -212,6 +212,7 @@ function Layout() {
           <div className="user-info">
             <p className="user-name" style={{ textTransform: 'capitalize' }}>{rawUsername}</p>
             <p className="user-email">{userRole}</p>
+            {userDepto && <p className="user-depto">{userDepto}</p>}
           </div>
         </div>
       </aside>
@@ -293,6 +294,7 @@ function Layout() {
                     <div className="dropdown-header" style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
                       <p className="dropdown-name" style={{ margin: 0, fontWeight: 'bold' }}>{rawUsername}</p>
                       <p className="dropdown-email" style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Rol: {userRole}</p>
+                      {userDepto && <p className="dropdown-depto" style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>{userDepto}</p>}
                     </div>
                     <button onClick={handleLogout} className="dropdown-item logout" style={{ width: '100%', padding: '16px', background: 'none', border: 'none', textAlign: 'left', color: '#ef4444', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '18px' }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>

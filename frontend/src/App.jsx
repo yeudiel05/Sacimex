@@ -79,7 +79,7 @@ function App() {
             <ProtectedRoute 
                 rolesPermitidos={['ADMIN', 'CONTADOR']} 
                 deptosPermitidos={['DIRECCION', 'GERENCIA GENERAL']}
-                usuariosPermitidos={['icruz', 'treyes', 'ecruz']}
+                usuariosPermitidos={['icruz', 'treyes', 'ecruz', 'kserrano']}
             >
                 <Clientes />
             </ProtectedRoute>

@@ -60,6 +60,8 @@ function Login() {
       if (data.success) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('rol', data.rol);
+        localStorage.setItem('username', data.username || formData.usuario);
+        localStorage.setItem('departamento', data.departamento || '');
 
         if (rememberMe) {
           localStorage.setItem('rememberedUser', formData.usuario);

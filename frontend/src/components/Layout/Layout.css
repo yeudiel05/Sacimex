@@ -67,6 +67,8 @@
   padding: 30px 24px;
   box-shadow: 4px 0 24px rgba(0,0,0,0.05);
   z-index: 20;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar-brand {
@@ -74,6 +76,7 @@
   align-items: center;
   gap: 16px;
   margin-bottom: 48px;
+  flex-shrink: 0;
 }
 
 .brand-logo {
@@ -100,7 +103,31 @@
   font-weight: 500;
 }
 
-.sidebar-nav { flex-grow: 1; }
+.sidebar-nav {
+  flex-grow: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
 
 .nav-title {
   font-size: 11px;
@@ -164,6 +191,7 @@
   margin-top: auto;
   padding-top: 24px;
   border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
 }
 
 .user-avatar {
@@ -179,16 +207,37 @@
   color: white;
 }
 
+.user-info {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .user-info .user-name {
   font-size: 14px;
   font-weight: 600;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-info .user-email {
   font-size: 12px;
   color: var(--text-light);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-info .user-depto {
+  font-size: 11px;
+  color: var(--text-light);
+  opacity: 0.7;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .main-content {
