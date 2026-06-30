@@ -83,7 +83,7 @@ function Configuracion() {
               fetch('http://localhost:3001/api/configuracion/departamentos', { headers }).catch(()=>null),
               fetch('http://localhost:3001/api/configuracion/puestos', { headers }).catch(()=>null),
               fetch('http://localhost:3001/api/roles', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/categorias', { headers }).catch(()=>null) // FETCH DE CATEGORÍAS
+              fetch('http://localhost:3001/api/configuracion/categorias', { headers }).catch(()=>null) 
           ]);
 
           if (resTasas && resTasas.ok) { const d = await resTasas.json(); if(d.success) setTasas(d.data); }
@@ -164,6 +164,11 @@ function Configuracion() {
       if (data.success) { setIsUnidadModalOpen(false); fetchAllData(); } else alert(data.message);
     } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
+  const cambiarEstatusUnidad = async (id, estatus_actual) => {
+    const headers = getAuthHeaders();
+    await fetch(`http://localhost:3001/api/unidades/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
+    fetchAllData();
+  };
   const triggerEliminarUnidad = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Unidad', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/unidades/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
@@ -179,6 +184,11 @@ function Configuracion() {
           const data = await res.json();
           if (data.success) { setIsConceptoModalOpen(false); fetchAllData(); } else alert(data.message);
       } catch (error) { alert("Error al guardar"); } finally { setIsLoading(false); }
+  };
+  const cambiarEstatusConcepto = async (clave, estatus_actual) => {
+    const headers = getAuthHeaders();
+    await fetch(`http://localhost:3001/api/configuracion/conceptos/${clave}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
+    fetchAllData();
   };
   const triggerEliminarConcepto = (clave, descripcion) => { setConfirmModal({ isOpen: true, title: 'Eliminar Concepto', message: `¿Estás seguro de eliminar "${descripcion}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/conceptos/${clave}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
@@ -215,7 +225,6 @@ function Configuracion() {
   };
   const cambiarEstatusCategoria = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/categorias/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
   const triggerEliminarCategoria = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Categoría', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/categorias/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
-
 
   // ==========================================
   // CONTROLADORES DE MODALES (PUESTOS)
@@ -388,12 +397,17 @@ function Configuracion() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
           {unidades.length > 0 ? (
             unidades.map((unidad) => (
-              <div key={unidad.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-md)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'var(--shadow-sm)' }}>
+              <div key={unidad.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-focus)', borderRadius: 'var(--radius-md)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'var(--shadow-sm)', opacity: (unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? 1 : 0.6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#eff6ff', color: '#3b82f6', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
                   </div>
-                  <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-main)' }}>{unidad.nombre}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-main)' }}>{unidad.nombre}</span>
+                      <button onClick={() => cambiarEstatusUnidad(unidad.id, unidad.estatus_activo !== false && unidad.estatus_activo !== 0 ? 1 : 0)} style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold', border: 'none', cursor: 'pointer', marginTop: '4px', alignSelf: 'flex-start', backgroundColor: (unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? '#dcfce3' : '#fef2f2', color: (unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? '#166534' : '#ef4444' }}>
+                          {(unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? 'ACTIVO' : 'INACTIVO'}
+                      </button>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <button className="btn-icon-edit" onClick={() => openEditUnidadModal(unidad)} title="Editar Unidad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
@@ -423,12 +437,13 @@ function Configuracion() {
                           <th style={{ padding: '16px', textAlign: 'left', color: '#475569', fontSize: '12px' }}>CLAVE</th>
                           <th style={{ padding: '16px', textAlign: 'left', color: '#475569', fontSize: '12px' }}>DESCRIPCIÓN DEL GASTO</th>
                           <th style={{ padding: '16px', textAlign: 'center', color: '#475569', fontSize: '12px' }}>FLUJO DE AUTORIZACIÓN</th>
+                          <th style={{ padding: '16px', textAlign: 'center', color: '#475569', fontSize: '12px' }}>ESTATUS</th>
                           <th style={{ padding: '16px', textAlign: 'right', color: '#475569', fontSize: '12px' }}>ACCIONES</th>
                       </tr>
                   </thead>
                   <tbody>
                       {conceptos.map(c => (
-                          <tr key={c.clave} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <tr key={c.clave} style={{ borderBottom: '1px solid #f1f5f9', opacity: (c.estatus_activo !== false && c.estatus_activo !== 0) ? 1 : 0.6 }}>
                               <td style={{ padding: '16px', fontWeight: 'bold', color: '#0f172a', fontSize: '13px' }}>{c.clave}</td>
                               <td style={{ padding: '16px', color: '#334155', fontSize: '13px', fontWeight: '500' }}>{c.descripcion}</td>
                               <td style={{ padding: '16px', textAlign: 'center' }}>
@@ -441,6 +456,11 @@ function Configuracion() {
                                       <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>DIRECTO A CONTABILIDAD</span>
                                   )}
                               </td>
+                              <td style={{ padding: '16px', textAlign: 'center' }}>
+                                  <button onClick={() => cambiarEstatusConcepto(c.clave, c.estatus_activo !== false && c.estatus_activo !== 0 ? 1 : 0)} style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: (c.estatus_activo !== false && c.estatus_activo !== 0) ? '#dcfce3' : '#fef2f2', color: (c.estatus_activo !== false && c.estatus_activo !== 0) ? '#166534' : '#ef4444' }}>
+                                      {(c.estatus_activo !== false && c.estatus_activo !== 0) ? 'ACTIVO' : 'INACTIVO'}
+                                  </button>
+                              </td>
                               <td style={{ padding: '16px', textAlign: 'right' }}>
                                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                                       <button className="btn-icon-edit" onClick={() => openEditConceptoModal(c)} title="Editar Concepto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
@@ -449,7 +469,7 @@ function Configuracion() {
                               </td>
                           </tr>
                       ))}
-                      {conceptos.length === 0 && (<tr><td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>No hay conceptos de gasto registrados.</td></tr>)}
+                      {conceptos.length === 0 && (<tr><td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>No hay conceptos de gasto registrados.</td></tr>)}
                   </tbody>
               </table>
           </div>
@@ -499,7 +519,7 @@ function Configuracion() {
         </div>
       </div>
 
-      {/* SECCIÓN CATEGORÍAS DE PROVEEDORES (NUEVO) */}
+      {/* SECCIÓN CATEGORÍAS DE PROVEEDORES */}
       <div className="categorias-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div>
@@ -735,7 +755,7 @@ function Configuracion() {
         </div>
       )}
 
-      {/* MODAL CATEGORÍAS (NUEVO) */}
+      {/* MODAL CATEGORÍAS */}
       {isCategoriaModalOpen && (
         <div className="modal-overlay" style={{ zIndex: 1050 }}>
           <div className="modal-content fade-in-down" style={{maxWidth: '450px', borderRadius: '16px'}}>

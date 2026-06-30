@@ -76,4 +76,13 @@ router.delete('/:id', verificarToken, (req, res) => {
     });
 });
 
+router.put('/:id/estatus', verificarToken, (req, res) => {
+    const { estatus_activo } = req.body;
+    db.query('UPDATE unidades_negocio SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus' });
+        registrarBitacora(req.usuario.id, 'ESTATUS_UNIDAD', `Cambió el estatus de la unidad ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+        res.json({ success: true, message: 'Estatus actualizado' });
+    });
+});
+
 module.exports = router;

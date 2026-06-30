@@ -64,14 +64,10 @@ router.get('/todas', verificarToken, (req, res) => {
 });
 
 router.put('/:id/estatus', verificarToken, (req, res) => {
-    // Verificamos permisos
     if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') {
         return res.status(403).json({ success: false, message: 'Permisos insuficientes para autorizar.' });
     }
-
     const { estatus } = req.body;
-
-    // Ejecutamos la actualización
     db.query(
         'UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?', 
         [estatus, req.usuario.id, req.params.id], 
@@ -80,43 +76,33 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
                 console.error("Error SQL al autorizar viático:", err);
                 return res.status(500).json({ success: false, message: 'Error BD: ' + err.sqlMessage });
             }
-            
             if (result.affectedRows === 0) {
                 return res.status(404).json({ success: false, message: 'No se encontró la solicitud en la Base de Datos.' });
             }
-
             registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marcó viático #${req.params.id} como ${estatus}`);
             res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
         }
     );
 });
 
-// El empleado confirma que ya tiene el dinero subiendo su comprobante
 router.post('/:id/confirmar-recepcion', verificarToken, upload.single('comprobante_empleado'), (req, res) => {
     const { id } = req.params;
-    
     if (!req.file) {
         return res.status(400).json({ success: false, message: 'Debes adjuntar el comprobante de que recibiste el dinero.' });
     }
-
     const comprobantePath = `uploads/${req.file.filename}`;
-
     db.query('SELECT estatus FROM solicitudes_viaticos WHERE id = ? AND id_usuario = ?', [id, req.usuario.id], (err, rows) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al buscar la solicitud.' });
         if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes permiso sobre esta solicitud.' });
-        
         if (rows[0].estatus !== 'PAGADO') {
             return res.status(400).json({ success: false, message: 'Tesorería aún no ha marcado esta solicitud como pagada.' });
         }
-
         db.query(
             'UPDATE solicitudes_viaticos SET estatus = "RECIBIDO", comprobante_recepcion_path = ? WHERE id = ?', 
             [comprobantePath, id], 
             (errUpdate) => {
                 if (errUpdate) return res.status(500).json({ success: false, message: 'Error al guardar la recepción.' });
-                
                 registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmó recepción de fondos con comprobante para el viático #${id}`);
-                
                 res.json({ success: true, message: 'Recepción confirmada y documento firmado exitosamente.', url: comprobantePath });
             }
         );
@@ -134,15 +120,152 @@ router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (r
 
 router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobante_gastos'), (req, res) => {
     if (!req.file) return res.status(400).json({ success: false });
-    const urlArchivo = `uploads/${req.file.filename}`;
-    db.query('UPDATE solicitudes_viaticos SET url_comprobante_gastos = ?, estatus = "COMPROBADO" WHERE id = ? AND id_usuario = ?', [urlArchivo, req.params.id, req.usuario.id], (err) => {
+    db.query(
+        'SELECT fecha_regreso, id_usuario, url_comprobante_gastos FROM solicitudes_viaticos WHERE id = ?',
+        [req.params.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error al verificar la solicitud.' });
+            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada.' });
+            const sol = rows[0];
+            if (sol.id_usuario !== req.usuario.id) {
+                return res.status(403).json({ success: false, message: 'No tienes permiso sobre esta solicitud.' });
+            }
+            const fechaRegreso = new Date(sol.fecha_regreso);
+            fechaRegreso.setHours(0, 0, 0, 0);
+            const hoy = new Date();
+            hoy.setHours(0, 0, 0, 0);
+            const diasTranscurridos = Math.floor((hoy - fechaRegreso) / (1000 * 60 * 60 * 24));
+            if (diasTranscurridos > 5) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'El plazo para comprobar viáticos ha vencido. Contaba con 5 días a partir de su fecha de regreso. Los viáticos no comprobados serán descontados de nómina.'
+                });
+            }
+            const urlArchivo = `uploads/${req.file.filename}`;
+            db.query(
+                'UPDATE solicitudes_viaticos SET url_comprobante_gastos = ?, estatus = "COMPROBADO" WHERE id = ? AND id_usuario = ?',
+                [urlArchivo, req.params.id, req.usuario.id],
+                (errUpdate) => {
+                    if (errUpdate) return res.status(500).json({ success: false });
+                    registrarBitacora(req.usuario.id, 'VIATICO_COMPROBADO', `Subió comprobante de gastos para el viático #${req.params.id}`);
+                    res.json({ success: true, url: urlArchivo });
+                }
+            );
+        }
+    );
+});
+
+// ==============================================================================
+// COMPROBACIÓN UNIVERSAL DE GASTOS — GUARDAR (empleado)
+// ==============================================================================
+router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
+    const idSolicitud = req.params.id;
+    const {
+        responsable, nombre_proveedor_header, fecha_inicial, fecha_final,
+        lugar, recursos_otorgados, fondo_fijo, unidad_negocio,
+        objeto, personas_adicionales, partidas
+    } = req.body;
+
+    db.query(
+        'SELECT id, estatus FROM solicitudes_viaticos WHERE id = ? AND id_usuario = ?',
+        [idSolicitud, req.usuario.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error BD.' });
+            if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes acceso a esta solicitud.' });
+            if (!['RECIBIDO', 'COMPROBADO'].includes(rows[0].estatus)) {
+                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobación en solicitudes RECIBIDAS.' });
+            }
+
+            const totalComprobado = (partidas || []).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
+            const pendiente = (parseFloat(recursos_otorgados) || 0) - totalComprobado;
+
+            db.query(
+                `INSERT INTO comprobacion_gastos 
+                    (id_solicitud, responsable, nombre_proveedor, fecha_inicial, fecha_final, lugar, recursos_otorgados, fondo_fijo, unidad_negocio, objeto, personas_adicionales, total_comprobado, pendiente)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    responsable = VALUES(responsable),
+                    nombre_proveedor = VALUES(nombre_proveedor),
+                    fecha_inicial = VALUES(fecha_inicial),
+                    fecha_final = VALUES(fecha_final),
+                    lugar = VALUES(lugar),
+                    recursos_otorgados = VALUES(recursos_otorgados),
+                    fondo_fijo = VALUES(fondo_fijo),
+                    unidad_negocio = VALUES(unidad_negocio),
+                    objeto = VALUES(objeto),
+                    personas_adicionales = VALUES(personas_adicionales),
+                    total_comprobado = VALUES(total_comprobado),
+                    pendiente = VALUES(pendiente)`,
+                [
+                    idSolicitud, responsable, nombre_proveedor_header,
+                    fecha_inicial || null, fecha_final || null,
+                    lugar, parseFloat(recursos_otorgados) || 0, fondo_fijo,
+                    unidad_negocio, objeto, parseInt(personas_adicionales) || 0,
+                    totalComprobado, pendiente
+                ],
+                (errUpsert) => {
+                    if (errUpsert) return res.status(500).json({ success: false, message: 'Error al guardar comprobación: ' + errUpsert.sqlMessage });
+
+                    db.query('SELECT id FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (errSelect, compRows) => {
+                        if (errSelect || compRows.length === 0) return res.status(500).json({ success: false });
+                        const idComprobacion = compRows[0].id;
+
+                        db.query('DELETE FROM comprobacion_partidas WHERE id_comprobacion = ?', [idComprobacion], (errDel) => {
+                            if (errDel) return res.status(500).json({ success: false });
+
+                            const partidasValidas = (partidas || []).filter(p => p.importe || p.descripcion || p.nombre_proveedor);
+
+                            if (partidasValidas.length === 0) {
+                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobación de viático #${idSolicitud} guardada (sin partidas)`);
+                                return res.json({ success: true, message: 'Comprobación guardada.' });
+                            }
+
+                            const valores = partidasValidas.map(p => [
+                                idComprobacion,
+                                p.fecha || null,
+                                parseFloat(p.importe) || 0,
+                                p.folio_fiscal || '',
+                                (p.rfc_proveedor || '').toUpperCase(),
+                                p.nombre_proveedor || '',
+                                p.rubro || 'Otros gastos',
+                                p.descripcion || ''
+                            ]);
+
+                            db.query(
+                                'INSERT INTO comprobacion_partidas (id_comprobacion, fecha, importe, folio_fiscal, rfc_proveedor, nombre_proveedor, rubro, descripcion) VALUES ?',
+                                [valores],
+                                (errIns) => {
+                                    if (errIns) return res.status(500).json({ success: false, message: 'Error al guardar partidas.' });
+                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobación de viático #${idSolicitud} guardada con ${partidasValidas.length} partidas`);
+                                    res.json({ success: true, message: 'Comprobación guardada correctamente.' });
+                                }
+                            );
+                        });
+                    });
+                }
+            );
+        }
+    );
+});
+
+// ==============================================================================
+// COMPROBACIÓN UNIVERSAL DE GASTOS — OBTENER (empleado y D.H.O.)
+// ==============================================================================
+router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
+    const idSolicitud = req.params.id;
+    db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
         if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, url: urlArchivo });
+        if (compRows.length === 0) return res.json({ success: true, data: null });
+        const comp = compRows[0];
+        db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY id ASC', [comp.id], (errP, partidas) => {
+            if (errP) return res.status(500).json({ success: false });
+            res.json({ success: true, data: { ...comp, partidas } });
+        });
     });
 });
 
 // ==============================================================================
-// 7. CLON EXACTO DEL PDF (LÓGICA DE FIRMAS CONDICIONADA Y COMPACTADA)
+// PDF DEL OFICIO DE COMISIÓN
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const query = `
@@ -170,7 +293,6 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         if (err || results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
         
         const sol = results[0];
-        // Redujimos los márgenes para ganar espacio vertical
         const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
 
         res.setHeader('Content-Type', 'application/pdf');
@@ -231,19 +353,11 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
         y += 20;
 
-        // ==========================================================
-        // AJUSTE DINÁMICO: Altura del párrafo calculada automáticamente
-        // ==========================================================
         const textoDespedida = 'Por lo anterior deberá solicitar a la gerencia de finanzas los viáticos en los formatos autorizados. Al finalizar la comisión deberá requisitar la "Comprobación universal de gastos" (SAC-GTSR-GST) en un máximo de 3 (TRES) días posterior a su término, so pena de cargo a nómina.\nSin más por el momento le envío un cordial saludo.\n';
-        
         doc.font('Helvetica').fontSize(9).fillColor('#000').text(textoDespedida, 30, y, { width: 522, align: 'justify' });
-        
-        // Sumamos la altura exacta que ocupó el texto + 20 pixeles de margen de seguridad
         y += doc.heightOfString(textoDespedida, { width: 522 }) + 20;
 
-        // 3. FIRMAS MEDIAS (COMPACTADO Y AISLADO)
-        const wSMid = 180;
-        const gapMid = 60;
+        const wSMid = 180, gapMid = 60;
         const startXMid = (doc.page.width - ((wSMid * 2) + gapMid)) / 2;
         const xAten = startXMid;
         const xRev = startXMid + wSMid + gapMid;
@@ -251,7 +365,6 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica').fontSize(9).text('Atentamente', xAten, y, { width: wSMid, align: 'center' });
         doc.text('Revisión de gasto', xRev, y, { width: wSMid, align: 'center' });
         
-        // FIRMAS MEDIAS: Dibujadas exactamente entre el texto y la línea (altura controlada)
         const imgHeightMid = 30;
         if (sol.solicitante_firma) {
             const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
@@ -262,7 +375,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xRev + 40, y + 15, { width: 100, height: imgHeightMid }); } catch (e) {}
         }
 
-        y += 50; // Línea empujada hacia abajo para no cortar la firma
+        y += 50;
         doc.moveTo(xAten, y).lineTo(xAten + wSMid, y).stroke();
         doc.moveTo(xRev, y).lineTo(xRev + wSMid, y).stroke();
         y += 4;
@@ -289,7 +402,6 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
         y += 10;
 
-        // 5. LA CUADRÍCULA EXCEL (COMPACTADA: rowH baja a 13)
         const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 13; 
         let gy = y;
 
@@ -354,43 +466,30 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
         gy += 35; 
 
-        // ==========================================================
-        // 6. FIRMAS FINALES (ESPACIADO Y AISLAMIENTO)
-        // ==========================================================
-        const wSBot = 180; 
-        const gapBot = 60; 
+        const wSBot = 180, gapBot = 60;
         const startXBot = (doc.page.width - ((wSBot * 2) + gapBot)) / 2;
         const xOtor = startXBot;
         const xReci = startXBot + wSBot + gapBot;
 
-        // Títulos Superiores
         doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgó', xOtor, gy, { width: wSBot, align: 'center' });
         doc.text('Recibió', xReci, gy, { width: wSBot, align: 'center' });
 
-        // Imágenes de Firma flotando exactamente en el medio
         const imgHeightBot = 30; 
         if (sol.autorizador_firma) {
             const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
-            if (fs.existsSync(pathFirmaAut)) try { 
-                doc.image(pathFirmaAut, xOtor + 40, gy + 15, { width: 100, height: imgHeightBot }); 
-            } catch (e) {}
+            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xOtor + 40, gy + 15, { width: 100, height: imgHeightBot }); } catch (e) {}
         }
-        
         if (['RECIBIDO', 'COMPROBADO'].includes(sol.estatus)) {
             if (sol.solicitante_firma) {
                 const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
-                if (fs.existsSync(pathFirmaSol)) try { 
-                    doc.image(pathFirmaSol, xReci + 40, gy + 15, { width: 100, height: imgHeightBot }); 
-                } catch (e) {}
+                if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xReci + 40, gy + 15, { width: 100, height: imgHeightBot }); } catch (e) {}
             }
         }
 
-        // Línea de firma empujada 50px abajo
         const yLineaFirma = gy + 50; 
         doc.moveTo(xOtor, yLineaFirma).lineTo(xOtor + wSBot, yLineaFirma).stroke();
         doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
 
-        // Textos inferiores
         const yTexto = yLineaFirma + 5;
         const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
 

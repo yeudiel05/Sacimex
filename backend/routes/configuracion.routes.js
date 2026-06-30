@@ -7,7 +7,6 @@ const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 // APIS DE CATÁLOGO DE CONCEPTOS DE PAGO
 // ==========================================
 
-// OBTENER TODOS LOS CONCEPTOS DEL CATÁLOGO ACTUAL
 router.get('/conceptos', verificarToken, (req, res) => {
     db.query('SELECT * FROM conceptos_pago ORDER BY id ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -15,7 +14,6 @@ router.get('/conceptos', verificarToken, (req, res) => {
     });
 });
 
-// AGREGAR NUEVO CONCEPTO AL CATÁLOGO
 router.post('/conceptos', verificarToken, (req, res) => {
     const { clave, descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno } = req.body;
     db.query('INSERT INTO conceptos_pago (clave, descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno) VALUES (?, ?, ?, ?, ?, ?)', 
@@ -26,11 +24,8 @@ router.post('/conceptos', verificarToken, (req, res) => {
     });
 });
 
-// EDITAR CONCEPTO EXISTENTE Y SU RUTA DE VOBO
 router.put('/conceptos/:clave', verificarToken, (req, res) => {
     const { descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno } = req.body;
-    
-    // Usar COALESCE para no sobreescribir con null si el frontend no manda uso_cfdi o metodo_pago
     db.query(`UPDATE conceptos_pago 
               SET descripcion = ?, 
                   uso_cfdi = COALESCE(?, uso_cfdi), 
@@ -45,7 +40,16 @@ router.put('/conceptos/:clave', verificarToken, (req, res) => {
     });
 });
 
-// ELIMINAR CONCEPTO
+// ✅ NUEVO: ACTIVAR / DESACTIVAR CONCEPTO
+router.put('/conceptos/:clave/estatus', verificarToken, (req, res) => {
+    const { estatus_activo } = req.body;
+    db.query('UPDATE conceptos_pago SET estatus_activo = ? WHERE clave = ?', [estatus_activo, req.params.clave], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus' });
+        registrarBitacora(req.usuario.id, 'ESTATUS_CONCEPTO', `Cambió estatus del concepto ${req.params.clave} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+        res.json({ success: true, message: 'Estatus actualizado' });
+    });
+});
+
 router.delete('/conceptos/:clave', verificarToken, (req, res) => {
     db.query('DELETE FROM conceptos_pago WHERE clave = ?', [req.params.clave], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este concepto ya fue usado en solicitudes pasadas.' });

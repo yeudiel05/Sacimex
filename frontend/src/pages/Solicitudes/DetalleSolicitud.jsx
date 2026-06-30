@@ -368,7 +368,7 @@ const DetalleSolicitud = () => {
                     {solicitud.estatus === 'AUTORIZADO_FINAL' && !solicitud.comprobante_pago_path && (
                         <div style={{ marginTop:'16px', padding:'12px 16px', backgroundColor:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'8px', fontSize:'12px', color:'#1e40af' }}>
                             <strong>✓ Totalmente autorizado.</strong><br/>
-                            Esperando que Tesoreria suba el comprobante de pago.
+                            Esperando que Tesoreria pague y suba el comprobante de pago.
                         </div>
                     )}
 

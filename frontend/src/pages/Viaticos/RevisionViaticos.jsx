@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import './Viaticos.css';
 
 function RevisionViaticos() {
@@ -8,10 +9,7 @@ function RevisionViaticos() {
   const [cargando, setCargando] = useState(true);
   const [tabActiva, setTabActiva] = useState('PENDIENTES');
   const fileInputRefs = useRef({});
-
   const [expandidos, setExpandidos] = useState({});
-  
-  // --- ESTADO PARA EL REPORTE MENSUAL ---
   const [mesReporte, setMesReporte] = useState('');
 
   const fetchSolicitudes = async () => {
@@ -20,11 +18,7 @@ function RevisionViaticos() {
       const res = await fetch('http://localhost:3001/api/viaticos/todas', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (res.status === 401 || res.status === 403) {
-        localStorage.clear();
-        navigate('/');
-        return;
-      }
+      if (res.status === 401 || res.status === 403) { localStorage.clear(); navigate('/'); return; }
       const data = await res.json();
       if (data.success) setSolicitudes(data.data);
     } catch (error) {
@@ -36,24 +30,16 @@ function RevisionViaticos() {
 
   useEffect(() => {
     fetchSolicitudes();
-    
-    // Auto-establecer el mes actual en el input
     const hoy = new Date();
-    const currentMonth = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-    setMesReporte(currentMonth);
+    setMesReporte(`${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`);
   }, []);
 
-  // ========================================================
-  // VER PDF DEL OFICIO DE COMISIÓN
-  // ========================================================
   const handleVerPDF = async (id_solicitud) => {
     try {
       const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        method: 'GET', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       if (!res.ok) throw new Error("Error al obtener el PDF");
-      
       const blob = await res.blob();
       const fileURL = window.URL.createObjectURL(blob);
       window.open(fileURL, '_blank');
@@ -66,7 +52,6 @@ function RevisionViaticos() {
 
   const cambiarEstatus = async (id, nuevoEstatus) => {
     if (!window.confirm(`¿Estás seguro de marcar esta solicitud como ${nuevoEstatus}?`)) return;
-    
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`http://localhost:3001/api/viaticos/${id}/estatus`, {
@@ -75,22 +60,13 @@ function RevisionViaticos() {
         body: JSON.stringify({ estatus: nuevoEstatus })
       });
       const data = await res.json();
-      
       if (data.success) {
         alert(data.message || `Solicitud marcada como ${nuevoEstatus}`);
-        
-        // MAGIA: Forzamos a la interfaz a actualizar la tabla en tiempo real
         setSolicitudes(prev => prev.map(s => s.id === id ? { ...s, estatus: nuevoEstatus } : s));
-        
-        // Recargamos el fondo con un sello de tiempo para evitar la caché del navegador
         fetch('http://localhost:3001/api/viaticos/todas?t=' + Date.now(), {
           headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).then(d => {
-          if(d.success) setSolicitudes(d.data);
-        });
-
+        }).then(r => r.json()).then(d => { if (d.success) setSolicitudes(d.data); });
       } else {
-        // Si el backend detectó un error (ej. falta una columna), te lo mostrará aquí
         alert("No se pudo actualizar: " + data.message);
       }
     } catch (error) {
@@ -101,74 +77,97 @@ function RevisionViaticos() {
   const handleSubirComprobante = async (id_solicitud, event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append('comprobante', file);
-
-    const token = localStorage.getItem('token');
     try {
       const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/comprobante`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
+        method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }, body: formData
       });
       const data = await res.json();
-      
-      if (data.success) {
-        alert("Comprobante adjuntado correctamente.");
-        fetchSolicitudes();
-      } else {
-        alert(data.message);
+      if (data.success) { alert("Comprobante adjuntado correctamente."); fetchSolicitudes(); }
+      else alert(data.message);
+    } catch (error) { alert('Error al subir el archivo.'); }
+  };
+
+  // ============================================================
+  // DESCARGAR COMPROBACIÓN UNIVERSAL DE GASTOS (D.H.O.)
+  // ============================================================
+  const descargarComprobacionDHO = async (sol) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+
+      if (!data.success || !data.data) {
+        return alert('Este viático aún no tiene comprobación de gastos registrada por el empleado.');
       }
-    } catch (error) {
-      alert('Error al subir el archivo.');
+
+      const d = data.data;
+      const partidas = d.partidas || [];
+      const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
+      const totalPorRubro = (rubro) => partidas.filter(p => p.rubro === rubro).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
+
+      const wb = XLSX.utils.book_new();
+      const wsData = [
+        ['COMPROBACIÓN UNIVERSAL DE GASTOS 2026', '', '', '', '', '', 'SAC-TRS-GST-2026'],
+        [],
+        ['N/A'],
+        ['Responsable:', d.responsable, '', 'Nombre Proveedor:', d.nombre_proveedor],
+        ['Fecha inicial:', d.fecha_inicial ? d.fecha_inicial.split('T')[0] : '', '', 'Fecha final:', d.fecha_final ? d.fecha_final.split('T')[0] : ''],
+        ['Lugar:', d.lugar, '', 'Fondo fijo:', d.fondo_fijo],
+        ['Recursos otorgados $:', fmt(d.recursos_otorgados), '', 'Unidad de negocio:', d.unidad_negocio],
+        ['Objeto:', d.objeto, '', 'Personas adicionales:', d.personas_adicionales],
+        ['Comprobado $:', fmt(d.total_comprobado), '', 'Pendiente $:', fmt(d.pendiente)],
+        [],
+        ['Fecha', 'Importe', 'Factura o Folio Fiscal', 'RFC Proveedor', 'Nombre Proveedor', 'Rubro', 'Descripción'],
+      ];
+
+      partidas.forEach(p => wsData.push([
+        p.fecha ? p.fecha.split('T')[0] : '',
+        parseFloat(p.importe) || 0,
+        p.folio_fiscal, p.rfc_proveedor, p.nombre_proveedor, p.rubro, p.descripcion
+      ]));
+
+      wsData.push([]);
+      wsData.push(['', '', '', '', '', 'TOTAL', d.total_comprobado]);
+      wsData.push([]);
+      wsData.push(['TOTALES POR RUBRO']);
+      RUBROS.forEach(r => wsData.push([r, totalPorRubro(r)]));
+      wsData.push([]);
+      wsData.push(['Presentado por persona:', d.responsable]);
+      wsData.push(['Documento generado por D.H.O. — Opciones Sacimex SA de CV SOFOM ENR']);
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 35 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Comprobación');
+      XLSX.writeFile(wb, `Comprobacion_${sol.solicitante_usuario || ''}_${sol.destino || ''}.xlsx`);
+    } catch (e) {
+      alert('Error al descargar la comprobación.');
     }
   };
 
-  // --- FUNCIÓN PARA DESCARGAR REPORTE MENSUAL EN EXCEL (CSV) ---
   const generarReporteMensual = () => {
     if (!mesReporte) return alert("Seleccione un mes para el reporte.");
-
-    // Filtrar solicitudes por mes y año según la fecha de salida
     const solicitudesMes = solicitudes.filter(sol => {
       const fecha = new Date(sol.fecha_salida);
       const strMes = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
       return strMes === mesReporte;
     });
-
-    if (solicitudesMes.length === 0) {
-      return alert("No hay solicitudes registradas en este mes.");
-    }
-
-    // Cabeceras del CSV
+    if (solicitudesMes.length === 0) return alert("No hay solicitudes registradas en este mes.");
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "ID,Estatus,Solicitante,Departamento,Destino,Motivo,Transporte,Fecha Salida,Fecha Regreso,Alimentos,Hospedaje,Pasajes,Gasolina,Taxis,Otros,Total\n";
-
-    // Llenar filas
     solicitudesMes.forEach(sol => {
       const row = [
-        sol.id,
-        sol.estatus,
-        `"${sol.solicitante_usuario}"`,
-        `"${sol.departamento}"`,
-        `"${sol.destino}"`,
-        `"${sol.motivo.replace(/\n/g, " ")}"`,
-        sol.medio_transporte,
-        new Date(sol.fecha_salida).toLocaleDateString(),
-        new Date(sol.fecha_regreso).toLocaleDateString(),
-        sol.monto_alimentos || 0,
-        sol.monto_hospedaje || 0,
-        sol.monto_pasajes || 0,
-        sol.monto_gasolina || 0,
-        sol.monto_taxis || 0,
-        sol.monto_otros || 0,
-        sol.total_solicitado || 0
+        sol.id, sol.estatus, `"${sol.solicitante_usuario}"`, `"${sol.departamento}"`, `"${sol.destino}"`,
+        `"${sol.motivo.replace(/\n/g, " ")}"`, sol.medio_transporte,
+        new Date(sol.fecha_salida).toLocaleDateString(), new Date(sol.fecha_regreso).toLocaleDateString(),
+        sol.monto_alimentos || 0, sol.monto_hospedaje || 0, sol.monto_pasajes || 0,
+        sol.monto_gasolina || 0, sol.monto_taxis || 0, sol.monto_otros || 0, sol.total_solicitado || 0
       ].join(",");
-      
       csvContent += row + "\n";
     });
-
-    // Descargar el archivo
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -179,13 +178,7 @@ function RevisionViaticos() {
   };
 
   const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
-
-  const toggleDetalle = (id) => {
-    setExpandidos(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
+  const toggleDetalle = (id) => setExpandidos(prev => ({ ...prev, [id]: !prev[id] }));
 
   const solicitudesFiltradas = solicitudes.filter(sol => {
     if (tabActiva === 'PENDIENTES') return sol.estatus === 'PENDIENTE' || sol.estatus === 'PENDIENTE_VOBO';
@@ -196,11 +189,11 @@ function RevisionViaticos() {
   const getBadgeStyle = (estatus) => {
     switch(estatus) {
       case 'PENDIENTE': return { bg: '#fef3c7', text: '#f59e0b' };
-      case 'PAGADO': return { bg: '#eff6ff', text: '#3b82f6' }; // Pagado por tesorería, esperando firma
-      case 'RECIBIDO': return { bg: '#ccfbf1', text: '#0d9488' }; // Empleado ya firmó
-      case 'COMPROBADO': return { bg: '#dcfce7', text: '#16a34a' }; // Proceso finalizado
+      case 'PAGADO':    return { bg: '#eff6ff', text: '#3b82f6' };
+      case 'RECIBIDO':  return { bg: '#ccfbf1', text: '#0d9488' };
+      case 'COMPROBADO':return { bg: '#dcfce7', text: '#16a34a' };
       case 'RECHAZADO': return { bg: '#fee2e2', text: '#ef4444' };
-      default: return { bg: '#f1f5f9', text: '#64748b' };
+      default:          return { bg: '#f1f5f9', text: '#64748b' };
     }
   };
 
@@ -211,36 +204,26 @@ function RevisionViaticos() {
           <h1>Bandeja D.H.O.</h1>
           <p>Revisión y gestión de viáticos empresariales.</p>
         </div>
-        
-        {/* --- CONTROLES DE REPORTE MENSUAL --- */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
           <div>
             <label style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Exportar Reporte</label>
-            <input 
-              type="month" 
-              value={mesReporte} 
-              onChange={(e) => setMesReporte(e.target.value)} 
-              style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }}
-            />
+            <input type="month" value={mesReporte} onChange={(e) => setMesReporte(e.target.value)}
+              style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} />
           </div>
-          <button 
-            onClick={generarReporteMensual} 
+          <button onClick={generarReporteMensual}
             style={{ marginTop: '18px', padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '14px'}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '14px'}}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Excel
           </button>
         </div>
       </div>
 
-      {/* --- PESTAÑAS (TABS) --- */}
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-        <button 
-          onClick={() => setTabActiva('PENDIENTES')}
+        <button onClick={() => setTabActiva('PENDIENTES')}
           style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'PENDIENTES' ? '#10b981' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'PENDIENTES' ? '3px solid #10b981' : '3px solid transparent', paddingBottom: '8px' }}>
           En Revisión
         </button>
-        <button 
-          onClick={() => setTabActiva('AUTORIZADOS')}
+        <button onClick={() => setTabActiva('AUTORIZADOS')}
           style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'AUTORIZADOS' ? '#3b82f6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'AUTORIZADOS' ? '3px solid #3b82f6' : '3px solid transparent', paddingBottom: '8px' }}>
           Historial / Autorizados
         </button>
@@ -256,22 +239,17 @@ function RevisionViaticos() {
         <div style={{ display: 'grid', gap: '24px' }}>
           {solicitudesFiltradas.map(sol => {
             const badge = getBadgeStyle(sol.estatus);
-            
             return (
               <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
-                
-                {/* --- ENCABEZADO DE LA TARJETA --- */}
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px', flexWrap: 'wrap', gap: '16px' }}>
                   <div>
-                    <span style={{ 
-                      fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px',
-                      backgroundColor: badge.bg, color: badge.text
-                    }}>
+                    <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px', backgroundColor: badge.bg, color: badge.text }}>
                       {sol.estatus}
                     </span>
                     <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino}</h3>
                     <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.4' }}>
-                      <strong>Solicitante:</strong> {sol.solicitante_usuario} ({sol.departamento}) <br/>
+                      <strong>Solicitante:</strong> {sol.solicitante_usuario} ({sol.departamento})<br/>
                       <strong>Fechas:</strong> {new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}
                     </p>
                   </div>
@@ -279,22 +257,18 @@ function RevisionViaticos() {
                   <div style={{ textAlign: 'right', minWidth: '220px' }}>
                     <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b' }}>Monto Solicitado</p>
                     <h2 style={{ margin: '0 0 16px 0', fontSize: '24px', color: '#10b981', fontWeight: '900' }}>{formatMoney(sol.total_solicitado)}</h2>
-                    
+
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                      <button 
-                        onClick={() => toggleDetalle(sol.id)} 
+                      <button onClick={() => toggleDetalle(sol.id)}
                         style={{ padding: '6px 12px', border: '1px solid #cbd5e1', color: '#475569', background: '#f8fafc', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
                         {expandidos[sol.id] ? '▲ Ocultar Detalle' : '▼ Ver Detalle'}
                       </button>
 
-                      {/* ✅ BOTÓN DE VER PDF */}
-                      <button 
-                        onClick={() => handleVerPDF(sol.id)} 
+                      <button onClick={() => handleVerPDF(sol.id)}
                         style={{ padding: '6px 12px', background: 'white', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>
                         Ver PDF
                       </button>
 
-                      {/* --- BOTONES DE ACCIÓN PRINCIPALES --- */}
                       {tabActiva === 'PENDIENTES' && (
                         <>
                           <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
@@ -305,28 +279,40 @@ function RevisionViaticos() {
                       {tabActiva === 'AUTORIZADOS' && sol.estatus !== 'RECHAZADO' && (
                         <>
                           <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirComprobante(sol.id, e)} />
-                          
+
                           {sol.url_comprobante_transferencia ? (
-                            <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #cbd5e1', color: '#3b82f6', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
+                            <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer"
+                              style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #cbd5e1', color: '#3b82f6', background: 'white', borderRadius: '6px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
                               Ver Transferencia
                             </a>
                           ) : (
-                            <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '6px 12px', border: '1px dashed #3b82f6', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                            <button onClick={() => fileInputRefs.current[sol.id].click()}
+                              style={{ padding: '6px 12px', border: '1px dashed #3b82f6', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
                               + Transferencia
                             </button>
                           )}
 
-                          {/* ✅ NUEVO: BOTÓN PARA VER EL ACUSE DE RECIBIDO DEL EMPLEADO */}
                           {sol.comprobante_recepcion_path && (
-                            <a href={`http://localhost:3001/${sol.comprobante_recepcion_path}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #14b8a6', color: '#14b8a6', background: '#ccfbf1', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
-                              Ver Acuse Firmado
+                            <a href={`http://localhost:3001/${sol.comprobante_recepcion_path}`} target="_blank" rel="noreferrer"
+                              style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #14b8a6', color: '#14b8a6', background: '#ccfbf1', borderRadius: '6px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
+                              Ver Acuse
                             </a>
                           )}
 
                           {sol.url_comprobante_gastos && (
-                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
+                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer"
+                              style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
                               Ver Facturas de Gasto
                             </a>
+                          )}
+
+                          {/* BOTÓN: DESCARGAR COMPROBACIÓN UNIVERSAL (lo que llenó el empleado) */}
+                          {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
+                            <button onClick={() => descargarComprobacionDHO(sol)}
+                              style={{ padding: '6px 12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '13px' }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                              Comprobación
+                            </button>
                           )}
                         </>
                       )}
@@ -334,10 +320,9 @@ function RevisionViaticos() {
                   </div>
                 </div>
 
-                {/* --- SECCIÓN DE DETALLE EXPANSIBLE --- */}
+                {/* DETALLE EXPANSIBLE */}
                 {expandidos[sol.id] && (
                   <div style={{ padding: '20px 24px', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', animation: 'fadeIn 0.2s' }}>
-                    
                     <div>
                       <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Logística de la Comisión</h4>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
@@ -346,38 +331,29 @@ function RevisionViaticos() {
                         <div><span style={{ color: '#64748b' }}>Días de Comisión:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.dias_comision} días</strong></div>
                         <div><span style={{ color: '#64748b' }}>Sede del Empleado:</span> <strong style={{ display: 'block', color: '#334155' }}>{sol.ubicacion}</strong></div>
                         <div style={{ gridColumn: 'span 2' }}>
-                          <span style={{ color: '#64748b' }}>Motivo de la visita:</span> 
+                          <span style={{ color: '#64748b' }}>Motivo de la visita:</span>
                           <p style={{ margin: '4px 0 0 0', padding: '8px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>{sol.motivo}</p>
                         </div>
                       </div>
                     </div>
-
                     <div>
                       <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', paddingBottom: '4px' }}>Desglose de Gastos Solicitados</h4>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Alimentos</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_alimentos)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Hospedaje</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_hospedaje)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Pasajes/Urban</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_pasajes)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Gasolina</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_gasolina)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Taxis</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_taxis)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                          <span style={{ color: '#64748b' }}>Peajes/Otros</span> <strong style={{ color: '#0f172a' }}>{formatMoney(sol.monto_otros)}</strong>
-                        </div>
+                        {[
+                          ['Alimentos', sol.monto_alimentos], ['Hospedaje', sol.monto_hospedaje],
+                          ['Pasajes/Urban', sol.monto_pasajes], ['Gasolina', sol.monto_gasolina],
+                          ['Taxis', sol.monto_taxis], ['Peajes/Otros', sol.monto_otros]
+                        ].map(([label, monto]) => (
+                          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', background: 'white', padding: '6px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                            <span style={{ color: '#64748b' }}>{label}</span>
+                            <strong style={{ color: '#0f172a' }}>{formatMoney(monto)}</strong>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
                   </div>
                 )}
+
               </div>
             );
           })}
