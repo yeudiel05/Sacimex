@@ -418,7 +418,7 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                     const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
                     
                     db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
-                        // REGISTRO EN BITACORA - CREAR SOLICITUD
+                        // REGISTRO EN BITACORA - CREAR SOLICITUD (Usa folio)
                         registrarBitacora(solicitante_id, 'CREAR_SOLICITUD', `Creo la solicitud de recurso folio ${folio} por ${formatMoney(montoNum)}`);
                         
                         res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
@@ -450,6 +450,9 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
     }
 });
 
+// ================================================================
+// AUTORIZAR - Usa folio
+// ================================================================
 router.post('/autorizar/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { comentario } = req.body;
@@ -521,7 +524,10 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
                         if (err5) return db.rollback(() => res.status(500).json({ success: false }));
                         db.commit(async err6 => {
                             if (err6) return db.rollback(() => res.status(500).json({ success: false }));
-                            registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma etapa ${etapaFirma} en sol #${id}`);
+                            
+                            // REGISTRO EN BITACORA - AUTORIZAR (Usa folio)
+                            registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma etapa ${etapaFirma} en solicitud folio ${sol.folio}`);
+                            
                             res.json({ success: true, nuevo_estatus: nuevoEstatus, message: 'Autorizado correctamente' });
 
                             if (rolNotificar) {
@@ -541,48 +547,56 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
     });
 });
 
+// ================================================================
+// RECHAZAR - Usa folio
+// ================================================================
 router.post('/rechazar/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { motivo } = req.body;
     const miRol = req.usuario.rol;
     const miUsuarioId = req.usuario.id;
 
-    db.query(`
-        SELECT s.monto, s.nivel_actual, cp.area_visto_bueno 
-        FROM solicitudes_recursos s 
-        LEFT JOIN conceptos_pago cp ON (
-            s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR 
-            s.concepto_id COLLATE utf8mb4_unicode_ci = CAST(cp.id AS CHAR) COLLATE utf8mb4_unicode_ci OR 
-            s.concepto_id COLLATE utf8mb4_unicode_ci = cp.descripcion COLLATE utf8mb4_unicode_ci
-        )
-        WHERE s.id = ?
-    `, [id], (err, rows) => {
-        if (err || rows.length === 0) return res.status(404).json({ success: false });
-        const sol = rows[0];
+    // Consultamos el folio para usarlo en la bitácora
+    db.query('SELECT folio FROM solicitudes_recursos WHERE id = ?', [id], (errFolio, rowsFolio) => {
+        const folio = (rowsFolio && rowsFolio.length > 0) ? rowsFolio[0].folio : id;
 
-        db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miUsuarioId], (errD, rowsD) => {
-            if (errD) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
-            
-            const miDeptoCore = getCoreDepto((rowsD && rowsD.length > 0) ? rowsD[0].depto_emp : '');
-            const areaReqCore = getCoreDepto(sol.area_visto_bueno);
-            
-            let puede = false;
-            let etapaFirma = '';
+        db.query(`
+            SELECT s.monto, s.nivel_actual, cp.area_visto_bueno 
+            FROM solicitudes_recursos s 
+            LEFT JOIN conceptos_pago cp ON (
+                s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR 
+                s.concepto_id COLLATE utf8mb4_unicode_ci = CAST(cp.id AS CHAR) COLLATE utf8mb4_unicode_ci OR 
+                s.concepto_id COLLATE utf8mb4_unicode_ci = cp.descripcion COLLATE utf8mb4_unicode_ci
+            )
+            WHERE s.id = ?
+        `, [id], (err, rows) => {
+            if (err || rows.length === 0) return res.status(404).json({ success: false });
+            const sol = rows[0];
 
-            if (sol.nivel_actual === -1 && (miRol === 'ADMIN' || (miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO'))) { puede = true; etapaFirma = 'VISTO BUENO'; }
-            if (sol.nivel_actual === 0 && (miRol === 'REVISOR' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'REVISOR'; }
-            if (sol.nivel_actual === 1 && (miRol === 'AUTORIZADOR_1' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_1'; }
-            if (sol.nivel_actual === 2 && (miRol === 'AUTORIZADOR_2' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_2'; }
+            db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miUsuarioId], (errD, rowsD) => {
+                if (errD) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
+                
+                const miDeptoCore = getCoreDepto((rowsD && rowsD.length > 0) ? rowsD[0].depto_emp : '');
+                const areaReqCore = getCoreDepto(sol.area_visto_bueno);
+                
+                let puede = false;
+                let etapaFirma = '';
 
-            if (!puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
+                if (sol.nivel_actual === -1 && (miRol === 'ADMIN' || (miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO'))) { puede = true; etapaFirma = 'VISTO BUENO'; }
+                if (sol.nivel_actual === 0 && (miRol === 'REVISOR' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'REVISOR'; }
+                if (sol.nivel_actual === 1 && (miRol === 'AUTORIZADOR_1' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_1'; }
+                if (sol.nivel_actual === 2 && (miRol === 'AUTORIZADOR_2' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_2'; }
 
-            db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
-            [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
-                db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
-                    // REGISTRO EN BITACORA - RECHAZAR SOLICITUD
-                    registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud #${id}. Motivo: ${motivo || 'No especificado'}`);
-                    
-                    res.json({ success: true, message: 'Solicitud rechazada' });
+                if (!puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
+
+                db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
+                [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
+                    db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
+                        // REGISTRO EN BITACORA - RECHAZAR SOLICITUD (Usa folio)
+                        registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud folio ${folio}. Motivo: ${motivo || 'No especificado'}`);
+                        
+                        res.json({ success: true, message: 'Solicitud rechazada' });
+                    });
                 });
             });
         });
@@ -596,29 +610,36 @@ router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (r
     if (!req.file) return res.status(400).json({ success: false });
 
     const ruta = `uploads/${req.file.filename}`;
-    db.query('UPDATE solicitudes_recursos SET comprobante_pago_path = ?, estatus = "PAGADO", fecha_pago = NOW() WHERE id = ?', [ruta, id], () => {
-        const queryFirma = `
-            INSERT INTO historial_firmas_pago 
-            (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
-            VALUES (?, ?, 'PAGADO', 'FIRMADO', 'APROBADO', 'Comprobante de pago subido')
-        `;
-        db.query(queryFirma, [id, miUsuarioId], () => {
-            registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud #${id}`);
-            res.json({ success: true, message: 'Pago registrado' });
-
-            const querySol = `
-                SELECT s.folio, s.monto, p.email_contacto 
-                FROM solicitudes_recursos s
-                LEFT JOIN usuarios u ON s.solicitante_id = u.id
-                LEFT JOIN empleados e ON u.id_empleado = e.id_persona
-                LEFT JOIN personas p ON e.id_persona = p.id
-                WHERE s.id = ? LIMIT 1
+    
+    // Consultamos el folio primero para la bitácora
+    db.query('SELECT folio FROM solicitudes_recursos WHERE id = ?', [id], (errFolio, rowsFolio) => {
+        const folio = (rowsFolio && rowsFolio.length > 0) ? rowsFolio[0].folio : id;
+        
+        db.query('UPDATE solicitudes_recursos SET comprobante_pago_path = ?, estatus = "PAGADO", fecha_pago = NOW() WHERE id = ?', [ruta, id], () => {
+            const queryFirma = `
+                INSERT INTO historial_firmas_pago 
+                (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
+                VALUES (?, ?, 'PAGADO', 'FIRMADO', 'APROBADO', 'Comprobante de pago subido')
             `;
-            db.query(querySol, [id], (err, rows) => {
-                if (!err && rows.length > 0 && rows[0].email_contacto) {
-                    const solData = rows[0];
-                    enviarCorreo(solData.email_contacto, `Tu Solicitud ha sido Pagada: ${solData.folio}`, `<h3>Solicitud Liquidada</h3><p>Tu solicitud por ${formatMoney(solData.monto)} ha sido pagada.</p>`);
-                }
+            db.query(queryFirma, [id, miUsuarioId], () => {
+                // REGISTRO EN BITACORA - Usa folio en lugar de ID
+                registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud folio ${folio}`);
+                res.json({ success: true, message: 'Pago registrado' });
+
+                const querySol = `
+                    SELECT s.folio, s.monto, p.email_contacto 
+                    FROM solicitudes_recursos s
+                    LEFT JOIN usuarios u ON s.solicitante_id = u.id
+                    LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+                    LEFT JOIN personas p ON e.id_persona = p.id
+                    WHERE s.id = ? LIMIT 1
+                `;
+                db.query(querySol, [id], (err, rows) => {
+                    if (!err && rows.length > 0 && rows[0].email_contacto) {
+                        const solData = rows[0];
+                        enviarCorreo(solData.email_contacto, `Tu Solicitud ha sido Pagada: ${solData.folio}`, `<h3>Solicitud Liquidada</h3><p>Tu solicitud por ${formatMoney(solData.monto)} ha sido pagada.</p>`);
+                    }
+                });
             });
         });
     });
@@ -683,8 +704,8 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
                 return res.status(500).json({ success: false });
             }
             
-            // REGISTRO EN BITACORA - DESCARGAR PDF
-            registrarBitacora(miUsuarioId, 'DESCARGAR_PDF_SOLICITUD', `Descargo el PDF de la solicitud folio ${solRows[0].folio || id}`);
+            // REGISTRO EN BITACORA - DESCARGAR PDF (Usa solo folio)
+            registrarBitacora(miUsuarioId, 'DESCARGAR_PDF_SOLICITUD', `Descargo el PDF de la solicitud folio ${solRows[0].folio}`);
             
             generarPDFSolicitud(res, solRows[0], firmas || []);
         });

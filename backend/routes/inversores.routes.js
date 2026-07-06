@@ -283,38 +283,52 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
+// 1. CREAR CONTRATO ESTATICO
+// ==========================================
 router.post('/contratos', verificarToken, (req, res) => {
     const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
   
-    checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
-        if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado.' });
+    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
+        const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
+        
+        checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
+            if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado.' });
 
-        db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
-          [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err, result) => {
-            if (err) {
-                console.error("Error al guardar contrato estatico:", err);
-                return res.status(500).json({ success: false, message: 'Error de servidor' });
-            }
-            
-            // REGISTRO EN BITACORA - CREAR CONTRATO ESTATICO
-            registrarBitacora(req.usuario.id, 'CREAR_CONTRATO', `Registro contrato estatico con disposicion #${numero_disposicion || 'S/N'} para inversor ID ${id_inversor}`);
-            
-            res.json({ success: true });
+            db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
+              [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err, result) => {
+                if (err) {
+                    console.error("Error al guardar contrato estatico:", err);
+                    return res.status(500).json({ success: false, message: 'Error de servidor' });
+                }
+                
+                registrarBitacora(req.usuario.id, 'CREAR_CONTRATO', `Registro contrato con disposicion #${numero_disposicion || 'S/N'} para: ${nombreFondeador}`);
+                res.json({ success: true });
+            });
         });
     });
 });
 
+// ==========================================
+// 2. EDITAR CONTRATO
+// ==========================================
 router.put('/contratos/:id', verificarToken, (req, res) => {
     const { fecha_inicio, numero_disposicion } = req.body;
     
-    checkDisposicionUnica(db, numero_disposicion, req.params.id, (esValido) => {
-        if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado en otro contrato.' });
+    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [req.params.id], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: 'Error al consultar contrato.' });
+        const disp = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
+        
+        checkDisposicionUnica(db, numero_disposicion, req.params.id, (esValido) => {
+            if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado en otro contrato.' });
 
-        db.query('UPDATE CONTRATOS_INVERSION SET fecha_inicio = ?, numero_disposicion = ? WHERE id = ?', 
-            [fecha_inicio, numero_disposicion, req.params.id], (err) => {
-            if (err) return res.status(500).json({ success: false, message: "Error al actualizar contrato" });
-            registrarBitacora(req.usuario.id, 'EDITAR_CONTRATO', `Actualizo informacion del contrato #${req.params.id}`);
-            res.json({ success: true, message: 'Contrato actualizado' });
+            db.query('UPDATE CONTRATOS_INVERSION SET fecha_inicio = ?, numero_disposicion = ? WHERE id = ?', 
+                [fecha_inicio, numero_disposicion, req.params.id], (err) => {
+                if (err) return res.status(500).json({ success: false, message: "Error al actualizar contrato" });
+                
+                registrarBitacora(req.usuario.id, 'EDITAR_CONTRATO', `Actualizo informacion del contrato con disposicion: ${disp}`);
+                res.json({ success: true, message: 'Contrato actualizado' });
+            });
         });
     });
 });
@@ -364,21 +378,28 @@ router.post('/inversion', verificarToken, (req, res) => {
 // REESTRUCTURACION, PAGOS IRREGULARES Y ALERTAS
 // ==========================================
 
+// ================================================================
+// REESTRUCTURACION - CORREGIDO (usa disposicion)
+// ================================================================
 router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
     const { pagos_irregulares, plan_json, huboInyeccion } = req.body;
     const jsonStr = JSON.stringify(pagos_irregulares);
     const planStr = JSON.stringify(plan_json);
     
-    db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ?, plan_json = ?, tipo_amortizacion = "personalizado" WHERE id = ?', 
-    [jsonStr, planStr, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al actualizar.' });
+    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [req.params.id], (errSelect, rows) => {
+        const disposicion = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         
-        const mensaje = huboInyeccion 
-            ? `Se registraron nuevas inyecciones y reestructuracion en contrato #${req.params.id}`
-            : `Se reestructuro la tabla de amortizacion (fechas/abonos) del contrato #${req.params.id}`;
+        db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ?, plan_json = ?, tipo_amortizacion = "personalizado" WHERE id = ?', 
+        [jsonStr, planStr, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error al actualizar.' });
             
-        registrarBitacora(req.usuario.id, 'REESTRUCTURACION', mensaje);
-        res.json({ success: true, message: 'Actualizacion exitosa.' });
+            const mensaje = huboInyeccion 
+                ? `Se registraron nuevas inyecciones y reestructuracion en contrato disposicion ${disposicion}`
+                : `Se reestructuro la tabla de amortizacion (fechas/abonos) del contrato disposicion ${disposicion}`;
+                
+            registrarBitacora(req.usuario.id, 'REESTRUCTURACION', mensaje);
+            res.json({ success: true, message: 'Actualizacion exitosa.' });
+        });
     });
 });
 
@@ -920,9 +941,9 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         doc.font('Helvetica').text('C. ELIZABETH CRUZ CANO', 350, sigY + 15, { width: 170, align: 'center' });
 
         doc.end();
-        
+
         try {
-            registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargo constancia del contrato #${contrato.contrato_id} perteneciente a: ${contrato.inversor}`);
+            registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargo constancia del contrato disposicion ${contrato.numero_disposicion || 'S/N'} perteneciente a: ${contrato.inversor}`);
         } catch (e) {
             console.error("Aviso: No se pudo registrar en bitacora", e);
         }
@@ -932,7 +953,6 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 // ==========================================
 // RUTA WYSIWYG: TABLA DE AMORTIZACION PDF ESTILIZADO
 // ==========================================
-
 router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (req, res) => {
     const idContrato = req.params.id;
     const { tablaData, fondeador, montoInicial, tasa, sistema, fechaInicio, numeroDisposicion } = req.body;
@@ -941,162 +961,166 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         return res.status(400).json({ success: false, message: 'Faltan los datos de la tabla.' });
     }
 
-    try {
-        const COLOR_PRIMARIO_VERDE = '#0F6B38'; 
-        const COLOR_TEXTO_HEADER = '#FFFFFF';
-        const COLOR_LINEAS = '#CBD5E1'; 
-        const COLOR_SHADING_FILAS = '#F8FAFC'; 
-
-        const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
-        res.setHeader('Content-disposition', `attachment; filename=Amortizacion_Contrato_${idContrato}.pdf`);
-        res.setHeader('Content-type', 'application/pdf');
-        doc.pipe(res);
-
-        const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
-        if (fs.existsSync(logoPath)) {
-            doc.image(logoPath, 40, 30, { width: 70 });
-        }
-        
-        doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
-           .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 0, 40, { align: 'center' });
-        doc.fontSize(11).font('Helvetica').fillColor('black')
-           .text('TABLA DE AMORTIZACION DE FONDEO', 0, 60, { align: 'center' });
-        
-        const lineY = 115;
-        doc.moveTo(40, lineY).lineTo(doc.page.width - 40, lineY).strokeColor(COLOR_LINEAS).stroke();
-
-        let startY = 130;
-        const infoRowHeight = 20;
-
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('black');
-        
-        doc.text('EMPRESA:', 50, startY);
-        doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 150, startY);
-        
-        doc.font('Helvetica-Bold').text('CREDITO MAESTRO:', 50, startY + infoRowHeight);
-        doc.font('Helvetica').text('1543999', 150, startY + infoRowHeight);
-        
-        doc.font('Helvetica-Bold').text('DISPOSICION NO.:', 50, startY + (infoRowHeight * 2));
-        doc.font('Helvetica').text(numeroDisposicion || 'S/N', 150, startY + (infoRowHeight * 2));
-
-        doc.font('Helvetica-Bold').text('MONTO:', 50, startY + (infoRowHeight * 3));
-        doc.font('Helvetica').text(formatMoney(montoInicial), 150, startY + (infoRowHeight * 3));
-
-        doc.font('Helvetica-Bold').text('FONDEADOR:', 50, startY + (infoRowHeight * 4));
-        doc.font('Helvetica').text(fondeador || 'N/A', 150, startY + (infoRowHeight * 4));
-
-        const rightColX = 450;
-        doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
-        doc.font('Helvetica').text('MXN', rightColX + 110, startY);
-
-        doc.font('Helvetica-Bold').text('TASA DE INT.:', rightColX, startY + infoRowHeight);
-        doc.font('Helvetica').text(`${tasa}% Anual`, rightColX + 110, startY + infoRowHeight);
-
-        doc.font('Helvetica-Bold').text('FECHA DISPOSICION:', rightColX, startY + (infoRowHeight * 2));
-        const fechaMostrar = fechaInicio ? new Date(fechaInicio + 'T12:00:00').toLocaleDateString('es-MX') : (tablaData[0] ? tablaData[0].fechaStr : 'S/N');
-        doc.font('Helvetica').text(fechaMostrar, rightColX + 110, startY + (infoRowHeight * 2));
-
-        doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
-        doc.font('Helvetica').text(sistema?.toUpperCase() || 'FRANCES', rightColX + 110, startY + (infoRowHeight * 3));
-
-        let currentY = startY + (infoRowHeight * 5) + 20;
-
-        const colWidths = [50, 80, 85, 85, 80, 60, 90, 90, 40]; 
-        const tableWidth = colWidths.reduce((a, b) => a + b, 0);
-        const tableStartX = (doc.page.width - tableWidth) / 2;
-        
-        const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINC.', 'ANTICIPO CAP.', 'INT. ORD.', 'IVA', 'TOTAL PAGO', 'SALDO INSOLUTO', 'DIAS'];
-        
-        const drawTableHeader = (y) => {
-            doc.rect(tableStartX, y - 6, tableWidth, 24).fillAndStroke(COLOR_PRIMARIO_VERDE, COLOR_PRIMARIO_VERDE);
-            doc.font('Helvetica-Bold').fontSize(8).fillColor(COLOR_TEXTO_HEADER);
-            let x = tableStartX;
-            headers.forEach((h, i) => { 
-                doc.text(h, x, y + 2, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
-                x += colWidths[i];
-            });
-            return y + 24;
-        };
-
-        currentY = drawTableHeader(currentY);
-        doc.font('Helvetica').fontSize(8).fillColor('black');
-
-        tablaData.forEach((row, rowIndex) => {
-            let x = tableStartX;
-            const isAlternateRow = rowIndex % 2 === 1;
-
-            if (isAlternateRow) {
-                doc.rect(tableStartX, currentY - 4, tableWidth, 18).fill(COLOR_SHADING_FILAS);
-            }
-
-            const vals = [
-                row.numero, 
-                row.fechaStr, 
-                formatMoney(row.abono), 
-                formatMoney(row.anticipo), 
-                formatMoney(row.interes), 
-                formatMoney(row.iva), 
-                formatMoney(row.pagoTotal), 
-                formatMoney(row.saldoFinal),
-                row.dias || 30,
-            ];
-            
-            doc.fillColor('black');
-            vals.forEach((v, i) => { 
-                doc.text(String(v), x, currentY + 1, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
-                x += colWidths[i]; 
-            });
-            currentY += 18;
-            
-            if (currentY > doc.page.height - 60) { 
-                doc.addPage({layout:'landscape', margin:30}); 
-                doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACION - CONTRATO #' + String(idContrato).padStart(5, '0'), 0, 30, { align: 'center' });
-                currentY = drawTableHeader(60);
-                doc.font('Helvetica').fontSize(8).fillColor('black');
-            }
-        });
-
-        doc.rect(tableStartX, currentY - 4, tableWidth, 22).fill('#E2E8F0');
-        doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
-        
-        doc.text('TOTALES:', tableStartX, currentY + 1, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
-        
-        const totalAbono = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.abono) || 0), 0);
-        const totalAnticipo = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.anticipo) || 0), 0);
-        const totalInteresOrd = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.interes) || 0), 0);
-        const totalIva = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.iva) || 0), 0);
-        const totalPagoGral = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.pagoTotal) || 0), 0);
-        const totalDias = tablaData.reduce((acc, curr) => acc + (parseInt(curr.dias) || 30), 0);
-
-        let tx = tableStartX + colWidths[0] + colWidths[1];
-        doc.text(formatMoney(totalAbono), tx, currentY + 1, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
-        doc.text(formatMoney(totalAnticipo), tx, currentY + 1, { width: colWidths[3] - 5, align: 'right' }); tx += colWidths[3];
-        doc.text(formatMoney(totalInteresOrd), tx, currentY + 1, { width: colWidths[4] - 5, align: 'right' }); tx += colWidths[4];
-        doc.text(formatMoney(totalIva), tx, currentY + 1, { width: colWidths[5] - 5, align: 'right' }); tx += colWidths[5];
-        
-        doc.fillColor(COLOR_PRIMARIO_VERDE);
-        doc.text(formatMoney(totalPagoGral), tx, currentY + 1, { width: colWidths[6] - 5, align: 'right' }); tx += colWidths[6];
-        
-        doc.fillColor('black');
-        doc.text('-', tx, currentY + 1, { width: colWidths[7] - 5, align: 'right' }); tx += colWidths[7];
-        doc.text(String(totalDias), tx, currentY + 1, { width: colWidths[8] - 5, align: 'center' });
-
-        doc.end();
+    // ================================================================
+    // EXPORTAR_AMORTIZACION_ESTILIZADA - CORREGIDO (usa disposicion)
+    // ================================================================
+    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [idContrato], (errSelect, rows) => {
+        const disposicion = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         
         try {
-            registrarBitacora(req.usuario.id, 'EXPORTAR_AMORTIZACION_ESTILIZADA', `Descargo tabla interactiva estilizada del contrato #${idContrato}`);
-        } catch (e) {
-            console.error("Aviso: No se pudo registrar en bitacora", e);
+            const COLOR_PRIMARIO_VERDE = '#0F6B38'; 
+            const COLOR_TEXTO_HEADER = '#FFFFFF';
+            const COLOR_LINEAS = '#CBD5E1'; 
+            const COLOR_SHADING_FILAS = '#F8FAFC'; 
+
+            const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 30 });
+            res.setHeader('Content-disposition', `attachment; filename=Amortizacion_Contrato_${idContrato}.pdf`);
+            res.setHeader('Content-type', 'application/pdf');
+            doc.pipe(res);
+
+            const logoPath = path.join(__dirname, '../../frontend/src/assets/logo.png');
+            if (fs.existsSync(logoPath)) {
+                doc.image(logoPath, 40, 30, { width: 70 });
+            }
+            
+            doc.fontSize(16).font('Helvetica-Bold').fillColor(COLOR_PRIMARIO_VERDE)
+               .text('OPCIONES SACIMEX S.A. DE C.V. SOFOM E.N.R.', 0, 40, { align: 'center' });
+            doc.fontSize(11).font('Helvetica').fillColor('black')
+               .text('TABLA DE AMORTIZACION DE FONDEO', 0, 60, { align: 'center' });
+            
+            const lineY = 115;
+            doc.moveTo(40, lineY).lineTo(doc.page.width - 40, lineY).strokeColor(COLOR_LINEAS).stroke();
+
+            let startY = 130;
+            const infoRowHeight = 20;
+
+            doc.font('Helvetica-Bold').fontSize(9).fillColor('black');
+            
+            doc.text('EMPRESA:', 50, startY);
+            doc.font('Helvetica').text('OPCIONES SACIMEX S.A. DE C.V.', 150, startY);
+            
+            doc.font('Helvetica-Bold').text('CREDITO MAESTRO:', 50, startY + infoRowHeight);
+            doc.font('Helvetica').text('1543999', 150, startY + infoRowHeight);
+            
+            doc.font('Helvetica-Bold').text('DISPOSICION NO.:', 50, startY + (infoRowHeight * 2));
+            doc.font('Helvetica').text(numeroDisposicion || 'S/N', 150, startY + (infoRowHeight * 2));
+
+            doc.font('Helvetica-Bold').text('MONTO:', 50, startY + (infoRowHeight * 3));
+            doc.font('Helvetica').text(formatMoney(montoInicial), 150, startY + (infoRowHeight * 3));
+
+            doc.font('Helvetica-Bold').text('FONDEADOR:', 50, startY + (infoRowHeight * 4));
+            doc.font('Helvetica').text(fondeador || 'N/A', 150, startY + (infoRowHeight * 4));
+
+            const rightColX = 450;
+            doc.font('Helvetica-Bold').text('MONEDA:', rightColX, startY);
+            doc.font('Helvetica').text('MXN', rightColX + 110, startY);
+
+            doc.font('Helvetica-Bold').text('TASA DE INT.:', rightColX, startY + infoRowHeight);
+            doc.font('Helvetica').text(`${tasa}% Anual`, rightColX + 110, startY + infoRowHeight);
+
+            doc.font('Helvetica-Bold').text('FECHA DISPOSICION:', rightColX, startY + (infoRowHeight * 2));
+            const fechaMostrar = fechaInicio ? new Date(fechaInicio + 'T12:00:00').toLocaleDateString('es-MX') : (tablaData[0] ? tablaData[0].fechaStr : 'S/N');
+            doc.font('Helvetica').text(fechaMostrar, rightColX + 110, startY + (infoRowHeight * 2));
+
+            doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
+            doc.font('Helvetica').text(sistema?.toUpperCase() || 'FRANCES', rightColX + 110, startY + (infoRowHeight * 3));
+
+            let currentY = startY + (infoRowHeight * 5) + 20;
+
+            const colWidths = [50, 80, 85, 85, 80, 60, 90, 90, 40]; 
+            const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+            const tableStartX = (doc.page.width - tableWidth) / 2;
+            
+            const headers = ['NO. PAGO', 'VENCIMIENTO', 'ABONO PRINC.', 'ANTICIPO CAP.', 'INT. ORD.', 'IVA', 'TOTAL PAGO', 'SALDO INSOLUTO', 'DIAS'];
+            
+            const drawTableHeader = (y) => {
+                doc.rect(tableStartX, y - 6, tableWidth, 24).fillAndStroke(COLOR_PRIMARIO_VERDE, COLOR_PRIMARIO_VERDE);
+                doc.font('Helvetica-Bold').fontSize(8).fillColor(COLOR_TEXTO_HEADER);
+                let x = tableStartX;
+                headers.forEach((h, i) => { 
+                    doc.text(h, x, y + 2, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                    x += colWidths[i];
+                });
+                return y + 24;
+            };
+
+            currentY = drawTableHeader(currentY);
+            doc.font('Helvetica').fontSize(8).fillColor('black');
+
+            tablaData.forEach((row, rowIndex) => {
+                let x = tableStartX;
+                const isAlternateRow = rowIndex % 2 === 1;
+
+                if (isAlternateRow) {
+                    doc.rect(tableStartX, currentY - 4, tableWidth, 18).fill(COLOR_SHADING_FILAS);
+                }
+
+                const vals = [
+                    row.numero, 
+                    row.fechaStr, 
+                    formatMoney(row.abono), 
+                    formatMoney(row.anticipo), 
+                    formatMoney(row.interes), 
+                    formatMoney(row.iva), 
+                    formatMoney(row.pagoTotal), 
+                    formatMoney(row.saldoFinal),
+                    row.dias || 30,
+                ];
+                
+                doc.fillColor('black');
+                vals.forEach((v, i) => { 
+                    doc.text(String(v), x, currentY + 1, { width: colWidths[i] - 5, align: i === 0 || i === 8 ? 'center' : 'right' }); 
+                    x += colWidths[i]; 
+                });
+                currentY += 18;
+                
+                if (currentY > doc.page.height - 60) { 
+                    doc.addPage({layout:'landscape', margin:30}); 
+                    doc.fillColor(COLOR_PRIMARIO_VERDE).fontSize(10).font('Helvetica-Bold').text('CONTINUACION - CONTRATO #' + String(idContrato).padStart(5, '0'), 0, 30, { align: 'center' });
+                    currentY = drawTableHeader(60);
+                    doc.font('Helvetica').fontSize(8).fillColor('black');
+                }
+            });
+
+            doc.rect(tableStartX, currentY - 4, tableWidth, 22).fill('#E2E8F0');
+            doc.font('Helvetica-Bold').fontSize(8).fillColor('black');
+            
+            doc.text('TOTALES:', tableStartX, currentY + 1, { width: colWidths[0] + colWidths[1] - 5, align: 'right' });
+            
+            const totalAbono = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.abono) || 0), 0);
+            const totalAnticipo = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.anticipo) || 0), 0);
+            const totalInteresOrd = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.interes) || 0), 0);
+            const totalIva = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.iva) || 0), 0);
+            const totalPagoGral = tablaData.reduce((acc, curr) => acc + (parseFloat(curr.pagoTotal) || 0), 0);
+            const totalDias = tablaData.reduce((acc, curr) => acc + (parseInt(curr.dias) || 30), 0);
+
+            let tx = tableStartX + colWidths[0] + colWidths[1];
+            doc.text(formatMoney(totalAbono), tx, currentY + 1, { width: colWidths[2] - 5, align: 'right' }); tx += colWidths[2];
+            doc.text(formatMoney(totalAnticipo), tx, currentY + 1, { width: colWidths[3] - 5, align: 'right' }); tx += colWidths[3];
+            doc.text(formatMoney(totalInteresOrd), tx, currentY + 1, { width: colWidths[4] - 5, align: 'right' }); tx += colWidths[4];
+            doc.text(formatMoney(totalIva), tx, currentY + 1, { width: colWidths[5] - 5, align: 'right' }); tx += colWidths[5];
+            
+            doc.fillColor(COLOR_PRIMARIO_VERDE);
+            doc.text(formatMoney(totalPagoGral), tx, currentY + 1, { width: colWidths[6] - 5, align: 'right' }); tx += colWidths[6];
+            
+            doc.fillColor('black');
+            doc.text('-', tx, currentY + 1, { width: colWidths[7] - 5, align: 'right' }); tx += colWidths[7];
+            doc.text(String(totalDias), tx, currentY + 1, { width: colWidths[8] - 5, align: 'center' });
+
+            doc.end();
+            
+            try {
+                registrarBitacora(req.usuario.id, 'EXPORTAR_AMORTIZACION_ESTILIZADA', `Descargo tabla interactiva estilizada del contrato disposicion ${disposicion}`);
+            } catch (e) {
+                console.error("Aviso: No se pudo registrar en bitacora", e);
+            }
+        } catch (pdfError) {
+            console.error("Error al generar PDF:", pdfError);
+            res.status(500).json({ success: false, message: 'Error interno al generar PDF' });
         }
-    } catch (pdfError) {
-        console.error("Error al generar PDF:", pdfError);
-        res.status(500).json({ success: false, message: 'Error interno al generar PDF' });
-    }
+    });
 });
 
-// ==========================================
-// RUTA OCULTA: DISPARAR ALERTAS AL INICIAR SESION
-// ==========================================
 router.post('/trigger-alertas-login', (req, res) => {
     console.log('Iniciando sesion: Revisando vencimientos globales...');
 

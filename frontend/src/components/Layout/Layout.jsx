@@ -18,7 +18,7 @@ function Layout() {
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
-  // 🛡️ LIMPIEZA EXTREMA DEL ROL Y USUARIO
+  // LIMPIEZA EXTREMA DEL ROL Y USUARIO
   const rawRole = localStorage.getItem('rol') || 'AUXILIAR';
   const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
   
@@ -99,7 +99,6 @@ function Layout() {
     } catch (error) {
       console.error("Error al registrar la salida:", error);
     } finally {
-      // Limpiamos la sesión en el frontend y mandamos al login (siempre se ejecuta)
       localStorage.clear();
       navigate('/');
     }

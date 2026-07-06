@@ -164,7 +164,9 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
     }
 });
 
-// Editar Usuario Existente
+// ================================================================
+// EDITAR USUARIO - CORREGIDO (async en la función principal)
+// ================================================================
 router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, res) => {
     const { id_usuario } = req.params;
     const { 
@@ -178,80 +180,105 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
 
     const rutaFirmaNueva = req.file ? `uploads/firmas/${req.file.filename}` : null;
 
-    try {
-        let hashedPassword = null;
-        if (password && password.trim() !== '') {
-            const salt = await bcrypt.genSalt(10);
-            hashedPassword = await bcrypt.hash(password, salt);
-        }
+    // Obtenemos el nombre de usuario actual para la bitácora
+    db.query('SELECT username FROM usuarios WHERE id = ?', [id_usuario], (errSelect, rowsUsuario) => {
+        const nombreUsuarioActual = (rowsUsuario && rowsUsuario.length > 0) ? rowsUsuario[0].username : 'Usuario Desconocido';
 
-        db.beginTransaction(err => {
-            if (err) return res.status(500).json({ success: false });
-            
-            db.query('UPDATE personas SET nombre_razon_social=?, telefono=?, email_contacto=?, titulo=?, iniciales=? WHERE id=?',
-                [nombre || '', telefono || '', email || '', titulo || '', iniciales || '', id_persona], (err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Personas: ' + err.message }));
+        // Movemos el try-catch aquí para manejar el async/await dentro del callback
+        (async () => {
+            try {
+                let hashedPassword = null;
+                if (password && password.trim() !== '') {
+                    const salt = await bcrypt.genSalt(10);
+                    hashedPassword = await bcrypt.hash(password, salt);
+                }
 
-                    db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
-                        [puesto || '', departamento || '', unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
-                            if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
-                            
-                            let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';
-                            let paramsUser = [username, rol, puede_solicitar || 0, nivel_autorizacion || 0];
+                db.beginTransaction(err => {
+                    if (err) return res.status(500).json({ success: false });
+                    
+                    db.query('UPDATE personas SET nombre_razon_social=?, telefono=?, email_contacto=?, titulo=?, iniciales=? WHERE id=?',
+                        [nombre || '', telefono || '', email || '', titulo || '', iniciales || '', id_persona], (err) => {
+                            if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Personas: ' + err.message }));
 
-                            if (hashedPassword) {
-                                queryUser += ', password_hash=?';
-                                paramsUser.push(hashedPassword);
-                            }
-                            
-                            if (rutaFirmaNueva) {
-                                queryUser += ', ruta_firma_png=?';
-                                paramsUser.push(rutaFirmaNueva);
-                            }
+                            db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
+                                [puesto || '', departamento || '', unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
+                                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
+                                    
+                                    let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';
+                                    let paramsUser = [username, rol, puede_solicitar || 0, nivel_autorizacion || 0];
 
-                            queryUser += ' WHERE id=?';
-                            paramsUser.push(id_usuario);
+                                    if (hashedPassword) {
+                                        queryUser += ', password_hash=?';
+                                        paramsUser.push(hashedPassword);
+                                    }
+                                    
+                                    if (rutaFirmaNueva) {
+                                        queryUser += ', ruta_firma_png=?';
+                                        paramsUser.push(rutaFirmaNueva);
+                                    }
 
-                            db.query(queryUser, paramsUser, (err) => {
-                                if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Usuarios: ' + err.message }));
+                                    queryUser += ' WHERE id=?';
+                                    paramsUser.push(id_usuario);
 
-                                db.commit(err => {
-                                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                                    registrarBitacora(req.usuario.id, 'EDITAR_USUARIO', `Se edito al usuario ID ${id_usuario}`);
-                                    res.json({ success: true, message: 'Usuario actualizado correctamente.' });
+                                    db.query(queryUser, paramsUser, (err) => {
+                                        if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Usuarios: ' + err.message }));
+
+                                        db.commit(err => {
+                                            if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                                            // REGISTRO EN BITACORA - EDITAR USUARIO (usa username)
+                                            registrarBitacora(req.usuario.id, 'EDITAR_USUARIO', `Se edito al usuario: ${nombreUsuarioActual}`);
+                                            res.json({ success: true, message: 'Usuario actualizado correctamente.' });
+                                        });
+                                    });
                                 });
-                            });
                         });
                 });
-        });
-    } catch (error) {
-        console.error("Error al encriptar la nueva contrasena:", error);
-        return res.status(500).json({ success: false, message: 'Error interno al actualizar la contrasena.' });
-    }
-});
-
-// A. Cambiar Estatus del Usuario (Activo / Inactivo)
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    const { estatus_activo } = req.body;
-    db.query('UPDATE usuarios SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus.' });
-        
-        // REGISTRO EN BITACORA - ESTATUS USUARIO
-        registrarBitacora(req.usuario.id, 'ESTATUS_USUARIO', `Cambio el estatus del usuario ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
-        
-        res.json({ success: true });
+            } catch (error) {
+                console.error("Error al encriptar la nueva contrasena:", error);
+                return res.status(500).json({ success: false, message: 'Error interno al actualizar la contrasena.' });
+            }
+        })();
     });
 });
 
-// B. Eliminar Usuario (Soft Delete)
+// ================================================================
+// CAMBIAR ESTATUS - CORREGIDO
+// ================================================================
+router.put('/:id/estatus', verificarToken, (req, res) => {
+    const { estatus_activo } = req.body;
+    
+    // Obtenemos el username para la bitácora
+    db.query('SELECT username FROM usuarios WHERE id = ?', [req.params.id], (errSelect, rowsUsuario) => {
+        const nombreUsuario = (rowsUsuario && rowsUsuario.length > 0) ? rowsUsuario[0].username : 'Usuario Desconocido';
+        
+        db.query('UPDATE usuarios SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus.' });
+            
+            // REGISTRO EN BITACORA - ESTATUS USUARIO (usa username)
+            registrarBitacora(req.usuario.id, 'ESTATUS_USUARIO', `Cambio el estatus del usuario: ${nombreUsuario} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+            
+            res.json({ success: true });
+        });
+    });
+});
+
+// ================================================================
+// ELIMINAR USUARIO - CORREGIDO
+// ================================================================
 router.delete('/:id_persona', verificarToken, (req, res) => {
-    db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id_persona], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al eliminar usuario.' });
+    const idPersona = req.params.id_persona;
+    
+    // Obtenemos el nombre de la persona para la bitácora
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [idPersona], (errSelect, rowsPersona) => {
+        const nombrePersona = (rowsPersona && rowsPersona.length > 0) ? rowsPersona[0].nombre_razon_social : 'Persona Desconocida';
         
-        // REGISTRO EN BITACORA - ELIMINAR USUARIO
-        registrarBitacora(req.usuario.id, 'ELIMINAR_USUARIO', `Elimino (soft delete) a la persona/usuario ID ${req.params.id_persona}`);
-        
-        res.json({ success: true });
+        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [idPersona], (err) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error al eliminar usuario.' });
+            
+            registrarBitacora(req.usuario.id, 'ELIMINAR_USUARIO', `Elimino (soft delete) al usuario: ${nombrePersona}`);
+            
+            res.json({ success: true });
+        });
     });
 });
 

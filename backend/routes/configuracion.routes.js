@@ -190,10 +190,14 @@ router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
 });
 
 router.delete('/puestos/:id', verificarToken, (req, res) => {
-    db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto esta en uso.' });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Elimino un puesto (ID: ${req.params.id})`);
-        res.json({ success: true, message: 'Puesto eliminado.' });
+    db.query('SELECT nombre FROM catalogo_puestos WHERE id = ?', [req.params.id], (err, results) => {
+        const nombrePuesto = (results && results.length > 0) ? results[0].nombre : 'Puesto Desconocido';
+        
+        db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto esta en uso.' });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Elimino el puesto: ${nombrePuesto}`);
+            res.json({ success: true, message: 'Puesto eliminado.' });
+        });
     });
 });
 
@@ -228,18 +232,27 @@ router.put('/categorias/:id', verificarToken, (req, res) => {
 
 router.put('/categorias/:id/estatus', verificarToken, (req, res) => {
     const { estatus_activo } = req.body;
-    db.query('UPDATE catalogo_categorias_proveedor SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'ESTATUS_CATEGORIA', `Cambio estatus de la categoria ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
-        res.json({ success: true });
+    
+    db.query('SELECT nombre FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err, results) => {
+        const nombreCat = (results && results.length > 0) ? results[0].nombre : 'Categoria Desconocida';
+        
+        db.query('UPDATE catalogo_categorias_proveedor SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            registrarBitacora(req.usuario.id, 'ESTATUS_CATEGORIA', `Cambio estatus de la categoria '${nombreCat}' a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+            res.json({ success: true });
+        });
     });
 });
 
 router.delete('/categorias/:id', verificarToken, (req, res) => {
-    db.query('DELETE FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque esta categoria esta en uso por algunos proveedores.' });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_CATEGORIA', `Elimino una categoria (ID: ${req.params.id})`);
-        res.json({ success: true, message: 'Categoria eliminada.' });
+    db.query('SELECT nombre FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err, results) => {
+        const nombreCat = (results && results.length > 0) ? results[0].nombre : 'Categoria';
+        
+        db.query('DELETE FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque esta categoria esta en uso por algunos proveedores.' });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_CATEGORIA', `Elimino la categoria: ${nombreCat}`);
+            res.json({ success: true, message: 'Categoria eliminada.' });
+        });
     });
 });
 
