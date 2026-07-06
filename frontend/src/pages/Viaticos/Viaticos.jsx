@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as XLSX from 'xlsx';
 import './Viaticos.css';
 
 const AREAS = ['NORMATIVA', 'OPERATIVA', 'ADMINISTRATIVA'];
@@ -195,45 +194,41 @@ function Viaticos() {
     }
   };
 
-  // DESCARGAR Excel local
-  const descargarComprobacion = (sol) => {
-    const comp = comprobaciones[sol.id] || compVacia(sol);
-    const totalComp = getTotalComprobado(comp);
-    const pendiente = (parseFloat(comp.recursos_otorgados) || 0) - totalComp;
-    const wb = XLSX.utils.book_new();
-    const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // GUARDAR Y VER COMPROBACIÓN EN PDF (con firma del empleado)
+  const descargarComprobacion = async (sol) => {
+    const comp = comprobaciones[sol.id];
+    if (!comp) return;
+    setGuardandoComp(prev => ({ ...prev, [sol.id]: true }));
+    try {
+      const resGuardar = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(comp)
+      });
+      const dataGuardar = await resGuardar.json();
+      if (!dataGuardar.success) {
+        alert('Error al guardar la comprobación: ' + dataGuardar.message);
+        return;
+      }
+      setComprobaciones(prev => ({ ...prev, [sol.id]: { ...comp, cargada: true } }));
 
-    const wsData = [
-      ['COMPROBACIÓN UNIVERSAL DE GASTOS 2026', '', '', '', '', '', 'SAC-TRS-GST-2026'],
-      [],
-      ['N/A'],
-      ['Responsable:', comp.responsable, '', 'Nombre Proveedor:', comp.nombre_proveedor_header],
-      ['Fecha inicial:', comp.fecha_inicial, '', 'Fecha final:', comp.fecha_final],
-      ['Lugar:', comp.lugar, '', 'Fondo fijo:', comp.fondo_fijo],
-      ['Recursos otorgados $:', fmt(comp.recursos_otorgados), '', 'Unidad de negocio:', comp.unidad_negocio],
-      ['Objeto:', comp.objeto, '', 'Personas adicionales:', comp.personas_adicionales],
-      ['Comprobado $:', fmt(totalComp), '', 'Pendiente $:', fmt(pendiente)],
-      [],
-      ['Fecha', 'Importe', 'Factura o Folio Fiscal', 'RFC Proveedor', 'Nombre Proveedor', 'Rubro', 'Descripción'],
-    ];
-
-    (comp.partidas || [])
-      .filter(p => p.importe || p.descripcion || p.nombre_proveedor)
-      .forEach(p => wsData.push([p.fecha, parseFloat(p.importe) || 0, p.folio_fiscal, p.rfc_proveedor, p.nombre_proveedor, p.rubro, p.descripcion]));
-
-    wsData.push([]);
-    wsData.push(['', '', '', '', '', 'TOTAL', totalComp]);
-    wsData.push([]);
-    wsData.push(['TOTALES POR RUBRO']);
-    RUBROS.forEach(r => wsData.push([r, getTotalPorRubro(comp, r)]));
-    wsData.push([]);
-    wsData.push(['Presentado por persona:', comp.responsable]);
-    wsData.push(['Al generar este documento acepta los datos capturados como verídicos.']);
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 35 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'Comprobación');
-    XLSX.writeFile(wb, `Comprobacion_${sol.destino || 'SAC'}_${comp.fecha_inicial || ''}.xlsx`);
+      const resPdf = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (!resPdf.ok) {
+        const dataErr = await resPdf.json().catch(() => null);
+        alert(dataErr?.message || 'Error al generar el PDF de la comprobación.');
+        return;
+      }
+      const blob = await resPdf.blob();
+      const fileURL = window.URL.createObjectURL(blob);
+      window.open(fileURL, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
+    } catch (e) {
+      alert('Error de conexión al generar la comprobación.');
+    } finally {
+      setGuardandoComp(prev => ({ ...prev, [sol.id]: false }));
+    }
   };
 
   // =========================================================
@@ -629,11 +624,11 @@ function Viaticos() {
                           color: limiteVencido ? '#b91c1c' : diasRestantes <= 2 ? '#c2410c' : '#15803d'
                         }}>
                           {limiteVencido ? (
-                            <>⛔ <strong>Plazo vencido.</strong> Una vez regresado de comisión, tiene un máximo de <strong>5 días</strong> para adjuntar su factura y comprobación de gastos. En caso contrario, los viáticos serán pagados por cuenta propia.</>
+                            <> <strong>Plazo vencido.</strong> Una vez regresado de comisión, tiene un máximo de <strong>5 días</strong> para adjuntar su factura y comprobación de gastos. En caso contrario, los viáticos serán pagados por cuenta propia.</>
                           ) : diasRestantes <= 2 ? (
-                            <>⚠️ <strong>¡Atención!</strong> Le queda{diasRestantes === 1 ? '' : 'n'} <strong>{diasRestantes} día{diasRestantes === 1 ? '' : 's'}</strong> para subir su comprobación de gastos. Recuerde que tiene un máximo de <strong>5 días</strong> a partir de su regreso, de lo contrario los viáticos serán a su cargo.</>
+                            <> <strong>¡Atención!</strong> Le queda{diasRestantes === 1 ? '' : 'n'} <strong>{diasRestantes} día{diasRestantes === 1 ? '' : 's'}</strong> para subir su comprobación de gastos. Recuerde que tiene un máximo de <strong>5 días</strong> a partir de su regreso, de lo contrario los viáticos serán a su cargo.</>
                           ) : (
-                            <>📋 Tiene <strong>{diasRestantes} días</strong> restantes para adjuntar su factura y comprobación de gastos. Recuerde que el plazo máximo es de <strong>5 días</strong> a partir de su fecha de regreso.</>
+                            <> Tiene <strong>{diasRestantes} días</strong> restantes para adjuntar su factura y comprobación de gastos. Recuerde que el plazo máximo es de <strong>5 días</strong> a partir de su fecha de regreso.</>
                           )}
                         </div>
                       )}
@@ -812,10 +807,10 @@ function Viaticos() {
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px' }}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                                 {guardandoComp[sol.id] ? 'Guardando...' : 'Guardar en Sistema'}
                               </button>
-                              <button type="button" onClick={() => descargarComprobacion(sol)}
-                                style={{ padding: '10px 24px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button type="button" onClick={() => descargarComprobacion(sol)} disabled={guardandoComp[sol.id]}
+                                style={{ padding: '10px 24px', background: guardandoComp[sol.id] ? '#94a3b8' : '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px' }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                Descargar Excel
+                                {guardandoComp[sol.id] ? 'Generando...' : 'Ver PDF'}
                               </button>
                             </div>
 

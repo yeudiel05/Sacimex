@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import './Viaticos.css';
 
 function RevisionViaticos() {
@@ -90,61 +89,23 @@ function RevisionViaticos() {
   };
 
   // ============================================================
-  // DESCARGAR COMPROBACIÓN UNIVERSAL DE GASTOS (D.H.O.)
+  // VER/DESCARGAR COMPROBACIÓN UNIVERSAL DE GASTOS (D.H.O.) EN PDF
   // ============================================================
   const descargarComprobacionDHO = async (sol) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
-      const data = await res.json();
-
-      if (!data.success || !data.data) {
-        return alert('Este viático aún no tiene comprobación de gastos registrada por el empleado.');
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        return alert(data?.message || 'Este viático aún no tiene comprobación de gastos registrada por el empleado.');
       }
-
-      const d = data.data;
-      const partidas = d.partidas || [];
-      const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
-      const totalPorRubro = (rubro) => partidas.filter(p => p.rubro === rubro).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
-
-      const wb = XLSX.utils.book_new();
-      const wsData = [
-        ['COMPROBACIÓN UNIVERSAL DE GASTOS 2026', '', '', '', '', '', 'SAC-TRS-GST-2026'],
-        [],
-        ['N/A'],
-        ['Responsable:', d.responsable, '', 'Nombre Proveedor:', d.nombre_proveedor],
-        ['Fecha inicial:', d.fecha_inicial ? d.fecha_inicial.split('T')[0] : '', '', 'Fecha final:', d.fecha_final ? d.fecha_final.split('T')[0] : ''],
-        ['Lugar:', d.lugar, '', 'Fondo fijo:', d.fondo_fijo],
-        ['Recursos otorgados $:', fmt(d.recursos_otorgados), '', 'Unidad de negocio:', d.unidad_negocio],
-        ['Objeto:', d.objeto, '', 'Personas adicionales:', d.personas_adicionales],
-        ['Comprobado $:', fmt(d.total_comprobado), '', 'Pendiente $:', fmt(d.pendiente)],
-        [],
-        ['Fecha', 'Importe', 'Factura o Folio Fiscal', 'RFC Proveedor', 'Nombre Proveedor', 'Rubro', 'Descripción'],
-      ];
-
-      partidas.forEach(p => wsData.push([
-        p.fecha ? p.fecha.split('T')[0] : '',
-        parseFloat(p.importe) || 0,
-        p.folio_fiscal, p.rfc_proveedor, p.nombre_proveedor, p.rubro, p.descripcion
-      ]));
-
-      wsData.push([]);
-      wsData.push(['', '', '', '', '', 'TOTAL', d.total_comprobado]);
-      wsData.push([]);
-      wsData.push(['TOTALES POR RUBRO']);
-      RUBROS.forEach(r => wsData.push([r, totalPorRubro(r)]));
-      wsData.push([]);
-      wsData.push(['Presentado por persona:', d.responsable]);
-      wsData.push(['Documento generado por D.H.O. — Opciones Sacimex SA de CV SOFOM ENR']);
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 35 }];
-      XLSX.utils.book_append_sheet(wb, ws, 'Comprobación');
-      XLSX.writeFile(wb, `Comprobacion_${sol.solicitante_usuario || ''}_${sol.destino || ''}.xlsx`);
+      const blob = await res.blob();
+      const fileURL = window.URL.createObjectURL(blob);
+      window.open(fileURL, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(fileURL), 10000);
     } catch (e) {
-      alert('Error al descargar la comprobación.');
+      alert('Error al generar el PDF de la comprobación.');
     }
   };
 
@@ -306,7 +267,7 @@ function RevisionViaticos() {
                             </a>
                           )}
 
-                          {/* BOTÓN: DESCARGAR COMPROBACIÓN UNIVERSAL (lo que llenó el empleado) */}
+                          {/* BOTÓN: VER COMPROBACIÓN UNIVERSAL EN PDF (lo que llenó el empleado) */}
                           {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
                             <button onClick={() => descargarComprobacionDHO(sol)}
                               style={{ padding: '6px 12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>

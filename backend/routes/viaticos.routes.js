@@ -265,6 +265,226 @@ router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
 });
 
 // ==============================================================================
+// PDF DE LA COMPROBACIÓN UNIVERSAL DE GASTOS (D.H.O.)
+// ==============================================================================
+router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
+    const idSolicitud = req.params.id;
+
+    const querySolicitud = `
+        SELECT sv.id, sv.destino,
+               p.nombre_razon_social AS solicitante_nombre,
+               e.puesto AS solicitante_puesto,
+               e.unidad_negocio AS solicitante_unidad,
+               e.empresa_maestra AS solicitante_empresa,
+               u.ruta_firma_png AS solicitante_firma
+        FROM solicitudes_viaticos sv
+        LEFT JOIN usuarios u ON sv.id_usuario = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p ON e.id_persona = p.id
+        WHERE sv.id = ?
+    `;
+
+    db.query(querySolicitud, [idSolicitud], (errSol, solRows) => {
+        if (errSol) return res.status(500).json({ success: false, message: 'Error servidor' });
+        if (solRows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
+        const sol = solRows[0];
+
+        db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
+            if (compRows.length === 0) return res.status(404).json({ success: false, message: 'Este viático aún no tiene comprobación de gastos registrada.' });
+            const comp = compRows[0];
+
+            db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY id ASC', [comp.id], (errP, partidas) => {
+                if (errP) return res.status(500).json({ success: false, message: 'Error servidor' });
+
+                const doc = new PDFDocument({ size: 'LETTER', margin: 30, autoFirstPage: true });
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `inline; filename=Comprobacion_${sol.id}.pdf`);
+                doc.pipe(res);
+
+                const COLOR_TEXTO_AZUL = '#0000FF';
+                const COLOR_VERDE_TITULO = '#008000';
+                const BG_VERDE_CLARO = '#eaffea';
+                const BG_GRIS = '#f1f5f9';
+                const anio = new Date().getFullYear();
+
+                const fmtFecha = (f) => f ? new Date(f).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '';
+
+                const drawCell = (x, cy, w, h, text, fill, textColor = '#000', font = 'Helvetica', size = 8, align = 'left', noBorder = false) => {
+                    if (fill) doc.rect(x, cy, w, h).fill(fill);
+                    if (!noBorder) doc.rect(x, cy, w, h).stroke('#000');
+                    if (text !== undefined && text !== null && text !== '') {
+                        doc.fillColor(textColor).font(font).fontSize(size);
+                        const textHeight = doc.heightOfString(String(text), { width: w });
+                        const textY = cy + (h - textHeight) / 2;
+                        const isCentered = align === 'center' || align === 'right';
+                        doc.text(String(text), isCentered ? x : x + 5, textY, { width: w - (isCentered ? 0 : 5), align: align });
+                    }
+                };
+
+                // --- ENCABEZADO CON LOGOS OFICIALES ---
+                const logoPath = path.join(__dirname, '../../frontend/src/assets/Logo.png');
+                if (fs.existsSync(logoPath)) {
+                    try { doc.image(logoPath, 30, 25, { width: 50 }); } catch (e) {}
+                }
+
+                doc.font('Helvetica-Bold').fontSize(13).fillColor(COLOR_VERDE_TITULO)
+                    .text('COMPROBACIÓN UNIVERSAL DE GASTOS', 90, 28, { width: 380 });
+                doc.font('Helvetica').fontSize(9).fillColor('#000')
+                    .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 90, 44, { width: 380 });
+                if (sol.solicitante_empresa) {
+                    doc.font('Helvetica-Oblique').fontSize(8).fillColor('#475569')
+                        .text(sol.solicitante_empresa, 90, 56, { width: 380 });
+                }
+
+                doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
+                    .text(`SAC-TRS-GST-${anio}`, 0, 30, { align: 'right', width: 552 });
+
+                let y = 80;
+                doc.moveTo(30, y).lineTo(552, y).strokeColor('#cbd5e1').stroke();
+                y += 12;
+
+                // --- DATOS GENERALES ---
+                const tX = 30, colA = 110, colB = 156, colC = 110, colD = 156, rowH = 16;
+
+                drawCell(tX, y, colA, rowH, 'Responsable:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, sol.solicitante_nombre || comp.responsable || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Nombre proveedor:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.nombre_proveedor || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                y += rowH;
+
+                drawCell(tX, y, colA, rowH, 'Fecha inicial:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, fmtFecha(comp.fecha_inicial), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Fecha final:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, fmtFecha(comp.fecha_final), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                y += rowH;
+
+                drawCell(tX, y, colA, rowH, 'Lugar:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, comp.lugar || sol.destino || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Fondo fijo:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.fondo_fijo || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                y += rowH;
+
+                drawCell(tX, y, colA, rowH, 'Recursos otorgados $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, formatMoney(comp.recursos_otorgados), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Unidad de negocio:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.unidad_negocio || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                y += rowH;
+
+                drawCell(tX, y, colA, rowH, 'Objeto:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, comp.objeto || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Personas adicionales:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.personas_adicionales ?? 0, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                y += rowH;
+
+                drawCell(tX, y, colA, rowH, 'Comprobado $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA, y, colB, rowH, formatMoney(comp.total_comprobado), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB, y, colC, rowH, 'Pendiente $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                drawCell(tX + colA + colB + colC, y, colD, rowH, formatMoney(comp.pendiente), comp.pendiente > 0 ? '#fee2e2' : '#dcfce7', comp.pendiente > 0 ? '#ef4444' : '#16a34a', 'Helvetica-Bold', 8, 'left');
+                y += rowH + 14;
+
+                // --- TABLA DE PARTIDAS ---
+                doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_VERDE_TITULO).text('DETALLE DE GASTOS COMPROBADOS', 30, y);
+                y += 16;
+
+                const colsPartidas = [
+                    { label: 'Fecha', w: 55 },
+                    { label: 'Importe', w: 60 },
+                    { label: 'Folio Fiscal', w: 90 },
+                    { label: 'RFC Proveedor', w: 70 },
+                    { label: 'Nombre Proveedor', w: 100 },
+                    { label: 'Rubro', w: 60 },
+                    { label: 'Descripción', w: 87 },
+                ];
+                const headerH = 16;
+                let cx = 30;
+                colsPartidas.forEach(c => {
+                    drawCell(cx, y, c.w, headerH, c.label, '#1e293b', '#fff', 'Helvetica-Bold', 7.5, 'center');
+                    cx += c.w;
+                });
+                y += headerH;
+
+                const PAGE_BOTTOM = 740;
+                const rowHP = 15;
+
+                partidas.forEach((p, idx) => {
+                    if (y + rowHP > PAGE_BOTTOM) {
+                        doc.addPage();
+                        y = 40;
+                        cx = 30;
+                        colsPartidas.forEach(c => {
+                            drawCell(cx, y, c.w, headerH, c.label, '#1e293b', '#fff', 'Helvetica-Bold', 7.5, 'center');
+                            cx += c.w;
+                        });
+                        y += headerH;
+                    }
+                    const fill = idx % 2 === 0 ? '#fff' : '#f8fafc';
+                    cx = 30;
+                    drawCell(cx, y, 55, rowHP, fmtFecha(p.fecha), fill, '#000', 'Helvetica', 7.5, 'center'); cx += 55;
+                    drawCell(cx, y, 60, rowHP, formatMoney(p.importe), fill, '#000', 'Helvetica', 7.5, 'right'); cx += 60;
+                    drawCell(cx, y, 90, rowHP, p.folio_fiscal || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 90;
+                    drawCell(cx, y, 70, rowHP, p.rfc_proveedor || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 70;
+                    drawCell(cx, y, 100, rowHP, p.nombre_proveedor || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 100;
+                    drawCell(cx, y, 60, rowHP, p.rubro || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 60;
+                    drawCell(cx, y, 87, rowHP, p.descripcion || '', fill, '#000', 'Helvetica', 7, 'left');
+                    y += rowHP;
+                });
+
+                drawCell(30, y, 285, rowHP, '', null, '#000', 'Helvetica', 7, 'left', true);
+                drawCell(315, y, 60, rowHP, 'TOTAL', '#1e293b', '#fff', 'Helvetica-Bold', 8, 'center');
+                drawCell(375, y, 177, rowHP, formatMoney(comp.total_comprobado), '#dcfce7', '#16a34a', 'Helvetica-Bold', 9, 'left');
+                y += rowHP + 14;
+
+                // --- TOTALES POR RUBRO ---
+                if (y + 90 > PAGE_BOTTOM) { doc.addPage(); y = 40; }
+                doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_VERDE_TITULO).text('TOTALES POR RUBRO', 30, y);
+                y += 16;
+
+                const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
+                const totalPorRubro = (rubro) => partidas.filter(p => p.rubro === rubro).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
+                const wRub = 130, hRub = 16;
+                let xRub = 30;
+                RUBROS.forEach(r => {
+                    drawCell(xRub, y, wRub, hRub, r, BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
+                    drawCell(xRub, y + hRub, wRub, hRub, formatMoney(totalPorRubro(r)), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
+                    xRub += wRub;
+                });
+                y += hRub * 2 + 25;
+
+                // --- PIE / FIRMA ---
+                if (y + 90 > PAGE_BOTTOM) { doc.addPage(); y = 40; }
+                const wSign = 220;
+                const xSign = (doc.page.width - wSign) / 2;
+                doc.font('Helvetica').fontSize(9).fillColor('#000').text('Presentado por:', xSign, y, { width: wSign, align: 'center' });
+                y += 8;
+
+                if (sol.solicitante_firma) {
+                    const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
+                    if (fs.existsSync(pathFirmaSol)) {
+                        try { doc.image(pathFirmaSol, xSign + 60, y, { width: 100, height: 30 }); } catch (e) {}
+                    }
+                }
+                y += 36;
+
+                doc.moveTo(xSign, y).lineTo(xSign + wSign, y).strokeColor('#000').stroke();
+                y += 4;
+                doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL)
+                    .text((sol.solicitante_nombre || comp.responsable || '').toUpperCase(), xSign, y, { width: wSign, align: 'center' });
+                y += 10;
+                doc.font('Helvetica').fontSize(8).fillColor('#475569')
+                    .text(sol.solicitante_puesto || '', xSign, y, { width: wSign, align: 'center' });
+                y += 20;
+
+                doc.font('Helvetica-Oblique').fontSize(7).fillColor('#94a3b8')
+                    .text('Documento generado por D.H.O. — Opciones Sacimex SA de CV SOFOM ENR', 30, y, { width: 522, align: 'center' });
+
+                doc.end();
+            });
+        });
+    });
+});
+
+// ==============================================================================
 // PDF DEL OFICIO DE COMISIÓN
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
