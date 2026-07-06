@@ -6,7 +6,7 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const nodemailer = require('nodemailer'); 
+const nodemailer = require('nodemailer');
 
 // =====================================================================
 // CONFIGURACION DE NODEMAILER
@@ -14,15 +14,15 @@ const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, 
+    secure: true,
     auth: {
-        user: 'ordazruudvan@gmail.com', 
-        pass: 'ejci wnas ugjg yans' 
+        user: 'ordazruudvan@gmail.com',
+        pass: 'ejci wnas ugjg yans'
     }
 });
 
 const enviarCorreo = async (destinatario, asunto, mensajeHTML) => {
-    if (!destinatario) return; 
+    if (!destinatario) return;
     try {
         await transporter.sendMail({
             from: '"Sistema de Recursos" <ordazruudvan@gmail.com>',
@@ -57,7 +57,6 @@ const getEmailByRol = (rolBuscado) => {
 // =====================================================================
 const cleanStr = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
 
-// Limpiador Inteligente: Extrae la raíz del departamento para evitar fallos por acentos o conectores
 const getCoreDepto = (str) => {
     if (!str) return 'OTRO';
     const d = cleanStr(str);
@@ -67,7 +66,6 @@ const getCoreDepto = (str) => {
     return d;
 };
 
-// Modificado para usar la inteligencia de búsqueda
 const getEmailByDepto = (deptoBuscado) => {
     return new Promise((resolve) => {
         const query = `
@@ -255,7 +253,6 @@ router.get('/pendientes', verificarToken, (req, res) => {
                             visible = true; me_toca_firmar = true;
                         }
                         
-                        // Magia: El backend decide si es tu departamento
                         if (sol.nivel_actual === -1 && miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO') {
                             visible = true; me_toca_firmar = true;
                         }
@@ -263,7 +260,7 @@ router.get('/pendientes', verificarToken, (req, res) => {
                 }
 
                 if (visible) {
-                    sol.me_toca_firmar = me_toca_firmar; // <--- ESTO SALVA AL FRONTEND
+                    sol.me_toca_firmar = me_toca_firmar;
                     filtradas.push(sol);
                 }
             });
@@ -363,10 +360,8 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
         const idProvFinal = (id_proveedor === '' || id_proveedor === null || id_proveedor === 'null') ? null : id_proveedor;
         const fechaLimiteFinal = (fecha_limite_pago === '' || fecha_limite_pago === null || fecha_limite_pago === 'null') ? null : fecha_limite_pago;
 
-        // Capturamos el archivo de cotización si el usuario lo subió
         const cotizacionPath = req.file ? `uploads/${req.file.filename}` : null;
 
-        // 1. Obtener la unidad de negocio del empleado
         db.query(`
             SELECT e.unidad_negocio 
             FROM usuarios u 
@@ -384,7 +379,6 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                 unidad_negocio_final = unidadRealDelEmpleado || '01.CRP - Corporativo'; 
             }
 
-            // 2. NUEVO: Revisar si el concepto seleccionado requiere Visto Bueno (VoBo)
             db.query(`
                 SELECT requiere_vobo, area_visto_bueno 
                 FROM conceptos_pago 
@@ -403,7 +397,6 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                     }
                 }
 
-                // 3. Insertar con los valores dinámicos
                 const query = `
                     INSERT INTO solicitudes_recursos 
                     (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
@@ -425,16 +418,17 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                     const folio = `${folioBase}-${String(solicitudId).padStart(5, '0')}`;
                     
                     db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
+                        // REGISTRO EN BITACORA - CREAR SOLICITUD
+                        registrarBitacora(solicitante_id, 'CREAR_SOLICITUD', `Creo la solicitud de recurso folio ${folio} por ${formatMoney(montoNum)}`);
+                        
                         res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
                         
-                        // Si no requiere VoBo, notificar directamente al Revisor.
-                        // Si requiere VoBo, el área correspondiente ya lo verá en su bandeja.
                         if (!requiereVobo) {
                             const emailRevisor = await getEmailByRol('REVISOR');
                             if (emailRevisor) {
                                 const mensaje = `
                                     <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
-                                    <p>Se ha generado una nueva solicitud de recursos en el sistema y está pendiente de tu validación (Revisor).</p>
+                                    <p>Se ha generado una nueva solicitud de recursos en el sistema y esta pendiente de tu validacion (Revisor).</p>
                                     <ul>
                                         <li><strong>Folio:</strong> ${folio}</li>
                                         <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
@@ -551,6 +545,7 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { motivo } = req.body;
     const miRol = req.usuario.rol;
+    const miUsuarioId = req.usuario.id;
 
     db.query(`
         SELECT s.monto, s.nivel_actual, cp.area_visto_bueno 
@@ -565,7 +560,7 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
         if (err || rows.length === 0) return res.status(404).json({ success: false });
         const sol = rows[0];
 
-        db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [req.usuario.id], (errD, rowsD) => {
+        db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miUsuarioId], (errD, rowsD) => {
             if (errD) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
             
             const miDeptoCore = getCoreDepto((rowsD && rowsD.length > 0) ? rowsD[0].depto_emp : '');
@@ -582,8 +577,11 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
             if (!puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
 
             db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
-            [id, req.usuario.id, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
+            [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
                 db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
+                    // REGISTRO EN BITACORA - RECHAZAR SOLICITUD
+                    registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud #${id}. Motivo: ${motivo || 'No especificado'}`);
+                    
                     res.json({ success: true, message: 'Solicitud rechazada' });
                 });
             });
@@ -631,6 +629,7 @@ router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (r
 // =====================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const { id } = req.params;
+    const miUsuarioId = req.usuario.id;
 
     const querySolicitud = `
         SELECT s.*, s.folio, 
@@ -683,6 +682,10 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
                 console.error(`[GET /solicitudes/${id}/pdf] Error queryFirmas:`, err2);
                 return res.status(500).json({ success: false });
             }
+            
+            // REGISTRO EN BITACORA - DESCARGAR PDF
+            registrarBitacora(miUsuarioId, 'DESCARGAR_PDF_SOLICITUD', `Descargo el PDF de la solicitud folio ${solRows[0].folio || id}`);
+            
             generarPDFSolicitud(res, solRows[0], firmas || []);
         });
     });

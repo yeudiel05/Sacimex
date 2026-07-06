@@ -83,9 +83,26 @@ function Layout() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/');
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      // Le avisamos al backend que registre la salida en la bitácora
+      if (token) {
+        await fetch('http://localhost:3001/api/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error al registrar la salida:", error);
+    } finally {
+      // Limpiamos la sesión en el frontend y mandamos al login (siempre se ejecuta)
+      localStorage.clear();
+      navigate('/');
+    }
   };
 
   const handleNotifClick = (notif) => {

@@ -3,13 +3,11 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); 
 const db = require('../db');
-const { registrarBitacora, JWT_SECRET } = require('../middlewares/auth');
+const { verificarToken, registrarBitacora, JWT_SECRET } = require('../middlewares/auth');
 
 router.post('/login', (req, res) => {
   const { usuario, password } = req.body;
   
-  // 1. MODIFICACIÓN: Hacemos un JOIN para traer el puesto desde la tabla empleados
-  // y leemos los nuevos permisos de la tabla usuarios.
   const query = `
     SELECT u.*, e.puesto, e.departamento 
     FROM usuarios u 
@@ -50,12 +48,11 @@ router.post('/login', (req, res) => {
           }
         }
 
-        // 2. MODIFICACIÓN: Empaquetamos el puesto y los permisos dentro del Token
         const payload = { 
             id: user.id, 
             username: user.username, 
             rol: user.rol,
-            puesto: user.puesto || 'Sin Puesto', // Por si acaso es nulo en la BD
+            puesto: user.puesto || 'Sin Puesto',
             puedeSolicitar: user.puede_solicitar || 0
         };
 
@@ -63,7 +60,6 @@ router.post('/login', (req, res) => {
         
         registrarBitacora(user.id, 'LOGIN', `El usuario ${user.username} inició sesión`);
         
-        // 3. MODIFICACIÓN: Enviamos todo esto también en la respuesta para que React lo guarde fácil
         res.json({ 
             success: true, 
             message: 'Login exitoso', 
@@ -85,6 +81,11 @@ router.post('/login', (req, res) => {
       res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
     }
   });
+});
+
+router.post('/logout', verificarToken, (req, res) => {
+    registrarBitacora(req.usuario.id, 'LOGOUT', `El usuario ${req.usuario.username} cerró sesión`);
+    res.json({ success: true, message: 'Sesión terminada y registrada.' });
 });
 
 module.exports = router;

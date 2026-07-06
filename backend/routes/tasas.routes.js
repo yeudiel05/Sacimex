@@ -26,7 +26,7 @@ router.post('/', verificarToken, (req, res) => {
     
     db.query(query, [nombre_tasa, tipo_producto, tasa_anual_esperada, porcentaje_penalizacion, cobra_iva, descripcion], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al crear la tasa. Verifica los datos.' });
-        registrarBitacora(req.usuario.id, 'NUEVA_TASA', `Se creó el producto de ${tipo_producto}: ${nombre_tasa} al ${tasa_anual_esperada}%`);
+        registrarBitacora(req.usuario.id, 'NUEVA_TASA', `Se creo el producto de ${tipo_producto}: ${nombre_tasa} al ${tasa_anual_esperada}%`);
         res.json({ success: true, message: 'Producto financiero creado.' });
     });
 });
@@ -37,12 +37,12 @@ router.post('/', verificarToken, (req, res) => {
 router.put('/:id', verificarToken, (req, res) => {
     const { nombre_tasa, tipo_producto, tasa_anual_esperada, porcentaje_penalizacion, cobra_iva, descripcion } = req.body;
     
-    // Se agregan los campos a la actualización
+    // Se agregan los campos a la actualizacion
     const query = 'UPDATE catalogo_tasas SET nombre_tasa=?, tipo_producto=?, tasa_anual_esperada=?, porcentaje_penalizacion=?, cobra_iva=?, descripcion=? WHERE id=?';
     
     db.query(query, [nombre_tasa, tipo_producto, tasa_anual_esperada, porcentaje_penalizacion, cobra_iva, descripcion, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al actualizar el producto.' });
-        registrarBitacora(req.usuario.id, 'EDITAR_TASA', `Se actualizó el producto ID ${req.params.id}`);
+        registrarBitacora(req.usuario.id, 'EDITAR_TASA', `Se actualizo el producto ID ${req.params.id}`);
         res.json({ success: true, message: 'Producto financiero actualizado.' });
     });
 });
@@ -54,7 +54,7 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_tasas SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
-        registrarBitacora(req.usuario.id, 'ESTATUS_TASA', `Producto ID ${req.params.id} cambió a estatus ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+        registrarBitacora(req.usuario.id, 'ESTATUS_TASA', `Producto ID ${req.params.id} cambio a estatus ${estatus_activo ? 'Activo' : 'Inactivo'}`);
         res.json({ success: true });
     });
 });
@@ -65,23 +65,14 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
 router.delete('/:id', verificarToken, (req, res) => {
     db.query('DELETE FROM catalogo_tasas WHERE id = ?', [req.params.id], (err) => {
         if (err) {
-            // Si el error es por una llave foránea (ER_ROW_IS_REFERENCED), es porque hay contratos activos usando esta tasa
+            // Si el error es por una llave foranea (ER_ROW_IS_REFERENCED), es porque hay contratos activos usando esta tasa
             return res.status(500).json({ 
                 success: false, 
-                message: 'No se puede eliminar este producto porque ya tiene contratos o clientes activos. Mejor desactívelo para ocultarlo.' 
+                message: 'No se puede eliminar este producto porque ya tiene contratos o clientes activos. Mejor desactívelo para ocultarlo.'
             });
         }
         registrarBitacora(req.usuario.id, 'ELIMINAR_TASA', `Producto financiero ID ${req.params.id} eliminado`);
         res.json({ success: true, message: 'Producto financiero eliminado exitosamente.' });
-    });
-});
-
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    const { estatus_activo } = req.body;
-    db.query('UPDATE unidades_negocio SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus' });
-        registrarBitacora(req.usuario.id, 'ESTATUS_UNIDAD', `Cambió el estatus de la unidad ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
-        res.json({ success: true, message: 'Estatus actualizado' });
     });
 });
 

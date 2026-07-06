@@ -7,7 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// ─── Configuración de Multer para subir firmas ───────────────────────
+// Configuracion de Multer para subir firmas
 const dirFirmas = path.join(__dirname, '../uploads/firmas');
 if (!fs.existsSync(dirFirmas)){
     fs.mkdirSync(dirFirmas, { recursive: true });
@@ -21,7 +21,7 @@ const upload = multer({ storage });
 
 
 // ==========================================
-// 1. APIS DE CATÁLOGO DE PUESTOS
+// 1. APIS DE CATALOGO DE PUESTOS
 // ==========================================
 
 router.get('/puestos', verificarToken, (req, res) => {
@@ -36,7 +36,7 @@ router.post('/puestos', verificarToken, (req, res) => {
     db.query('INSERT INTO catalogo_puestos (nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default) VALUES (?, ?, ?, ?, ?)', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'El puesto ya existe.' });
-        registrarBitacora(req.usuario.id, 'CREAR_PUESTO', `Agregó el puesto: ${nombre}`);
+        registrarBitacora(req.usuario.id, 'CREAR_PUESTO', `Agrego el puesto: ${nombre}`);
         res.json({ success: true, message: 'Puesto agregado exitosamente.' });
     });
 });
@@ -46,7 +46,7 @@ router.put('/puestos/:id', verificarToken, (req, res) => {
     db.query('UPDATE catalogo_puestos SET nombre = ?, departamento_default = ?, nivel_default = ?, rol_default = ?, puede_solicitar_default = ? WHERE id = ?', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'EDITAR_PUESTO', `Modificó el puesto ID ${req.params.id} a: ${nombre}`);
+        registrarBitacora(req.usuario.id, 'EDITAR_PUESTO', `Modifico el puesto ID ${req.params.id} a: ${nombre}`);
         res.json({ success: true, message: 'Puesto actualizado.' });
     });
 });
@@ -55,14 +55,15 @@ router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_puestos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
+        registrarBitacora(req.usuario.id, 'ESTATUS_PUESTO_CATALOGO', `Cambio estatus del puesto ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
         res.json({ success: true });
     });
 });
 
 router.delete('/puestos/:id', verificarToken, (req, res) => {
     db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
-        if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto está en uso.' });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Eliminó un puesto (ID: ${req.params.id})`);
+        if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto esta en uso.' });
+        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Elimino un puesto (ID: ${req.params.id})`);
         res.json({ success: true, message: 'Puesto eliminado.' });
     });
 });
@@ -150,7 +151,7 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
 
                                     db.commit(err => {
                                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                                        registrarBitacora(req.usuario.id, 'CREAR_USUARIO', `Se creó el usuario ${username} con rol ${rol}`);
+                                        registrarBitacora(req.usuario.id, 'CREAR_USUARIO', `Se creo el usuario ${username} con rol ${rol}`);
                                         res.json({ success: true, message: 'Usuario y firma creados exitosamente.' });
                                     });
                                 });
@@ -158,8 +159,8 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
                 });
         });
     } catch (error) {
-        console.error("Error al encriptar contraseña:", error);
-        return res.status(500).json({ success: false, message: 'Error interno al procesar la contraseña.' });
+        console.error("Error al encriptar contrasena:", error);
+        return res.status(500).json({ success: false, message: 'Error interno al procesar la contrasena.' });
     }
 });
 
@@ -171,9 +172,8 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
         titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria 
     } = req.body;
     
-    // Validar que no se pierda el ID de la persona a editar
     if (!id_persona || id_persona === 'null') {
-        return res.status(400).json({ success: false, message: 'ID de persona inválido.' });
+        return res.status(400).json({ success: false, message: 'ID de persona invalido.' });
     }
 
     const rutaFirmaNueva = req.file ? `uploads/firmas/${req.file.filename}` : null;
@@ -217,7 +217,7 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
 
                                 db.commit(err => {
                                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                                    registrarBitacora(req.usuario.id, 'EDITAR_USUARIO', `Se editó al usuario ID ${id_usuario}`);
+                                    registrarBitacora(req.usuario.id, 'EDITAR_USUARIO', `Se edito al usuario ID ${id_usuario}`);
                                     res.json({ success: true, message: 'Usuario actualizado correctamente.' });
                                 });
                             });
@@ -225,24 +225,32 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
                 });
         });
     } catch (error) {
-        console.error("Error al encriptar la nueva contraseña:", error);
-        return res.status(500).json({ success: false, message: 'Error interno al actualizar la contraseña.' });
+        console.error("Error al encriptar la nueva contrasena:", error);
+        return res.status(500).json({ success: false, message: 'Error interno al actualizar la contrasena.' });
     }
 });
 
-// Cambiar Estatus del Usuario (Activo / Inactivo)
+// A. Cambiar Estatus del Usuario (Activo / Inactivo)
 router.put('/:id/estatus', verificarToken, (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE usuarios SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus.' });
+        
+        // REGISTRO EN BITACORA - ESTATUS USUARIO
+        registrarBitacora(req.usuario.id, 'ESTATUS_USUARIO', `Cambio el estatus del usuario ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+        
         res.json({ success: true });
     });
 });
 
-// Eliminar Usuario (Soft Delete)
+// B. Eliminar Usuario (Soft Delete)
 router.delete('/:id_persona', verificarToken, (req, res) => {
     db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [req.params.id_persona], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al eliminar usuario.' });
+        
+        // REGISTRO EN BITACORA - ELIMINAR USUARIO
+        registrarBitacora(req.usuario.id, 'ELIMINAR_USUARIO', `Elimino (soft delete) a la persona/usuario ID ${req.params.id_persona}`);
+        
         res.json({ success: true });
     });
 });

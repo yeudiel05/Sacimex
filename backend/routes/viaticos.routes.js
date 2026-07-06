@@ -43,7 +43,7 @@ router.post('/', verificarToken, (req, res) => {
 
     db.query(query, values, (err) => {
         if (err) return res.status(500).json({ success: false });
-        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicitó viáticos por $${num(total_solicitado).toFixed(2)} para ${destino}`);
+        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicito viaticos por $${num(total_solicitado).toFixed(2)} para ${destino}`);
         res.json({ success: true, message: 'Solicitud enviada correctamente' });
     });
 });
@@ -73,13 +73,13 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
         [estatus, req.usuario.id, req.params.id], 
         (err, result) => {
             if (err) {
-                console.error("Error SQL al autorizar viático:", err);
+                console.error("Error SQL al autorizar viatico:", err);
                 return res.status(500).json({ success: false, message: 'Error BD: ' + err.sqlMessage });
             }
             if (result.affectedRows === 0) {
-                return res.status(404).json({ success: false, message: 'No se encontró la solicitud en la Base de Datos.' });
+                return res.status(404).json({ success: false, message: 'No se encontro la solicitud en la Base de Datos.' });
             }
-            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marcó viático #${req.params.id} como ${estatus}`);
+            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marco viatico #${req.params.id} como ${estatus}`);
             res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
         }
     );
@@ -95,25 +95,32 @@ router.post('/:id/confirmar-recepcion', verificarToken, upload.single('comproban
         if (err) return res.status(500).json({ success: false, message: 'Error al buscar la solicitud.' });
         if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes permiso sobre esta solicitud.' });
         if (rows[0].estatus !== 'PAGADO') {
-            return res.status(400).json({ success: false, message: 'Tesorería aún no ha marcado esta solicitud como pagada.' });
+            return res.status(400).json({ success: false, message: 'Tesorería aun no ha marcado esta solicitud como pagada.' });
         }
         db.query(
             'UPDATE solicitudes_viaticos SET estatus = "RECIBIDO", comprobante_recepcion_path = ? WHERE id = ?', 
             [comprobantePath, id], 
             (errUpdate) => {
-                if (errUpdate) return res.status(500).json({ success: false, message: 'Error al guardar la recepción.' });
-                registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmó recepción de fondos con comprobante para el viático #${id}`);
-                res.json({ success: true, message: 'Recepción confirmada y documento firmado exitosamente.', url: comprobantePath });
+                if (errUpdate) return res.status(500).json({ success: false, message: 'Error al guardar la recepcion.' });
+                registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmo recepcion de fondos con comprobante para el viatico #${id}`);
+                res.json({ success: true, message: 'Recepcion confirmada y documento firmado exitosamente.', url: comprobantePath });
             }
         );
     });
 });
 
+// ================================================================
+// A. SUBIDA DE COMPROBANTE DE TRANSFERENCIA (POST /:id/comprobante)
+// ================================================================
 router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (req, res) => {
     if (!req.file) return res.status(400).json({ success: false });
     const urlArchivo = `uploads/${req.file.filename}`;
     db.query('UPDATE solicitudes_viaticos SET url_comprobante_transferencia = ? WHERE id = ?', [urlArchivo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false });
+        
+        // REGISTRO EN BITACORA - VIATICO TRANSFERIDO
+        registrarBitacora(req.usuario.id, 'VIATICO_TRANSFERIDO', `Adjunto comprobante de transferencia bancaria al viatico #${req.params.id}`);
+        
         res.json({ success: true, url: urlArchivo });
     });
 });
@@ -138,7 +145,7 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
             if (diasTranscurridos > 5) {
                 return res.status(403).json({
                     success: false,
-                    message: 'El plazo para comprobar viáticos ha vencido. Contaba con 5 días a partir de su fecha de regreso. Los viáticos no comprobados serán descontados de nómina.'
+                    message: 'El plazo para comprobar viaticos ha vencido. Contaba con 5 dias a partir de su fecha de regreso. Los viaticos no comprobados seran descontados de nomina.'
                 });
             }
             const urlArchivo = `uploads/${req.file.filename}`;
@@ -147,7 +154,7 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
                 [urlArchivo, req.params.id, req.usuario.id],
                 (errUpdate) => {
                     if (errUpdate) return res.status(500).json({ success: false });
-                    registrarBitacora(req.usuario.id, 'VIATICO_COMPROBADO', `Subió comprobante de gastos para el viático #${req.params.id}`);
+                    registrarBitacora(req.usuario.id, 'VIATICO_COMPROBADO', `Subio comprobante de gastos para el viatico #${req.params.id}`);
                     res.json({ success: true, url: urlArchivo });
                 }
             );
@@ -156,7 +163,7 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
 });
 
 // ==============================================================================
-// COMPROBACIÓN UNIVERSAL DE GASTOS — GUARDAR (empleado)
+// COMPROBACION UNIVERSAL DE GASTOS — GUARDAR (empleado)
 // ==============================================================================
 router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
@@ -173,7 +180,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
             if (err) return res.status(500).json({ success: false, message: 'Error BD.' });
             if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes acceso a esta solicitud.' });
             if (!['RECIBIDO', 'COMPROBADO'].includes(rows[0].estatus)) {
-                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobación en solicitudes RECIBIDAS.' });
+                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobacion en solicitudes RECIBIDAS.' });
             }
 
             const totalComprobado = (partidas || []).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
@@ -204,7 +211,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
                     totalComprobado, pendiente
                 ],
                 (errUpsert) => {
-                    if (errUpsert) return res.status(500).json({ success: false, message: 'Error al guardar comprobación: ' + errUpsert.sqlMessage });
+                    if (errUpsert) return res.status(500).json({ success: false, message: 'Error al guardar comprobacion: ' + errUpsert.sqlMessage });
 
                     db.query('SELECT id FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (errSelect, compRows) => {
                         if (errSelect || compRows.length === 0) return res.status(500).json({ success: false });
@@ -216,8 +223,8 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
                             const partidasValidas = (partidas || []).filter(p => p.importe || p.descripcion || p.nombre_proveedor);
 
                             if (partidasValidas.length === 0) {
-                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobación de viático #${idSolicitud} guardada (sin partidas)`);
-                                return res.json({ success: true, message: 'Comprobación guardada.' });
+                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada (sin partidas)`);
+                                return res.json({ success: true, message: 'Comprobacion guardada.' });
                             }
 
                             const valores = partidasValidas.map(p => [
@@ -236,8 +243,8 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
                                 [valores],
                                 (errIns) => {
                                     if (errIns) return res.status(500).json({ success: false, message: 'Error al guardar partidas.' });
-                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobación de viático #${idSolicitud} guardada con ${partidasValidas.length} partidas`);
-                                    res.json({ success: true, message: 'Comprobación guardada correctamente.' });
+                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada con ${partidasValidas.length} partidas`);
+                                    res.json({ success: true, message: 'Comprobacion guardada correctamente.' });
                                 }
                             );
                         });
@@ -249,7 +256,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
 });
 
 // ==============================================================================
-// COMPROBACIÓN UNIVERSAL DE GASTOS — OBTENER (empleado y D.H.O.)
+// COMPROBACION UNIVERSAL DE GASTOS — OBTENER (empleado y D.H.O.)
 // ==============================================================================
 router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
@@ -265,7 +272,7 @@ router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
 });
 
 // ==============================================================================
-// PDF DE LA COMPROBACIÓN UNIVERSAL DE GASTOS (D.H.O.)
+// B. PDF DE LA COMPROBACION UNIVERSAL DE GASTOS (D.H.O.)
 // ==============================================================================
 router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
@@ -291,7 +298,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 
         db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
             if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
-            if (compRows.length === 0) return res.status(404).json({ success: false, message: 'Este viático aún no tiene comprobación de gastos registrada.' });
+            if (compRows.length === 0) return res.status(404).json({ success: false, message: 'Este viatico aun no tiene comprobacion de gastos registrada.' });
             const comp = compRows[0];
 
             db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY id ASC', [comp.id], (errP, partidas) => {
@@ -301,6 +308,9 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 res.setHeader('Content-Type', 'application/pdf');
                 res.setHeader('Content-Disposition', `inline; filename=Comprobacion_${sol.id}.pdf`);
                 doc.pipe(res);
+
+                // REGISTRO EN BITACORA - EXPORTAR PDF COMPROBACION
+                registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `Descargo reporte PDF de Comprobacion Universal del viatico #${sol.id}`);
 
                 const COLOR_TEXTO_AZUL = '#0000FF';
                 const COLOR_VERDE_TITULO = '#008000';
@@ -329,7 +339,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 }
 
                 doc.font('Helvetica-Bold').fontSize(13).fillColor(COLOR_VERDE_TITULO)
-                    .text('COMPROBACIÓN UNIVERSAL DE GASTOS', 90, 28, { width: 380 });
+                    .text('COMPROBACION UNIVERSAL DE GASTOS', 90, 28, { width: 380 });
                 doc.font('Helvetica').fontSize(9).fillColor('#000')
                     .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 90, 44, { width: 380 });
                 if (sol.solicitante_empresa) {
@@ -394,7 +404,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                     { label: 'RFC Proveedor', w: 70 },
                     { label: 'Nombre Proveedor', w: 100 },
                     { label: 'Rubro', w: 60 },
-                    { label: 'Descripción', w: 87 },
+                    { label: 'Descripcion', w: 87 },
                 ];
                 const headerH = 16;
                 let cx = 30;
@@ -485,7 +495,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 });
 
 // ==============================================================================
-// PDF DEL OFICIO DE COMISIÓN
+// C. PDF DEL OFICIO DE COMISION
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const query = `
@@ -519,6 +529,9 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         res.setHeader('Content-Disposition', `inline; filename=Comision_${sol.id}.pdf`);
         doc.pipe(res);
 
+        // REGISTRO EN BITACORA - EXPORTAR OFICIO DE COMISION
+        registrarBitacora(req.usuario.id, 'EXPORTAR_OFICIO_COMISION', `Descargo Oficio de Comision del viatico #${sol.id}`);
+
         const COLOR_TEXTO_AZUL = '#0000FF';
         const COLOR_VERDE_TITULO = '#008000';
         const BG_VERDE_CLARO = '#eaffea';
@@ -537,7 +550,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         };
 
         const anio = new Date(sol.fecha_solicitud || Date.now()).getFullYear();
-        doc.font('Helvetica-Bold').fontSize(14).fillColor(COLOR_VERDE_TITULO).text(`OFICIO DE COMISIÓN ${anio}`, 0, y, { align: 'center' });
+        doc.font('Helvetica-Bold').fontSize(14).fillColor(COLOR_VERDE_TITULO).text(`OFICIO DE COMISION ${anio}`, 0, y, { align: 'center' });
         doc.fontSize(10).text(`SAC-TSR-CMS-${anio}`, 0, y, { align: 'right', underline: true });
         
         y += 20;
@@ -547,10 +560,10 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         y += 10;
         doc.font('Helvetica-Oblique').fillColor(COLOR_TEXTO_AZUL).text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 30, y);
         y += 10;
-        doc.text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', 30, y);
+        doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', 30, y);
 
         const f = new Date(sol.fecha_solicitud || Date.now());
-        const diasSemana = ['dom','lun','mar','mié','jue','vie','sáb'];
+        const diasSemana = ['dom','lun','mar','mie','jue','vie','sab'];
         const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
         const fechaStr = `${diasSemana[f.getDay()]} ${f.getDate().toString().padStart(2, '0')} de ${meses[f.getMonth()]} del ${f.getFullYear().toString().substr(-2)}`;
         
@@ -566,14 +579,14 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         drawCell(tX, y, tW1, rowH1, 'Lugar:', null, '#000', 'Helvetica-Bold', 9, 'left');
         drawCell(tX+tW1, y, tW2, rowH1, (sol.destino || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
         y += rowH1;
-        drawCell(tX, y, tW1, rowH1, 'Período:', null, '#000', 'Helvetica-Bold', 9, 'left');
+        drawCell(tX, y, tW1, rowH1, 'Periodo:', null, '#000', 'Helvetica-Bold', 9, 'left');
         drawCell(tX+tW1, y, tW2, rowH1, `DEL ${fSalida} AL ${fRegreso}`, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
         y += rowH1;
         drawCell(tX, y, tW1, rowH1, 'Objetivo:', null, '#000', 'Helvetica-Bold', 9, 'left');
         drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
         y += 20;
 
-        const textoDespedida = 'Por lo anterior deberá solicitar a la gerencia de finanzas los viáticos en los formatos autorizados. Al finalizar la comisión deberá requisitar la "Comprobación universal de gastos" (SAC-GTSR-GST) en un máximo de 3 (TRES) días posterior a su término, so pena de cargo a nómina.\nSin más por el momento le envío un cordial saludo.\n';
+        const textoDespedida = 'Por lo anterior debera solicitar a la gerencia de finanzas los viaticos en los formatos autorizados. Al finalizar la comision debera requisitar la "Comprobacion universal de gastos" (SAC-GTSR-GST) en un maximo de 3 (TRES) dias posterior a su termino, so pena de cargo a nomina.\nSin mas por el momento le envio un cordial saludo.\n';
         doc.font('Helvetica').fontSize(9).fillColor('#000').text(textoDespedida, 30, y, { width: 522, align: 'justify' });
         y += doc.heightOfString(textoDespedida, { width: 522 }) + 20;
 
@@ -583,7 +596,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         const xRev = startXMid + wSMid + gapMid;
 
         doc.font('Helvetica').fontSize(9).text('Atentamente', xAten, y, { width: wSMid, align: 'center' });
-        doc.text('Revisión de gasto', xRev, y, { width: wSMid, align: 'center' });
+        doc.text('Revision de gasto', xRev, y, { width: wSMid, align: 'center' });
         
         const imgHeightMid = 30;
         if (sol.solicitante_firma) {
@@ -601,12 +614,12 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         y += 4;
         
         doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'FIRMA DEL SOLICITANTE', xAten, y, { width: wSMid, align: 'center' });
-        doc.text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE REVISIÓN', xRev, y, { width: wSMid, align: 'center' });
+        doc.text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE REVISION', xRev, y, { width: wSMid, align: 'center' });
         y += 10;
         doc.font('Helvetica-BoldOblique').fillColor('#000').text(sol.solicitante_puesto || '', xAten, y, { width: wSMid, align: 'center' });
         doc.text(sol.autorizador_puesto || 'D.H.O / FINANZAS', xRev, y, { width: wSMid, align: 'center' });
         y += 10;
-        doc.font('Helvetica').text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', xAten, y, { width: wSMid, align: 'center' });
+        doc.font('Helvetica').text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', xAten, y, { width: wSMid, align: 'center' });
         doc.text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xRev, y, { width: wSMid, align: 'center' });
         y += 15;
 
@@ -626,7 +639,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         let gy = y;
 
         drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
-        const dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        const dias = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
         let rx = 30 + colMain;
         for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, dias[i], '#fff', '#000', 'Helvetica-Bold', 8, 'center'); rx += colDay; }
         drawCell(rx, gy, colTotal, rowH, 'TOTAL', '#fff', '#000', 'Helvetica-Bold', 8, 'center');
@@ -649,17 +662,17 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             gy += rowH;
         };
         const esAereo = sol.medio_transporte === 'AEREO';
-        const esBus = sol.medio_transporte === 'AUTOBUS' || sol.medio_transporte === 'Autobús';
-        drawSubRow('Aéreo', esAereo ? sol.monto_pasajes : 0);
+        const esBus = sol.medio_transporte === 'AUTOBUS' || sol.medio_transporte === 'Autobus';
+        drawSubRow('Aereo', esAereo ? sol.monto_pasajes : 0);
         drawSubRow('Terrestre', esBus ? sol.monto_pasajes : 0);
-        drawSubRow('Vehículo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
+        drawSubRow('Vehiculo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
 
         drawCell(30, gy, 50, rowH*3, 'Alimentos', null, '#000', 'Helvetica-Bold', 8, 'center');
         drawSubRow('Almuerzo', 0);
         drawSubRow('Comida', sol.monto_alimentos);
         drawSubRow('Cena', 0);
 
-        drawCell(30, gy, 50, rowH, 'Comunicación', null, '#000', 'Helvetica-Bold', 7, 'center');
+        drawCell(30, gy, 50, rowH, 'Comunicacion', null, '#000', 'Helvetica-Bold', 7, 'center');
         drawSubRow('Tarjeta', 0);
         
         drawCell(30, gy, colMain, rowH, 'Otros', null, '#000', 'Helvetica-Bold', 8, 'left');
@@ -680,8 +693,8 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.lineWidth(1);
         gy += 20;
 
-        doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o después de impresión).', 30, gy);
-        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aquí!', 200, gy);
+        doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o despues de impresion).', 30, gy);
+        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aqui!', 200, gy);
         gy += 12;
         drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
         gy += 35; 
@@ -691,8 +704,8 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         const xOtor = startXBot;
         const xReci = startXBot + wSBot + gapBot;
 
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgó', xOtor, gy, { width: wSBot, align: 'center' });
-        doc.text('Recibió', xReci, gy, { width: wSBot, align: 'center' });
+        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgo', xOtor, gy, { width: wSBot, align: 'center' });
+        doc.text('Recibio', xReci, gy, { width: wSBot, align: 'center' });
 
         const imgHeightBot = 30; 
         if (sol.autorizador_firma) {
@@ -711,7 +724,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
 
         const yTexto = yLineaFirma + 5;
-        const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
+        const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCION';
 
         doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE AUTORIZAR', xOtor, yTexto, { width: wSBot, align: 'center' });
         doc.text(textoRecibio, xReci, yTexto, { width: wSBot, align: 'center' });
@@ -722,7 +735,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         
         const yEmpresa = yPuesto + 10;
         doc.font('Helvetica').text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xOtor, yEmpresa, { width: wSBot, align: 'center' });
-        doc.text(sol.solicitante_empresa || 'Integración Activa Especializada Ragar SA de CV', xReci, yEmpresa, { width: wSBot, align: 'center' });
+        doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', xReci, yEmpresa, { width: wSBot, align: 'center' });
 
         doc.end();
     });

@@ -75,7 +75,7 @@ function Auditoria() {
     if (act.includes('CREAR') || act.includes('NUEV') || act.includes('LOGIN') || act.includes('EXPORTAR') || act.includes('AUTORIZAD')) return 'badge-success';
     if (act.includes('EDITAR') || act.includes('ESTATUS') || act.includes('VALIDA')) return 'badge-warning';
     return 'badge-neutral';
-  };
+};
 
   // --- FILTROS Y PAGINACIÓN ---
   const registrosFiltrados = registros.filter(r => {
