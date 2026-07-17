@@ -731,6 +731,7 @@ router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
     });
 });
 
+// *** CORRECCION APLICADA AQUI: LA CONSULTA SQL AHORA INCLUYE ine_url ***
 router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) => {
     const { id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento } = req.body;
     const url_ine = req.file ? `/uploads/${req.file.filename}` : null;
@@ -753,6 +754,7 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
                 return res.status(400).json({ success: false, message: `Los porcentajes suman ${nuevoTotal}%. No puede exceder el 100%`});
             }
             
+            // *** CONSULTA SQL CORRECTA SEGUN TU INDICACION ***
             const query = `INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento, ine_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
             db.query(query, [id_inversor, nombre_completo, parentesco || null, telefono || null, porcentaje || 100, fecha_nacimiento || null, url_ine], (err, result) => {
                 if (err) return res.status(500).json({ success: false, message: 'Error al guardar el beneficiario', error: err.message });
@@ -961,9 +963,6 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         return res.status(400).json({ success: false, message: 'Faltan los datos de la tabla.' });
     }
 
-    // ================================================================
-    // EXPORTAR_AMORTIZACION_ESTILIZADA - CORREGIDO (usa disposicion)
-    // ================================================================
     db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [idContrato], (errSelect, rows) => {
         const disposicion = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         

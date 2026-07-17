@@ -80,7 +80,6 @@ const PlanPersonalizadoBuilder = ({ plan = [], setPlan, montoAsignado, fechaInic
         let mesesTotal = (fin.getFullYear() - inicio.getFullYear()) * 12 + (fin.getMonth() - inicio.getMonth());
         if (mesesTotal <= 0) mesesTotal = 1;
 
-        // YA NO CALCULAMOS capitalMensualFijo aquí porque el usuario quiere que empiecen en 0
         const nuevoPlan = [];
         for (let i = 1; i <= mesesTotal; i++) {
             const targetDateStr = getNextBusinessDate(cleanDateStr(fechaInicio), i);
@@ -228,6 +227,7 @@ function Inversores() {
     
     const [beneficiarios, setBeneficiarios] = useState([]);
     const [formBeneficiario, setFormBeneficiario] = useState({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' });
+    const [fileIne, setFileIne] = useState(null);
     const [movimientos, setMovimientos] = useState([]);
     const [showNuevoMovimiento, setShowNuevoMovimiento] = useState(false);
     const [formMovimiento, setFormMovimiento] = useState({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' });
@@ -239,7 +239,7 @@ function Inversores() {
     // --- ESTADOS VISOR INTERACTIVO Y EDICIÓN ---
     const [showVisorAmortizacion, setShowVisorAmortizacion] = useState(false);
     const [contratoParaAmortizacion, setContratoParaAmortizacion] = useState(null);
-    const [edicionesInteractiva, setEdicionesInteractiva] = useState({}); // AHORA GUARDA ABONOS Y FECHAS
+    const [edicionesInteractiva, setEdicionesInteractiva] = useState({}); 
     const [pagosIrregulares, setPagosIrregulares] = useState([]); 
     const [tablaInteractivaRender, setTablaInteractivaRender] = useState([]);
     const [totalesInteractivos, setTotalesInteractivos] = useState({ interes: 0, total: 0 });
@@ -382,7 +382,6 @@ function Inversores() {
         let p_frances_meses_restantes = timelineUnificado.filter(r => !r.esIrregular).length;
 
         timelineUnificado.forEach((row) => {
-            // AQUI APLICAMOS LA MAGIA DE LA FECHA PERSONALIZADA
             let fechaStrEval = edicionesCustom[row.indexUI]?.fecha || row.fechaStr;
             let fechaActual = new Date(`${fechaStrEval}T12:00:00`);
             if(isNaN(fechaActual.getTime())) fechaActual = new Date(fechaAnterior);
@@ -397,7 +396,6 @@ function Inversores() {
             
             let interes = (saldo * tasaAnual / 360) * diasParaInteres;
             
-            // AQUI APLICAMOS LA MAGIA DEL ABONO PRINCIPAL PERSONALIZADO
             let abonoOverride = edicionesCustom[row.indexUI]?.abono;
             let abonoReal = row.abonoFijo;
             
@@ -471,7 +469,7 @@ function Inversores() {
             } catch(e) {}
         }
         setPagosIrregulares(inyeccionesCargadas);
-        setEdicionesInteractiva({}); // Reset al abrir
+        setEdicionesInteractiva({}); 
     }, [contratoParaAmortizacion, showVisorAmortizacion]);
 
     useEffect(() => {
@@ -507,8 +505,6 @@ function Inversores() {
         if(!headers) return; 
         setIsLoading(true);
         
-        // 1. Detectar si hubo cambios en inyecciones (pagos extra)
-        // Comparación simple: si la longitud cambió, hubo inyección
         const huboInyeccion = pagosIrregulares.length > (contratoParaAmortizacion.pagos_irregulares_json ? JSON.parse(contratoParaAmortizacion.pagos_irregulares_json).length : 0);
 
         const nuevoPlanBase = tablaInteractivaRender
@@ -527,7 +523,7 @@ function Inversores() {
                 body: JSON.stringify({ 
                     pagos_irregulares: pagosIrregulares,
                     plan_json: nuevoPlanBase,
-                    huboInyeccion: huboInyeccion // Enviamos este flag al backend
+                    huboInyeccion: huboInyeccion 
                 })
             });
             const data = await res.json();
@@ -541,7 +537,6 @@ function Inversores() {
                 setEdicionesInteractiva({});
                 setPagosIrregulares([]);
                 
-                // SOLO si hubo inyección real, redirigimos al flujo de registrar movimiento
                 if (huboInyeccion) {
                     setActiveTab('movimientos');
                     setShowNuevoMovimiento(true);
@@ -820,7 +815,52 @@ function Inversores() {
     const generarPDFContrato = async (id_contrato) => { const headers = getAuthHeaders(); setIsLoading(true); try { const response = await fetch(`http://localhost:3001/api/inversores/contratos/${id_contrato}/pdf`, { headers }); const blob = await response.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `Contrato_${id_contrato}.pdf`; link.click(); } catch (error) {} finally { setIsLoading(false); } };
     const fetchBeneficiarios = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setBeneficiarios(data.data); } catch(e) {} };
     const totalPorcentaje = beneficiarios.reduce((acc, curr) => acc + parseFloat(curr.porcentaje), 0);
-    const handleGuardarBeneficiario = async (e) => { e.preventDefault(); if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Excede el 100%."); const headers = getAuthHeaders(); setIsLoading(true); try { const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formBeneficiario, id_inversor: inversorActivo.id }) }); const data = await res.json(); if (data.success) { setFormBeneficiario({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' }); fetchBeneficiarios(inversorActivo.id); } } catch (error) {} finally { setIsLoading(false); } };
+    
+    const handleGuardarBeneficiario = async (e) => { 
+        e.preventDefault(); 
+        if (totalPorcentaje + parseFloat(formBeneficiario.porcentaje) > 100) return alert("Excede el 100%."); 
+        
+        const token = localStorage.getItem('token'); 
+        if (!token) return;
+
+        setIsLoading(true); 
+        try { 
+            const formData = new FormData();
+            formData.append('id_inversor', inversorActivo.id);
+            formData.append('nombre_completo', formBeneficiario.nombre_completo);
+            formData.append('parentesco', formBeneficiario.parentesco);
+            formData.append('telefono', formBeneficiario.telefono);
+            formData.append('porcentaje', formBeneficiario.porcentaje);
+            if (formBeneficiario.fecha_nacimiento) formData.append('fecha_nacimiento', formBeneficiario.fecha_nacimiento);
+            
+            if (fileIne) formData.append('ine', fileIne);
+
+            const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { 
+                method: 'POST', 
+                headers: { 
+                    'Authorization': `Bearer ${token}` 
+                }, 
+                body: formData 
+            }); 
+            
+            const data = await res.json(); 
+            if (data.success) { 
+                setFormBeneficiario({ nombre_completo: '', parentesco: '', telefono: '', porcentaje: '', fecha_nacimiento: '' }); 
+                setFileIne(null);
+                const fileInput = document.querySelector('input[type="file"]');
+                if (fileInput) fileInput.value = '';
+                fetchBeneficiarios(inversorActivo.id); 
+            } else {
+                alert(data.message || "Error al guardar el beneficiario.");
+            }
+        } catch (error) { 
+            console.error(error);
+            alert("Ocurrio un error al enviar los datos.");
+        } finally { 
+            setIsLoading(false); 
+        } 
+    };
+
     const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Eliminar?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) {} };
     const fetchMovimientos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/movimientos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setMovimientos(data.data); } catch(e){} };
     
@@ -956,6 +996,11 @@ function Inversores() {
                             <div className="b-info"> 
                                 <strong style={{ display: 'block', color: '#0f172a' }}>{b.nombre_completo}</strong> 
                                 <span style={{ fontSize: '12px', color: '#64748b' }}>Parentesco: {b.parentesco} - Tel: {b.telefono || 'N/A'}</span> 
+                                {b.ine_url && (
+                                    <a href={`http://localhost:3001${b.ine_url}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '6px', fontSize: '12px', color: '#2563eb', textDecoration: 'none', fontWeight: 'bold' }}>
+                                        📄 Ver Documento INE
+                                    </a>
+                                )}
                             </div> 
                             <div className="b-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}> 
                                 <span className="b-percent" style={{ fontWeight: 'bold', color: '#166534', backgroundColor: '#dcfce3', padding: '4px 10px', borderRadius: '12px', fontSize: '12px' }}>{b.porcentaje}%</span> 
@@ -972,7 +1017,7 @@ function Inversores() {
                         <label>Nombre Completo <span style={astStyle}>*</span></label>
                         <input type="text" required value={formBeneficiario.nombre_completo} onChange={e => setFormBeneficiario({ ...formBeneficiario, nombre_completo: e.target.value })} style={inputStyleBg} /> 
                     </div> 
-                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '24px' }}> 
+                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}> 
                         <div className="form-group">
                             <label>Telefono <span style={astStyle}>*</span></label>
                             <input type="text" required maxLength="10" value={formBeneficiario.telefono} onChange={e => setFormBeneficiario({ ...formBeneficiario, telefono: e.target.value.replace(/[^0-9]/g, '') })} style={inputStyleBg} />
@@ -980,7 +1025,11 @@ function Inversores() {
                         <div className="form-group">
                             <label>Parentesco <span style={astStyle}>*</span></label>
                             <select required value={formBeneficiario.parentesco} onChange={e => setFormBeneficiario({ ...formBeneficiario, parentesco: e.target.value })} style={inputStyleBg}>
-                                <option value="">Selecciona...</option><option value="Esposo/a">Esposo/a</option><option value="Hijo/a">Hijo/a</option><option value="Padre/Madre">Padre/Madre</option><option value="Otro">Otro</option>
+                                <option value="">Selecciona...</option>
+                                <option value="Esposo/a">Esposo/a</option>
+                                <option value="Hijo/a">Hijo/a</option>
+                                <option value="Padre/Madre">Padre/Madre</option>
+                                <option value="Otro">Otro</option>
                             </select>
                         </div> 
                         <div className="form-group">
@@ -988,14 +1037,20 @@ function Inversores() {
                             <input type="number" required min="1" max={100 - totalPorcentaje} value={formBeneficiario.porcentaje} onChange={e => setFormBeneficiario({ ...formBeneficiario, porcentaje: e.target.value })} style={inputStyleBg} />
                         </div> 
                     </div> 
+                    
+                    <div className="form-group" style={{ marginBottom: '24px' }}> 
+                        <label>Identificación (INE) <span style={{ color: '#94a3b8', fontWeight: 'normal', fontSize: '11px', marginLeft: '4px' }}>(Opcional)</span></label> 
+                        <input type="file" onChange={e => setFileIne(e.target.files[0])} accept=".pdf,.png,.jpg,.jpeg" style={{ ...inputStyleBg, padding: '8px', border: '1px dashed #cbd5e1' }} /> 
+                    </div> 
+
                     <div className="modal-footer" style={{ padding: 0, backgroundColor: 'transparent', border: 'none', display: 'flex', justifyContent: 'flex-end' }}>
                         <button type="submit" disabled={isLoading} className="btn-primary">{isLoading ? 'Guardando...' : 'Agregar Beneficiario'}</button>
                     </div> 
                 </form> 
             )} 
-        </div> 
+        </div>
     );
-    
+
     const TabMovimientos = () => ( 
         <div className="tab-content fade-in-up"> 
             {!showNuevoMovimiento ? ( 
@@ -1332,13 +1387,15 @@ function Inversores() {
                         <svg viewBox="0 0 100 100" style={{ position: 'absolute', right: '-10%', top: '-20%', width: '150px', opacity: 0.1, transform: 'rotate(15deg)' }} fill="currentColor"><path d="M50 0L100 50L50 100L0 50Z"></path></svg>
                     </div>
 
-                    <div className="result-card blue-card">
+                    <div className="result-card blue-card" style={{ position: 'relative', overflow: 'hidden' }}>
                         <div style={{ position: 'relative', zIndex: 2 }}>
                             <span>Salida Total (Cap+Int+IVA)</span>
                             <h2>{formatMoney(totalRecibir)}</h2>
                         </div>
-                        <circle cx="90%" cy="10%" r="60" fill="white" opacity="0.05" />
-                        <circle cx="80%" cy="80%" r="40" fill="white" opacity="0.05" />
+                        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
+                            <circle cx="90%" cy="10%" r="60" fill="white" opacity="0.05" />
+                            <circle cx="80%" cy="80%" r="40" fill="white" opacity="0.05" />
+                        </svg>
                     </div>
                 </div>
 
@@ -1746,7 +1803,8 @@ function Inversores() {
             {/* --- VISOR INTERACTIVO E INYECCIONES DE CAPITAL --- */}
             {showVisorAmortizacion && contratoParaAmortizacion && (
                 <div className="modal-overlay" style={{ zIndex: 6000 }}>
-                    <div className="modal-content fade-in-down" style={{ maxWidth: '1200px', width: '95%', maxHeight: '95vh', display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden' }}>
+                    <div className="modal-content fade-in-down" style={{ maxWidth: '1200px', width: '95%', height: '90vh', display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden' }}>
+                        
                         <div className="modal-header" style={{ flexShrink: 0, padding: '24px 32px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                                 <h2 style={{ color: '#0f172a', margin: 0, fontSize: '20px', fontWeight: '800' }}>Tabla de Amortizacion #{contratoParaAmortizacion.id.toString().padStart(4, '0')}</h2>
@@ -1758,6 +1816,7 @@ function Inversores() {
                         </div>
                         
                         <div className="modal-body" style={{ backgroundColor: '#f8fafc', overflowY: 'auto', flexGrow: 1, padding: '32px' }}>
+                            
                             <div style={{ marginBottom: '24px', padding: '24px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
@@ -1770,7 +1829,7 @@ function Inversores() {
                                         <IconPlus/> Añadir Abono
                                     </button>
                                 </div>
-
+                                
                                 {pagosIrregulares.length > 0 && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '24px' }}>
                                         {pagosIrregulares.map((pago, index) => (
@@ -1802,7 +1861,7 @@ function Inversores() {
                                         ))}
                                     </div>
                                 )}
-                            </div>
+                            </div> 
                             
                             <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                                 <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
@@ -1884,8 +1943,9 @@ function Inversores() {
                                         </tr>
                                     </tfoot>
                                 </table>
-                            </div>
-                        </div>
+                            </div> 
+
+                        </div> 
 
                         <div className="modal-footer" style={{ flexShrink: 0, padding: '24px 32px', backgroundColor: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
                             <button type="button" onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} style={{ padding: '10px 20px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: 'white', fontWeight: 'bold', color: '#475569', cursor: 'pointer' }}>Cerrar</button>
@@ -1896,7 +1956,8 @@ function Inversores() {
                                 <IconDownload/> Descargar PDF
                             </button>
                         </div>
-                    </div>
+
+                    </div> 
                 </div>
             )}
 

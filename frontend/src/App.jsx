@@ -43,7 +43,6 @@ const ProtectedRoute = ({ children, rolesPermitidos, deptosPermitidos = [], usua
   const tieneRolPermitido = rolesPermitidos && rolesPermitidos.includes(userRole);
   const tieneDeptoPermitido = deptosPermitidos && deptosPermitidos.includes(userDepto);
   
-  // Magia: Usamos .some() y .includes() para que detecte el usuario aunque tenga espacios o sufijos
   const tieneUsuarioPermitido = usuariosPermitidos && usuariosPermitidos.some(u => currentUsername.includes(u.toLowerCase()));
 
   // ================= DEPURACIÓN =================
@@ -85,7 +84,15 @@ function App() {
             </ProtectedRoute>
           } />
 
-          <Route path="/inversores" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Inversores /></ProtectedRoute>} />
+          <Route path="/inversores" element={
+            <ProtectedRoute 
+                rolesPermitidos={['ADMIN', 'CONTADOR']} 
+                deptosPermitidos={['CONTABILIDAD', 'DIRECCION']}
+            >
+                <Inversores />
+            </ProtectedRoute>
+          } />
+
           <Route path="/proveedores" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']}><Proveedores /></ProtectedRoute>} />
           <Route path="/solicitudes/nueva" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Solicitud /></ProtectedRoute>} />
           <Route path="/solicitudes/historial" element={<ProtectedRoute rolesPermitidos={rolesGenerales}><Historial /></ProtectedRoute>} />
