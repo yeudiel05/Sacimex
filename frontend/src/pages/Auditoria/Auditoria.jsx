@@ -6,6 +6,7 @@ function Auditoria() {
   const navigate = useNavigate();
   const [registros, setRegistros] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [tipoAccion, setTipoAccion] = useState('todos');
 
   // Fechas y descargas
   const [fechaInicio, setFechaInicio] = useState('');
@@ -75,7 +76,13 @@ function Auditoria() {
     if (act.includes('CREAR') || act.includes('NUEV') || act.includes('LOGIN') || act.includes('EXPORTAR') || act.includes('AUTORIZAD')) return 'badge-success';
     if (act.includes('EDITAR') || act.includes('ESTATUS') || act.includes('VALIDA')) return 'badge-warning';
     return 'badge-neutral';
-};
+  };
+
+  // Obtener tipos de acción únicos para el dropdown
+  const tiposAccionUnicos = () => {
+    const tipos = registros.map(r => r.accion);
+    return [...new Set(tipos)].sort();
+  };
 
   // --- FILTROS Y PAGINACIÓN ---
   const registrosFiltrados = registros.filter(r => {
@@ -83,17 +90,19 @@ function Auditoria() {
       (r.detalle || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (r.usuario || '').toLowerCase().includes(searchTerm.toLowerCase());
 
+    const coincideTipo = tipoAccion === 'todos' || r.accion === tipoAccion;
+
     let coincideFecha = true;
     if (fechaInicio && fechaFin) {
       const fechaRegistro = new Date(r.fecha).toISOString().split('T')[0];
       coincideFecha = fechaRegistro >= fechaInicio && fechaRegistro <= fechaFin;
     }
 
-    return coincideTexto && coincideFecha;
+    return coincideTexto && coincideTipo && coincideFecha;
   });
 
   // Resetea a la primera página si el usuario busca algo o cambia las fechas
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, fechaInicio, fechaFin]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, fechaInicio, fechaFin, tipoAccion]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -104,14 +113,14 @@ function Auditoria() {
     <div className="auditoria-container fade-in-up">
       <div className="page-header stagger-1">
         <div>
-          <h1>Auditoría del Sistema</h1>
+          <h1>Auditoria del Sistema</h1>
           <p>Registro inalterable de todos los movimientos realizados en el sistema</p>
         </div>
       </div>
 
       <div className="table-wrapper stagger-2" style={{ marginTop: '24px' }}>
         
-        {/* TOOLBAR: BUSCADOR, FECHAS Y PDF */}
+        {/* TOOLBAR: BUSCADOR, FECHAS, TIPO ACCIÓN Y PDF */}
         <div className="auditoria-toolbar" style={{ padding: '20px', borderBottom: '1px solid var(--border-light)' }}>
           <div className="search-bar" style={{ margin: 0, maxWidth: '350px' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -119,15 +128,41 @@ function Auditoria() {
           </div>
 
           <div className="toolbar-actions">
-            <div className="date-filters">
-              <span className="filtro-label" style={{fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)'}}>RANGO:</span>
-              <input type="date" className="date-input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
-              <span style={{ color: '#cbd5e1', fontWeight: 'bold' }}>-</span>
-              <input type="date" className="date-input" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+            {/* FILTRO POR TIPO DE ACCIÓN */}
+            <div className="filter-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <select 
+                className="filter-select"
+                value={tipoAccion} 
+                onChange={(e) => setTipoAccion(e.target.value)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '13px',
+                  color: '#334155',
+                  background: 'white',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="todos">Todos los tipos</option>
+                {tiposAccionUnicos().map(tipo => (
+                  <option key={tipo} value={tipo}>
+                    {tipo.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
 
-              {(fechaInicio || fechaFin) && (
-                <button className="btn-clear-date" onClick={() => { setFechaInicio(''); setFechaFin(''); }} title="Limpiar Fechas">✕</button>
-              )}
+              <div className="date-filters">
+                <span className="filtro-label" style={{fontSize: '12px', fontWeight: 'bold', color: 'var(--text-muted)'}}>RANGO:</span>
+                <input type="date" className="date-input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+                <span style={{ color: '#cbd5e1', fontWeight: 'bold' }}>-</span>
+                <input type="date" className="date-input" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+
+                {(fechaInicio || fechaFin) && (
+                  <button className="btn-clear-date" onClick={() => { setFechaInicio(''); setFechaFin(''); }} title="Limpiar Fechas">×</button>
+                )}
+              </div>
             </div>
 
             <button className="btn-pdf" onClick={descargarPDF} disabled={isDownloading}>
@@ -148,7 +183,7 @@ function Auditoria() {
               <tr>
                 <th style={{ width: '15%' }}>Fecha y Hora</th>
                 <th style={{ width: '20%' }}>Usuario</th>
-                <th style={{ width: '20%' }}>Acción Realizada</th>
+                <th style={{ width: '20%' }}>Accion Realizada</th>
                 <th style={{ width: '45%' }}>Detalles del Movimiento</th>
               </tr>
             </thead>
@@ -157,32 +192,37 @@ function Auditoria() {
                 currentItems.map((registro) => (
                   <tr key={registro.id}>
                     <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>
-                                {new Date(registro.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </strong>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                {new Date(registro.fecha).toLocaleTimeString('es-MX')}
-                            </span>
-                        </div>
-                    </td>
-                    <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div className="avatar-xs" style={{ backgroundColor: '#e2e8f0', color: '#475569', fontWeight: 'bold' }}>
-                                {(registro.usuario || 'S').substring(0, 1).toUpperCase()}
-                            </div>
-                            <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>{registro.usuario}</strong>
-                        </div>
-                    </td>
-                    <td>
-                        <span className={`log-badge ${getColorPorAccion(registro.accion)}`}>
-                            {registro.accion.replace(/_/g, ' ')}
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>
+                          {new Date(registro.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </strong>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {new Date(registro.fecha).toLocaleTimeString('es-MX')}
                         </span>
+                      </div>
                     </td>
                     <td>
-                        <span style={{ fontSize: '13px', color: 'var(--text-main)', lineHeight: '1.4' }}>
-                            {registro.detalle}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div className="avatar-xs" style={{ backgroundColor: '#e2e8f0', color: '#475569', fontWeight: 'bold' }}>
+                          {(registro.usuario || 'S').substring(0, 1).toUpperCase()}
+                        </div>
+                        <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>{registro.usuario}</strong>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`log-badge ${getColorPorAccion(registro.accion)}`}>
+                        {(registro.accion.toUpperCase().includes('ELIMINAR') || 
+                          registro.accion.toUpperCase().includes('RECHAZ') || 
+                          registro.accion.toUpperCase().includes('BORRADO')) && '⚠ '}
+                        {registro.accion.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td style={{ padding: '16px 24px' }}>
+                      <div className="log-detail-container">
+                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-main)' }}>
+                          {registro.detalle}
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -190,9 +230,9 @@ function Auditoria() {
                 <tr>
                   <td colSpan="4" style={{ textAlign: 'center', padding: '40px' }}>
                     <div className="empty-state" style={{ border: 'none', background: 'transparent' }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '40px', color: '#cbd5e1', marginBottom: '12px'}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-                        <h3>Sin registros</h3>
-                        <p>No se encontraron movimientos que coincidan con la búsqueda o fechas.</p>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '40px', color: '#cbd5e1', marginBottom: '12px'}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+                      <h3>Sin registros</h3>
+                      <p>No se encontraron movimientos que coincidan con la busqueda o fechas.</p>
                     </div>
                   </td>
                 </tr>
@@ -200,12 +240,50 @@ function Auditoria() {
             </tbody>
           </table>
 
-          {/* CONTROLES DE PAGINACIÓN */}
+          {/* CONTROLES DE PAGINACIÓN - CON PRIMERA Y ÚLTIMA PÁGINA */}
           {totalPages > 1 && (
             <div className="pagination-container" style={{ borderTop: '1px solid var(--border-light)' }}>
-                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>&laquo; Anterior</button>
-                <span className="page-info">Página {currentPage} de {totalPages}</span>
-                <button className="btn-page" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>Siguiente &raquo;</button>
+                
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                        className="btn-page" 
+                        onClick={() => setCurrentPage(1)} 
+                        disabled={currentPage === 1}
+                        title="Ir a la primera pagina"
+                    >
+                        &laquo;&laquo; Primera
+                    </button>
+                    <button 
+                        className="btn-page" 
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} 
+                        disabled={currentPage === 1}
+                    >
+                        &lsaquo; Anterior
+                    </button>
+                </div>
+
+                <span className="page-info">
+                    Pagina <strong style={{ color: '#0f172a' }}>{currentPage}</strong> de <strong style={{ color: '#0f172a' }}>{totalPages}</strong>
+                </span>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                        className="btn-page" 
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} 
+                        disabled={currentPage === totalPages}
+                    >
+                        Siguiente &rsaquo;
+                    </button>
+                    <button 
+                        className="btn-page" 
+                        onClick={() => setCurrentPage(totalPages)} 
+                        disabled={currentPage === totalPages}
+                        title="Ir a la ultima pagina"
+                    >
+                        Ultima &raquo;&raquo;
+                    </button>
+                </div>
+
             </div>
           )}
         </div>

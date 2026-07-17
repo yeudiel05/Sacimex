@@ -32,7 +32,73 @@
     flex-wrap: wrap;
 }
 
-/* Filtros de Fecha (Estilo Personalizado) */
+/* Search Bar */
+.search-bar {
+    display: flex;
+    align-items: center;
+    background: var(--bg-main);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 8px 16px;
+    transition: all 0.3s ease;
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-bar:focus-within {
+    border-color: var(--brand-green);
+    box-shadow: 0 0 0 3px var(--brand-green-light);
+}
+
+.search-bar svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-muted);
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.search-bar input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-main);
+    width: 100%;
+    font-family: inherit;
+}
+
+.search-bar input::placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* Filtro Select */
+.filter-select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    font-size: 13px;
+    color: #334155;
+    background: white;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-family: inherit;
+    min-width: 160px;
+}
+
+.filter-select:hover {
+    border-color: #94a3b8;
+}
+
+.filter-select:focus {
+    border-color: var(--brand-green);
+    box-shadow: 0 0 0 3px var(--brand-green-light);
+}
+
+/* Filtros de Fecha */
 .date-filters {
     display: flex;
     align-items: center;
@@ -89,7 +155,7 @@
     background-color: #fef2f2;
 }
 
-/* Botón Exportar PDF (Estilo Destacado) */
+/* Botón Exportar PDF */
 .btn-pdf {
     background-color: #ef4444;
     color: white;
@@ -161,11 +227,20 @@
     border-bottom: 1px solid var(--border-light);
     vertical-align: middle;
     transition: var(--transition-smooth);
-    word-wrap: break-word; 
+    word-wrap: break-word;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.data-table tbody tr {
+    transition: all 0.2s ease;
 }
 
 .data-table tbody tr:hover td { 
-    background-color: var(--bg-main); 
+    background-color: #f8fafc; 
+}
+
+.data-table tbody tr:nth-child(even) {
+    background-color: #fafafa;
 }
 
 .data-table tbody tr:last-child td { 
@@ -184,37 +259,59 @@
     justify-content: center;
     font-size: 13px;
     flex-shrink: 0;
+    font-weight: 700;
 }
 
 .log-badge {
     padding: 6px 12px;
     border-radius: 6px;
-    font-size: 11px;
+    font-size: 10px !important;
     font-weight: 800;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     letter-spacing: 0.3px;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
     white-space: nowrap;
 }
 
 .badge-success { 
     background-color: #dcfce7; 
     color: #059669; 
-    border: 1px solid #bbf7d0; 
+    border-color: #bbf7d0; 
 }
 .badge-warning { 
     background-color: #fef9c3; 
     color: #d97706; 
-    border: 1px solid #fde047; 
+    border-color: #fde047; 
 }
 .badge-danger { 
     background-color: #fee2e2; 
     color: #dc2626; 
-    border: 1px solid #fecaca; 
+    border-color: #fecaca; 
 }
 .badge-neutral { 
     background-color: #e0f2fe; 
     color: #2563eb; 
-    border: 1px solid #bfdbfe; 
+    border-color: #bfdbfe; 
+}
+
+/* ==========================================================================
+   LOG DETAIL CONTAINER
+   ========================================================================== */
+.log-detail-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.log-detail-container p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-main);
+    line-height: 1.5;
 }
 
 /* ==========================================================================
@@ -225,13 +322,20 @@
     justify-content: space-between; 
     align-items: center; 
     padding: 16px 24px; 
-    background-color: var(--bg-card); 
+    background-color: var(--bg-card);
+    border-top: 1px solid var(--border-light);
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .page-info { 
     font-size: 13px; 
     color: var(--text-muted); 
     font-weight: 600; 
+}
+
+.page-info strong {
+    color: #0f172a;
 }
 
 .btn-page { 
@@ -243,16 +347,18 @@
     font-weight: 600; 
     color: var(--text-main); 
     cursor: pointer; 
-    transition: var(--transition-smooth); 
+    transition: var(--transition-smooth);
+    font-family: inherit;
 }
 
 .btn-page:hover:not(:disabled) { 
-    background-color: var(--border-light); 
+    background-color: var(--border-light);
+    border-color: #94a3b8;
 }
 
 .btn-page:disabled { 
     opacity: 0.5; 
-    cursor: not-allowed; 
+    cursor: not-allowed;
 }
 
 /* ==========================================================================
@@ -264,6 +370,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
+    padding: 40px;
 }
 
 .empty-state h3 { 
@@ -276,4 +383,79 @@
     margin: 0; 
     font-size: 14px; 
     color: var(--text-muted); 
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+@media (max-width: 992px) {
+    .auditoria-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .toolbar-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .date-filters {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .filter-select {
+        width: 100%;
+    }
+    
+    .btn-pdf {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .pagination-container {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .data-table {
+        min-width: 650px;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 12px 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .auditoria-container {
+        padding: 12px;
+    }
+    
+    .search-bar {
+        min-width: 150px;
+    }
+    
+    .date-filters {
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+    
+    .date-input {
+        width: 100%;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+    
+    .log-badge {
+        font-size: 9px !important;
+        padding: 3px 6px !important;
+    }
 }
