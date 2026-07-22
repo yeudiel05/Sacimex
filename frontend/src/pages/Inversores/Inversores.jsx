@@ -175,7 +175,7 @@ function Inversores() {
     const [monto, setMonto] = useState('');
     const [tasa, setTasa] = useState(0); 
     const [plazo, setPlazo] = useState(12);
-    const [tipoAmortizacion, setTipoAmortizacion] = useState('frances');
+    const [tipoAmortizacion, setTipoAmortizacion] = useState('personalizado');
     const [anticipoMontoSim, setAnticipoMontoSim] = useState('');
     const [anticipoMesSim, setAnticipoMesSim] = useState('');
     const [fechaInicioSim, setFechaInicioSim] = useState(new Date().toISOString().split('T')[0]);
@@ -209,7 +209,7 @@ function Inversores() {
     const [filtroFondeador, setFiltroFondeador] = useState(''); 
     const [dropdownFondeadorOpen, setDropdownFondeadorOpen] = useState(false); 
     const [formFondeo, setFormFondeo] = useState({ 
-        id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'frances', 
+        id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'personalizado', 
         fecha_inicio: new Date().toISOString().split('T')[0], plan_personalizado: [], numero_disposicion: ''
     });
 
@@ -222,7 +222,7 @@ function Inversores() {
     const [editandoContratoId, setEditandoContratoId] = useState(null); 
     
     const [formContrato, setFormContrato] = useState({ 
-        id_tasa: '', monto_inicial: '', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'frances', reinversion_automatica: 0, fecha_inicio: new Date().toISOString().split('T')[0], fecha_fin: '', plan_personalizado: [], numero_disposicion: '' 
+        id_tasa: '', monto_inicial: '', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'personalizado', reinversion_automatica: 0, fecha_inicio: new Date().toISOString().split('T')[0], fecha_fin: '', plan_personalizado: [], numero_disposicion: '' 
     });
     
     const [beneficiarios, setBeneficiarios] = useState([]);
@@ -326,10 +326,10 @@ function Inversores() {
 
     // --- MOTOR CORE DE AMORTIZACION CON RECALCULO AUTOMATICO ---
     const motorCalculoAmortizacion = (contratoObj, inyecciones = [], edicionesCustom = {}) => {
+        // Unico sistema soportado: Plan Personalizado (Aleman/Frances/Abono Libre fueron eliminados).
         const m = parseFloat(contratoObj.monto_inicial) || 0;
         const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
-        const tipoReal = String(contratoObj.tipo_amortizacion || 'frances').toLowerCase().trim();
-        
+
         let planBaseGuardado = [];
         if (contratoObj.plan_json) {
             try {
@@ -339,7 +339,7 @@ function Inversores() {
             } catch (e) { console.error(e); }
         }
 
-        const tasaAnual = t / 100; const tasaMensual = tasaAnual / 12;
+        const tasaAnual = t / 100;
         let saldo = m; let tablaRes = []; let totalInteres = 0; let totalGeneral = 0;
         
         const tasaConfig = tasas.find(item => item.id === contratoObj.id_tasa);
@@ -349,27 +349,10 @@ function Inversores() {
         let fechaAnterior = new Date(`${fInicioStr}T12:00:00`);
         if (isNaN(fechaAnterior.getTime())) fechaAnterior = new Date();
 
-        let timelineUnificado = [];
-
-        if (tipoReal === 'personalizado' && planBaseGuardado.length > 0) {
-            timelineUnificado = planBaseGuardado.map((row, i) => ({
-                indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
-                abonoFijo: parseFloat(parseInputMonto(row.abono)) || 0, anticipoFijo: parseFloat(parseInputMonto(row.anticipo)) || 0, esIrregular: false, excluirDia: false
-            }));
-        } else {
-            const fFinStr = cleanDateStr(contratoObj.fecha_fin);
-            let fFin = new Date(`${fFinStr}T12:00:00`);
-            if(isNaN(fFin.getTime())) { fFin = new Date(fechaAnterior); fFin.setMonth(fechaAnterior.getMonth() + 12); }
-            let plazoMeses = Math.max(1, Math.round((fFin - fechaAnterior) / (1000 * 60 * 60 * 24 * 30.44)));
-            if (isNaN(plazoMeses) || plazoMeses < 1) plazoMeses = 12;
-            
-            let fTemp = new Date(fechaAnterior);
-            for(let i=1; i<=plazoMeses; i++){
-                fTemp.setMonth(fTemp.getMonth() + 1);
-                let capFijo = tipoReal === 'aleman' ? m / plazoMeses : 0;
-                timelineUnificado.push({ indexUI: `base_${i}`, numero: i.toString(), fechaStr: fTemp.toISOString().split('T')[0], abonoFijo: capFijo, anticipoFijo: 0, esIrregular: false, excluirDia: false });
-            }
-        }
+        let timelineUnificado = planBaseGuardado.map((row, i) => ({
+            indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
+            abonoFijo: parseFloat(parseInputMonto(row.abono)) || 0, anticipoFijo: parseFloat(parseInputMonto(row.anticipo)) || 0, esIrregular: false, excluirDia: false
+        }));
 
         inyecciones.forEach(pago => {
             if (pago.fecha && parseFloat(parseInputMonto(pago.monto)) > 0) {
@@ -378,8 +361,6 @@ function Inversores() {
         });
 
         timelineUnificado.sort((a,b) => new Date(`${a.fechaStr}T12:00:00`) - new Date(`${b.fechaStr}T12:00:00`));
-
-        let p_frances_meses_restantes = timelineUnificado.filter(r => !r.esIrregular).length;
 
         timelineUnificado.forEach((row) => {
             let fechaStrEval = edicionesCustom[row.indexUI]?.fecha || row.fechaStr;
@@ -401,10 +382,6 @@ function Inversores() {
             
             if (abonoOverride !== undefined && abonoOverride !== '') {
                 abonoReal = parseFloat(abonoOverride) || 0;
-            } else if (tipoReal === 'frances' && !row.esIrregular && p_frances_meses_restantes > 0) {
-                let cuotaPura = (saldo * (tasaMensual / (1 - Math.pow(1 + tasaMensual, -p_frances_meses_restantes))));
-                abonoReal = cuotaPura - interes;
-                p_frances_meses_restantes--;
             }
 
             let anticipoReal = row.anticipoFijo; 
@@ -441,18 +418,11 @@ function Inversores() {
         const aMonto = parseFloat(parseInputMonto(anticipoMontoSim)) || 0;
         const aMes = parseInt(anticipoMesSim) || 0;
 
-        if (m <= 0 || t <= 0 || (p <= 0 && tipoAmortizacion !== 'personalizado')) { setTablaAmortizacion([]); setGananciaNeta(0); setTotalRecibir(0); return; }
+        if (m <= 0 || t <= 0) { setTablaAmortizacion([]); setGananciaNeta(0); setTotalRecibir(0); return; }
         
-        const pseudoContrato = { monto_inicial: m, tasa_anual_esperada: t, tipo_amortizacion: tipoAmortizacion, fecha_inicio: fechaInicioSim, fecha_fin: new Date(new Date(fechaInicioSim).setMonth(new Date(fechaInicioSim).getMonth() + p)).toISOString(), plan_json: planPersonalizadoSim, id_tasa: tasas.find(item => parseFloat(item.tasa_anual_esperada) === t)?.id };
-        
-        const inySimuladas = [];
-        if(aMonto > 0 && aMes > 0 && tipoAmortizacion !== 'personalizado'){
-            let fSim = new Date(`${fechaInicioSim}T12:00:00`);
-            fSim.setMonth(fSim.getMonth() + aMes);
-            inySimuladas.push({ id: 'sim', monto: aMonto, fecha: fSim.toISOString(), excluirDia: false });
-        }
+        const pseudoContrato = { monto_inicial: m, tasa_anual_esperada: t, tipo_amortizacion: 'personalizado', fecha_inicio: fechaInicioSim, fecha_fin: new Date(new Date(fechaInicioSim).setMonth(new Date(fechaInicioSim).getMonth() + p)).toISOString(), plan_json: planPersonalizadoSim, id_tasa: tasas.find(item => parseFloat(item.tasa_anual_esperada) === t)?.id };
 
-        const res = motorCalculoAmortizacion(pseudoContrato, inySimuladas, {});
+        const res = motorCalculoAmortizacion(pseudoContrato, [], {});
         setTablaAmortizacion(res.tabla); setGananciaNeta(res.totales.interes); setTotalRecibir(res.totales.total);
     }, [monto, tasa, plazo, anticipoMontoSim, anticipoMesSim, tipoAmortizacion, fechaInicioSim, fechaPrimerPagoSim, abonoCapitalLibre, tasas, planPersonalizadoSim]);
 
@@ -696,7 +666,7 @@ function Inversores() {
                 fondeador: inversorActivo?.nombre || '',
                 montoInicial: contratoParaAmortizacion.monto_inicial,
                 tasa: contratoParaAmortizacion.tasa_anual_esperada,
-                sistema: contratoParaAmortizacion.tipo_amortizacion || 'frances',
+                sistema: contratoParaAmortizacion.tipo_amortizacion || 'personalizado',
                 fechaInicio: cleanDateStr(contratoParaAmortizacion.fecha_inicio),
                 numeroDisposicion: contratoParaAmortizacion.numero_disposicion 
             };
@@ -747,9 +717,9 @@ function Inversores() {
             monto_inicial: monto || '', 
             id_tasa: idTasa, 
             plazo_meses: plazo || '12', 
-            tipo_amortizacion: tipoAmortizacion || 'frances', 
+            tipo_amortizacion: 'personalizado', 
             fecha_inicio: fechaInicioSim || new Date().toISOString().split('T')[0], 
-            plan_personalizado: tipoAmortizacion === 'personalizado' ? [...(planPersonalizadoSim || [])] : [], 
+            plan_personalizado: [...(planPersonalizadoSim || [])], 
             numero_disposicion: '' 
         })); 
         setIsFondeoModalOpen(true); 
@@ -764,7 +734,7 @@ function Inversores() {
             const res = await fetch('http://localhost:3001/api/inversores/inversion', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
             const data = await res.json(); 
             if(data.success) { 
-                setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); setFormFondeo({ id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'frances', fecha_inicio: new Date().toISOString().split('T')[0], plan_personalizado: [], numero_disposicion: '' }); setFiltroFondeador(''); fetchInversores(); alert("Contrato Generado."); 
+                setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); setFormFondeo({ id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'personalizado', fecha_inicio: new Date().toISOString().split('T')[0], plan_personalizado: [], numero_disposicion: '' }); setFiltroFondeador(''); fetchInversores(); alert("Contrato Generado."); 
             } else {
                 alert(data.message); 
             }
@@ -943,15 +913,12 @@ function Inversores() {
                         <input type="text" placeholder="Ej. 001-2026" required value={formContrato.numero_disposicion} onChange={e => setFormContrato({ ...formContrato, numero_disposicion: e.target.value })} style={inputStyleBg} />
                     </div>
                     <div className="form-group" style={{ marginBottom: '16px' }}>
-                        <label>Sistema de Amortizacion <span style={astStyle}>*</span></label>
-                        <select required value={formContrato.tipo_amortizacion} onChange={e => setFormContrato({ ...formContrato, tipo_amortizacion: e.target.value })} style={inputStyleBg} disabled={!!editandoContratoId}>
-                            <option value="frances">Cuota Fija (Sistema Frances)</option>
-                            <option value="aleman">Capital Fijo (Sistema Aleman)</option>
-                            <option value="diario">Saldos Diarios (Abono Libre)</option>
-                            <option value="personalizado">Plan Personalizado (Institucional)</option>
-                        </select>
+                        <label>Sistema de Amortizacion</label>
+                        <div style={{ ...inputStyleBg, display: 'flex', alignItems: 'center', color: '#475569', fontWeight: 600 }}>
+                            Plan Personalizado (Institucional)
+                        </div>
                     </div>
-                    {formContrato.tipo_amortizacion === 'personalizado' && !editandoContratoId && (
+                    {!editandoContratoId && (
                         <PlanPersonalizadoBuilder 
                             plan={formContrato.plan_personalizado} 
                             setPlan={(p) => setFormContrato({...formContrato, plan_personalizado: p})} 
@@ -1275,27 +1242,11 @@ function Inversores() {
                 
                 <div className="calc-controls">
                     <div className="form-group" style={{ marginBottom: '16px' }}>
-                        <label style={labelStyle}>Sistema de Amortizacion <span style={astStyle}>*</span></label>
-                        <select value={tipoAmortizacion} onChange={(e) => setTipoAmortizacion(e.target.value)} style={inputStyle}>
-                            <option value="frances">Cuota Fija (Sistema Frances)</option>
-                            <option value="aleman">Capital Fijo (Sistema Aleman)</option>
-                            <option value="diario">Saldos Diarios (Abono Libre)</option>
-                            <option value="personalizado">Personalizado (Institucional)</option>
-                        </select>
-                    </div>
-                    
-                    {tipoAmortizacion === 'diario' && (
-                        <div className="form-row" style={{ padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px dashed #cbd5e1', marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            <div className="form-group">
-                                <label style={labelStyle}>Fecha Disposicion <span style={astStyle}>*</span></label>
-                                <input type="date" value={fechaInicioSim} onChange={(e) => setFechaInicioSim(e.target.value)} style={inputStyle} />
-                            </div>
-                            <div className="form-group">
-                                <label style={labelStyle}>1er Pago <span style={astStyle}>*</span></label>
-                                <input type="date" value={fechaPrimerPagoSim} onChange={(e) => setFechaPrimerPagoSim(e.target.value)} style={inputStyle} />
-                            </div>
+                        <label style={labelStyle}>Sistema de Amortizacion</label>
+                        <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: '#475569', fontWeight: 600 }}>
+                            Personalizado (Institucional)
                         </div>
-                    )}
+                    </div>
                     
                     <div className="form-group" style={{ marginBottom: '16px' }}>
                         <label style={labelStyle}>Monto a Fondear <span style={astStyle}>*</span></label>
@@ -1319,45 +1270,17 @@ function Inversores() {
                         </div>
                     </div>
                     
-                    {tipoAmortizacion === 'diario' ? (
-                        <div className="form-group" style={{ marginBottom: '16px' }}>
-                            <label style={labelStyle}>Abono Fijo a Capital <span style={astStyle}>*</span></label>
-                            <div className="input-with-prefix" style={{ position: 'relative' }}>
-                                <span className="prefix" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontWeight: 'bold', color: '#64748b' }}>$</span>
-                                <input type="text" value={formatInputMonto(abonoCapitalLibre)} onChange={(e) => setAbonoCapitalLibre(parseInputMonto(e.target.value))} style={{ ...inputStyle, paddingLeft: '28px' }} />
-                            </div>
-                        </div>
-                    ) : tipoAmortizacion !== 'personalizado' ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '16px', marginBottom: '16px' }}>
-                            <div className="form-group">
-                                <label style={labelStyle}>Simular Anticipo a Capital</label>
-                                <div className="input-with-prefix" style={{ position: 'relative' }}>
-                                    <span className="prefix" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontWeight: 'bold', color: '#64748b' }}>$</span>
-                                    <input type="text" placeholder="0.00" value={formatInputMonto(anticipoMontoSim)} onChange={(e) => setAnticipoMontoSim(parseInputMonto(e.target.value))} style={{ ...inputStyle, paddingLeft: '28px' }} />
-                                </div>
-                            </div>
-                            <div className="form-group">
-                                <label style={labelStyle}>Mes Aplic.</label>
-                                <input type="number" value={anticipoMesSim} onChange={(e) => setAnticipoMesSim(e.target.value)} style={inputStyle} />
-                            </div>
-                        </div>
-                    ) : null}
+                    <PlanPersonalizadoBuilder 
+                        plan={planPersonalizadoSim} 
+                        setPlan={setPlanPersonalizadoSim} 
+                        montoAsignado={monto} 
+                        fechaInicio={fechaInicioSim} 
+                        setFechaInicio={setFechaInicioSim} 
+                    />
 
-                    {tipoAmortizacion === 'personalizado' && (
-                        <PlanPersonalizadoBuilder 
-                            plan={planPersonalizadoSim} 
-                            setPlan={setPlanPersonalizadoSim} 
-                            montoAsignado={monto} 
-                            fechaInicio={fechaInicioSim} 
-                            setFechaInicio={setFechaInicioSim} 
-                        />
-                    )}
-                    
-                    {tipoAmortizacion === 'personalizado' && (
-                        <button onClick={abrirModalFondeoDesdeSimulador} style={{ width: '100%', padding: '12px', marginTop: '16px', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-                            <IconSave/> Transferir Plan a Nuevo Fondeo
-                        </button>
-                    )}
+                    <button onClick={abrirModalFondeoDesdeSimulador} style={{ width: '100%', padding: '12px', marginTop: '16px', backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', transition: 'background 0.2s', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <IconSave/> Transferir Plan a Nuevo Fondeo
+                    </button>
                 </div>
             </div>
 
@@ -1412,12 +1335,12 @@ function Inversores() {
                                     <th style={{ padding: '10px', textAlign: 'right' }}>IVA</th>
                                     <th style={{ padding: '10px', textAlign: 'right', color: 'var(--brand-green)' }}>TOTAL</th>
                                     <th style={{ padding: '10px', textAlign: 'right' }}>SALDO</th>
-                                    {(tipoAmortizacion === 'diario' || tipoAmortizacion === 'personalizado') && <th style={{ padding: '10px', textAlign: 'center' }}>DIAS</th>}
+                                    <th style={{ padding: '10px', textAlign: 'center' }}>DIAS</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {tablaAmortizacion.map((row, idx) => (
-                                    <tr key={idx} style={{ backgroundColor: row.numero == anticipoMesSim && tipoAmortizacion !== 'diario' ? '#fef9c3' : row.numero === 'N/A' ? '#f0fdf4' : 'transparent', borderBottom: '1px solid #f1f5f9' }}>
+                                    <tr key={idx} style={{ backgroundColor: row.numero === 'N/A' ? '#f0fdf4' : 'transparent', borderBottom: '1px solid #f1f5f9' }}>
                                         <td style={{ padding: '8px', textAlign: 'center' }}>
                                             <strong style={{ color: 'var(--text-main)' }}>{row.numero}</strong> 
                                             {row.fechaStr !== '-' && <span style={{ display:'block', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>{row.fechaStr}</span>}
@@ -1428,7 +1351,7 @@ function Inversores() {
                                         <td style={{ padding: '8px', textAlign: 'right' }}>{formatMoney(row.iva)}</td>
                                         <td style={{ padding: '8px', textAlign: 'right', color: 'var(--brand-green)', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
                                         <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-main)', fontWeight: '600' }}>{formatMoney(row.saldoFinal)}</td>
-                                        {(tipoAmortizacion === 'diario' || tipoAmortizacion === 'personalizado') && <td style={{ padding: '8px', textAlign: 'center' }}>{row.dias}</td>}
+                                        <td style={{ padding: '8px', textAlign: 'center' }}>{row.dias}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1748,13 +1671,10 @@ function Inversores() {
                                         </div>
                                     </div>
                                     <div className="form-group">
-                                        <label style={labelStyle}>Sistema de Amortizacion <span style={astStyle}>*</span></label>
-                                        <select required value={formFondeo.tipo_amortizacion} onChange={e => setFormFondeo({ ...formFondeo, tipo_amortizacion: e.target.value })} style={inputStyle}>
-                                            <option value="frances">Cuota Fija Constante (Sistema Frances)</option>
-                                            <option value="aleman">Capital Fijo Constante (Sistema Aleman)</option>
-                                            <option value="diario">Saldos Diarios (Abono Libre)</option>
-                                            <option value="personalizado">Plan Personalizado (Institucional)</option>
-                                        </select>
+                                        <label style={labelStyle}>Sistema de Amortizacion</label>
+                                        <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: '#475569', fontWeight: 600 }}>
+                                            Plan Personalizado (Institucional)
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -1772,23 +1692,15 @@ function Inversores() {
                                     </div>
                                 </div>
                                 
-                                {formFondeo.tipo_amortizacion !== 'personalizado' && (
-                                    <div className="form-group" style={{ marginBottom: '16px' }}>
-                                        <label style={labelStyle}>Fecha de Disposicion <span style={astStyle}>*</span></label>
-                                        <input type="date" required value={formFondeo.fecha_inicio} onChange={e => setFormFondeo({ ...formFondeo, fecha_inicio: e.target.value })} style={inputStyle} />
-                                    </div>
-                                )}
                             </div>
 
-                            {formFondeo.tipo_amortizacion === 'personalizado' && (
-                                <PlanPersonalizadoBuilder 
-                                    plan={formFondeo.plan_personalizado || []} 
-                                    setPlan={(p) => setFormFondeo({...formFondeo, plan_personalizado: p})} 
-                                    montoAsignado={formFondeo.monto_inicial} 
-                                    fechaInicio={formFondeo.fecha_inicio} 
-                                    setFechaInicio={(val) => setFormFondeo({...formFondeo, fecha_inicio: val})} 
-                                />
-                            )}
+                            <PlanPersonalizadoBuilder 
+                                plan={formFondeo.plan_personalizado || []} 
+                                setPlan={(p) => setFormFondeo({...formFondeo, plan_personalizado: p})} 
+                                montoAsignado={formFondeo.monto_inicial} 
+                                fechaInicio={formFondeo.fecha_inicio} 
+                                setFechaInicio={(val) => setFormFondeo({...formFondeo, fecha_inicio: val})} 
+                            />
                         </form>
                         <div className="modal-footer" style={{ flexShrink: 0, padding: '24px 32px', backgroundColor: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
                             <button type="button" onClick={() => { setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); }} style={{ padding: '10px 20px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: 'white', fontWeight: 'bold', color: '#475569', cursor: 'pointer' }}>Cancelar</button>
@@ -1809,7 +1721,7 @@ function Inversores() {
                             <div>
                                 <h2 style={{ color: '#0f172a', margin: 0, fontSize: '20px', fontWeight: '800' }}>Tabla de Amortizacion #{contratoParaAmortizacion.id.toString().padStart(4, '0')}</h2>
                                 <p style={{ color: '#64748b', margin: '4px 0 0 0', fontSize: '13px' }}>
-                                    Monto: <strong style={{ color: '#10d440' }}>{formatMoney(contratoParaAmortizacion.monto_inicial)}</strong> | Tasa: {contratoParaAmortizacion.tasa_anual_esperada}% | Sistema: {contratoParaAmortizacion.tipo_amortizacion ? contratoParaAmortizacion.tipo_amortizacion.toUpperCase() : 'FRANCES'}
+                                    Monto: <strong style={{ color: '#10d440' }}>{formatMoney(contratoParaAmortizacion.monto_inicial)}</strong> | Tasa: {contratoParaAmortizacion.tasa_anual_esperada}% | Sistema: {contratoParaAmortizacion.tipo_amortizacion ? contratoParaAmortizacion.tipo_amortizacion.toUpperCase() : 'PERSONALIZADO'}
                                 </p>
                             </div>
                             <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} className="btn-close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><IconClose/></button>

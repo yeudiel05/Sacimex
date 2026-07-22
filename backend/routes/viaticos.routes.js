@@ -43,7 +43,7 @@ router.post('/', verificarToken, (req, res) => {
 
     db.query(query, values, (err) => {
         if (err) return res.status(500).json({ success: false });
-        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicito viaticos por $${num(total_solicitado).toFixed(2)} para ${destino}`);
+        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicito viaticos por $${num(total_solicitado).toFixed(2)} para ${destino}`, req);
         res.json({ success: true, message: 'Solicitud enviada correctamente' });
     });
 });
@@ -79,7 +79,7 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
             if (result.affectedRows === 0) {
                 return res.status(404).json({ success: false, message: 'No se encontro la solicitud en la Base de Datos.' });
             }
-            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marco viatico #${req.params.id} como ${estatus}`);
+            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marco viatico #${req.params.id} como ${estatus}`, req);
             res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
         }
     );
@@ -102,7 +102,7 @@ router.post('/:id/confirmar-recepcion', verificarToken, upload.single('comproban
             [comprobantePath, id], 
             (errUpdate) => {
                 if (errUpdate) return res.status(500).json({ success: false, message: 'Error al guardar la recepcion.' });
-                registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmo recepcion de fondos con comprobante para el viatico #${id}`);
+                registrarBitacora(req.usuario.id, 'VIATICO_RECIBIDO', `El empleado confirmo recepcion de fondos con comprobante para el viatico #${id}`, req);
                 res.json({ success: true, message: 'Recepcion confirmada y documento firmado exitosamente.', url: comprobantePath });
             }
         );
@@ -119,7 +119,7 @@ router.post('/:id/comprobante', verificarToken, upload.single('comprobante'), (r
         if (err) return res.status(500).json({ success: false });
         
         // REGISTRO EN BITACORA - VIATICO TRANSFERIDO
-        registrarBitacora(req.usuario.id, 'VIATICO_TRANSFERIDO', `Adjunto comprobante de transferencia bancaria al viatico #${req.params.id}`);
+        registrarBitacora(req.usuario.id, 'VIATICO_TRANSFERIDO', `Adjunto comprobante de transferencia bancaria al viatico #${req.params.id}`, req);
         
         res.json({ success: true, url: urlArchivo });
     });
@@ -154,7 +154,7 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
                 [urlArchivo, req.params.id, req.usuario.id],
                 (errUpdate) => {
                     if (errUpdate) return res.status(500).json({ success: false });
-                    registrarBitacora(req.usuario.id, 'VIATICO_COMPROBADO', `Subio comprobante de gastos para el viatico #${req.params.id}`);
+                    registrarBitacora(req.usuario.id, 'VIATICO_COMPROBADO', `Subio comprobante de gastos para el viatico #${req.params.id}`, req);
                     res.json({ success: true, url: urlArchivo });
                 }
             );
@@ -223,7 +223,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
                             const partidasValidas = (partidas || []).filter(p => p.importe || p.descripcion || p.nombre_proveedor);
 
                             if (partidasValidas.length === 0) {
-                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada (sin partidas)`);
+                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada (sin partidas)`, req);
                                 return res.json({ success: true, message: 'Comprobacion guardada.' });
                             }
 
@@ -243,7 +243,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
                                 [valores],
                                 (errIns) => {
                                     if (errIns) return res.status(500).json({ success: false, message: 'Error al guardar partidas.' });
-                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada con ${partidasValidas.length} partidas`);
+                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada con ${partidasValidas.length} partidas`, req);
                                     res.json({ success: true, message: 'Comprobacion guardada correctamente.' });
                                 }
                             );
@@ -310,7 +310,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 doc.pipe(res);
 
                 // REGISTRO EN BITACORA - EXPORTAR PDF COMPROBACION
-                registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `Descargo reporte PDF de Comprobacion Universal del viatico #${sol.id}`);
+                registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `Descargo reporte PDF de Comprobacion Universal del viatico #${sol.id}`, req);
 
                 const COLOR_TEXTO_AZUL = '#0000FF';
                 const COLOR_VERDE_TITULO = '#008000';
@@ -530,7 +530,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         doc.pipe(res);
 
         // REGISTRO EN BITACORA - EXPORTAR OFICIO DE COMISION
-        registrarBitacora(req.usuario.id, 'EXPORTAR_OFICIO_COMISION', `Descargo Oficio de Comision del viatico #${sol.id}`);
+        registrarBitacora(req.usuario.id, 'EXPORTAR_OFICIO_COMISION', `Descargo Oficio de Comision del viatico #${sol.id}`, req);
 
         const COLOR_TEXTO_AZUL = '#0000FF';
         const COLOR_VERDE_TITULO = '#008000';

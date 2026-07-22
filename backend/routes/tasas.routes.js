@@ -24,7 +24,7 @@ router.post('/', verificarToken, (req, res) => {
     
     db.query(query, [nombre_tasa, tipo_producto, tasa_anual_esperada, porcentaje_penalizacion, cobra_iva, descripcion], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al crear la tasa. Verifica los datos.' });
-        registrarBitacora(req.usuario.id, 'NUEVA_TASA', `Se creo el producto de ${tipo_producto}: ${nombre_tasa} al ${tasa_anual_esperada}%`);
+        registrarBitacora(req.usuario.id, 'NUEVA_TASA', `Se creo el producto de ${tipo_producto}: ${nombre_tasa} al ${tasa_anual_esperada}%`, req);
         res.json({ success: true, message: 'Producto financiero creado.' });
     });
 });
@@ -40,7 +40,7 @@ router.put('/:id', verificarToken, (req, res) => {
         
         db.query(query, [nombre_tasa, tipo_producto, tasa_anual_esperada, porcentaje_penalizacion, cobra_iva, descripcion, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false, message: 'Error al actualizar el producto.' });
-            registrarBitacora(req.usuario.id, 'EDITAR_TASA', `Se actualizo el producto financiero: ${nombreAnterior} -> ${nombre_tasa}`);
+            registrarBitacora(req.usuario.id, 'EDITAR_TASA', `Se actualizo el producto financiero: ${nombreAnterior} -> ${nombre_tasa}`, req);
             res.json({ success: true, message: 'Producto financiero actualizado.' });
         });
     });
@@ -55,7 +55,7 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
         
         db.query('UPDATE catalogo_tasas SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ESTATUS_TASA', `Producto '${nombreTasa}' cambio a estatus ${estatus_activo ? 'Activo' : 'Inactivo'}`);
+            registrarBitacora(req.usuario.id, 'ESTATUS_TASA', `Producto '${nombreTasa}' cambio a estatus ${estatus_activo ? 'Activo' : 'Inactivo'}`, req);
             res.json({ success: true });
         });
     });
@@ -74,7 +74,7 @@ router.delete('/:id', verificarToken, (req, res) => {
                     message: 'No se puede eliminar este producto porque ya tiene contratos o clientes activos. Mejor desactívelo para ocultarlo.'
                 });
             }
-            registrarBitacora(req.usuario.id, 'ELIMINAR_TASA', `Se elimino el producto financiero: ${nombreTasa}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_TASA', `Se elimino el producto financiero: ${nombreTasa}`, req);
             res.json({ success: true, message: 'Producto financiero eliminado exitosamente.' });
         });
     });

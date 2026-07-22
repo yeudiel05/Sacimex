@@ -53,7 +53,7 @@ router.post('/', verificarToken, (req, res) => {
                             if (err) return db.rollback(() => res.status(500).json({ success: false }));
                             
                             // CORRECCIÓN: Registra el nombre del cliente
-                            registrarBitacora(req.usuario.id, 'CREAR_CLIENTE', `Registró al nuevo cliente: ${nombre}`);
+                            registrarBitacora(req.usuario.id, 'CREAR_CLIENTE', `Registró al nuevo cliente: ${nombre}`, req);
                             res.json({ success: true, message: 'Cliente registrado' });
                         });
                     });
@@ -79,7 +79,7 @@ router.put('/:id', verificarToken, (req, res) => {
                             if (err) return db.rollback(() => res.status(500).json({ success: false }));
                             
                             // CORRECCIÓN: Registra el nombre del cliente
-                            registrarBitacora(req.usuario.id, 'EDITAR_CLIENTE', `Actualizó el expediente de: ${nombre}`);
+                            registrarBitacora(req.usuario.id, 'EDITAR_CLIENTE', `Actualizó el expediente de: ${nombre}`, req);
                             res.json({ success: true, message: 'Cliente actualizado' });
                         });
                     });
@@ -101,7 +101,7 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
 
         db.query('UPDATE CLIENTES SET estatus = ? WHERE id_persona = ?', [estatus, id_persona], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió estatus a '${estatus}' para el cliente: ${nombreCliente}`);
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió estatus a '${estatus}' para el cliente: ${nombreCliente}`, req);
             res.json({ success: true });
         });
     });
@@ -120,7 +120,7 @@ router.delete('/:id', verificarToken, (req, res) => {
 
         db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_CLIENTE', `Eliminó el expediente del cliente: ${nombreCliente}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_CLIENTE', `Eliminó el expediente del cliente: ${nombreCliente}`, req);
             res.json({ success: true });
         });
     });
@@ -143,7 +143,7 @@ router.post('/expedientes/upload', verificarToken, upload.single('archivo'), (re
                 if (err) return res.status(500).json({ success: false });
                 
                 const tipoDocLegible = tipo_documento.replace(/_/g, ' ');
-                registrarBitacora(req.usuario.id, 'SUBIR_DOCUMENTO', `Subió un documento (${tipoDocLegible}) al expediente de: ${nombreCliente}`);
+                registrarBitacora(req.usuario.id, 'SUBIR_DOCUMENTO', `Subió un documento (${tipoDocLegible}) al expediente de: ${nombreCliente}`, req);
                 res.json({ success: true, message: 'Archivo subido' });
             });
     });
@@ -186,7 +186,7 @@ router.delete('/expedientes/:id', verificarToken, (req, res) => {
             // Eliminar el archivo físico del servidor
             if (fs.existsSync(rutaFisica)) fs.unlinkSync(rutaFisica);
             
-            registrarBitacora(req.usuario.id, 'ELIMINAR_DOCUMENTO', `Eliminó el documento '${nombreDoc}' del expediente de: ${nombreCliente}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_DOCUMENTO', `Eliminó el documento '${nombreDoc}' del expediente de: ${nombreCliente}`, req);
             res.json({ success: true });
         });
     });

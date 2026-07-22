@@ -58,7 +58,7 @@ router.post('/login', (req, res) => {
 
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
         
-        registrarBitacora(user.id, 'LOGIN', `El usuario ${user.username} inició sesión`);
+        registrarBitacora(user.id, 'LOGIN', `El usuario ${user.username} inició sesión`, req);
         
         res.json({ 
             success: true, 
@@ -73,18 +73,18 @@ router.post('/login', (req, res) => {
         });
         
       } else {
-        registrarBitacora(0, 'LOGIN_FALLIDO', `Fallo de contraseña con usuario: ${usuario}`);
+        registrarBitacora(0, 'LOGIN_FALLIDO', `Fallo de contraseña con usuario: ${usuario}`, req);
         res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
       }
     } else {
-      registrarBitacora(0, 'LOGIN_FALLIDO', `Fallo: usuario no encontrado: ${usuario}`);
+      registrarBitacora(0, 'LOGIN_FALLIDO', `Fallo: usuario no encontrado: ${usuario}`, req);
       res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
     }
   });
 });
 
 router.post('/logout', verificarToken, (req, res) => {
-    registrarBitacora(req.usuario.id, 'LOGOUT', `El usuario ${req.usuario.username} cerró sesión`);
+    registrarBitacora(req.usuario.id, 'LOGOUT', `El usuario ${req.usuario.username} cerró sesión`, req);
     res.json({ success: true, message: 'Sesión terminada y registrada.' });
 });
 

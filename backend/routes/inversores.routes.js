@@ -198,7 +198,7 @@ router.post('/', verificarToken, (req, res) => {
                         }
                         
                         try {
-                            registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registro al fondeador: ${nombreCompleto} con limite de ${formatMoney(limite_credito)}`);
+                            registrarBitacora(req.usuario.id, 'CREAR_FONDEADOR', `Se registro al fondeador: ${nombreCompleto} con limite de ${formatMoney(limite_credito)}`, req);
                         } catch (bitErr) {
                             console.error("Aviso: Fondeador guardado, pero fallo la bitacora:", bitErr);
                         }
@@ -221,7 +221,7 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
         
         db.query('UPDATE INVERSORES SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
             if (err) return res.status(500).json({ success: false, error: err.message });
-            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambio el estatus a ${estatus_activo ? 'Activo' : 'Inactivo'} del fondeador: ${nombreFondeador}`);
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambio el estatus a ${estatus_activo ? 'Activo' : 'Inactivo'} del fondeador: ${nombreFondeador}`, req);
             res.json({ success: true });
         });
     });
@@ -242,7 +242,7 @@ router.put('/:id', verificarToken, (req, res) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
-                    registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizo los datos del fondeador: ${nombre}. Nuevo limite: ${formatMoney(limite_credito)}`);
+                    registrarBitacora(req.usuario.id, 'EDITAR_FONDEADOR', `Actualizo los datos del fondeador: ${nombre}. Nuevo limite: ${formatMoney(limite_credito)}`, req);
                     res.json({ success: true, message: 'Fondeador actualizado.' });
                 });
             });
@@ -258,7 +258,7 @@ router.delete('/:id', verificarToken, (req, res) => {
         
         db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false, error: err.message });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_FONDEADOR', `Elimino del directorio al fondeador: ${nombreFondeador}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_FONDEADOR', `Elimino del directorio al fondeador: ${nombreFondeador}`, req);
             res.json({ success: true });
         });
     });
@@ -296,13 +296,13 @@ router.post('/contratos', verificarToken, (req, res) => {
             if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado.' });
 
             db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
-              [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'frances', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err, result) => {
+              [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'personalizado', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err, result) => {
                 if (err) {
                     console.error("Error al guardar contrato estatico:", err);
                     return res.status(500).json({ success: false, message: 'Error de servidor' });
                 }
                 
-                registrarBitacora(req.usuario.id, 'CREAR_CONTRATO', `Registro contrato con disposicion #${numero_disposicion || 'S/N'} para: ${nombreFondeador}`);
+                registrarBitacora(req.usuario.id, 'CREAR_CONTRATO', `Registro contrato con disposicion #${numero_disposicion || 'S/N'} para: ${nombreFondeador}`, req);
                 res.json({ success: true });
             });
         });
@@ -326,7 +326,7 @@ router.put('/contratos/:id', verificarToken, (req, res) => {
                 [fecha_inicio, numero_disposicion, req.params.id], (err) => {
                 if (err) return res.status(500).json({ success: false, message: "Error al actualizar contrato" });
                 
-                registrarBitacora(req.usuario.id, 'EDITAR_CONTRATO', `Actualizo informacion del contrato con disposicion: ${disp}`);
+                registrarBitacora(req.usuario.id, 'EDITAR_CONTRATO', `Actualizo informacion del contrato con disposicion: ${disp}`, req);
                 res.json({ success: true, message: 'Contrato actualizado' });
             });
         });
@@ -357,7 +357,7 @@ router.post('/inversion', verificarToken, (req, res) => {
                 id_tasa, 
                 monto_inicial, 
                 frecuencia_pagos, 
-                tipo_amortizacion || 'frances', 
+                tipo_amortizacion || 'personalizado', 
                 plan_json || null, 
                 fInicio.toISOString().split('T')[0], 
                 fFin.toISOString().split('T')[0],
@@ -367,7 +367,7 @@ router.post('/inversion', verificarToken, (req, res) => {
                     console.error(err);
                     return res.status(500).json({ success: false, message: 'Error al registrar la inversion' });
                 }
-                registrarBitacora(req.usuario.id, 'NUEVO_FONDEO', `Ingreso de capital de $${monto_inicial} registrado para: ${nombreFondeador}`);
+                registrarBitacora(req.usuario.id, 'NUEVO_FONDEO', `Ingreso de capital de $${monto_inicial} registrado para: ${nombreFondeador}`, req);
                 res.json({ success: true, message: 'Fondeo registrado correctamente' });
             });
         });
@@ -397,7 +397,7 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
                 ? `Se registraron nuevas inyecciones y reestructuracion en contrato disposicion ${disposicion}`
                 : `Se reestructuro la tabla de amortizacion (fechas/abonos) del contrato disposicion ${disposicion}`;
                 
-            registrarBitacora(req.usuario.id, 'REESTRUCTURACION', mensaje);
+            registrarBitacora(req.usuario.id, 'REESTRUCTURACION', mensaje, req);
             res.json({ success: true, message: 'Actualizacion exitosa.' });
         });
     });
@@ -527,7 +527,7 @@ router.post('/alertas-correo', verificarToken, (req, res) => {
                 console.error("Error SMTP:", mailErr);
                 return res.status(500).json({ success: false, message: 'Error al enviar el correo a traves del servidor SMTP.' });
             }
-            registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS_SMTP', `Se notifico exitosamente a la Coordinacion Contable sobre saldos de: ${nombreFondeador}`);
+            registrarBitacora(req.usuario.id, 'ENVIO_ALERTAS_SMTP', `Se notifico exitosamente a la Coordinacion Contable sobre saldos de: ${nombreFondeador}`, req);
             res.json({ success: true, message: 'El reporte de proyeccion fue enviado exitosamente a la Coordinacion Contable.' });
         });
     });
@@ -609,9 +609,9 @@ router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
 });
 
 function calcularAmortizacionBackend(contratoObj) {
+    // Unico sistema soportado: Plan Personalizado (Aleman/Frances/Abono Libre fueron eliminados).
     const m = parseFloat(contratoObj.monto_inicial) || 0;
     const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
-    const tipoReal = String(contratoObj.tipo_amortizacion || 'frances').toLowerCase().trim();
     const cobraIva = contratoObj.cobra_iva === 1;
 
     const parseMontoLocal = (val) => {
@@ -637,33 +637,16 @@ function calcularAmortizacionBackend(contratoObj) {
         } catch (e) {}
     }
 
-    const tasaAnual = t / 100; const tasaMensual = tasaAnual / 12;
+    const tasaAnual = t / 100;
     let saldo = m; let tablaRes = [];
 
     const fInicioStr = cleanDateStr(contratoObj.fecha_inicio);
     let fechaAnterior = new Date(`${fInicioStr}T12:00:00`);
 
-    let timelineUnificado = [];
-
-    if (tipoReal === 'personalizado' && planBaseGuardado.length > 0) {
-        timelineUnificado = planBaseGuardado.map((row, i) => ({
-            indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
-            abonoFijo: parseMontoLocal(row.abono), anticipoFijo: parseMontoLocal(row.anticipo), esIrregular: false, excluirDia: false
-        }));
-    } else {
-        const fFinStr = cleanDateStr(contratoObj.fecha_fin);
-        let fFin = new Date(`${fFinStr}T12:00:00`);
-        if(isNaN(fFin.getTime())) { fFin = new Date(fechaAnterior); fFin.setMonth(fechaAnterior.getMonth() + 12); }
-        let plazoMeses = Math.max(1, Math.round((fFin - fechaAnterior) / (1000 * 60 * 60 * 24 * 30.44)));
-        if (isNaN(plazoMeses) || plazoMeses < 1) plazoMeses = 12;
-        
-        let fTemp = new Date(fechaAnterior);
-        for(let i=1; i<=plazoMeses; i++){
-            fTemp.setMonth(fTemp.getMonth() + 1);
-            let capFijo = tipoReal === 'aleman' ? m / plazoMeses : 0;
-            timelineUnificado.push({ indexUI: `base_${i}`, numero: i.toString(), fechaStr: fTemp.toISOString().split('T')[0], abonoFijo: capFijo, anticipoFijo: 0, esIrregular: false, excluirDia: false });
-        }
-    }
+    let timelineUnificado = planBaseGuardado.map((row, i) => ({
+        indexUI: `base_${i}`, numero: row.numero || (i + 1).toString(), fechaStr: cleanDateStr(row.fecha),
+        abonoFijo: parseMontoLocal(row.abono), anticipoFijo: parseMontoLocal(row.anticipo), esIrregular: false, excluirDia: false
+    }));
 
     inyecciones.forEach(pago => {
         if (pago.fecha && parseMontoLocal(pago.monto) > 0) {
@@ -672,8 +655,6 @@ function calcularAmortizacionBackend(contratoObj) {
     });
 
     timelineUnificado.sort((a,b) => new Date(`${a.fechaStr}T12:00:00`) - new Date(`${b.fechaStr}T12:00:00`));
-
-    let p_frances_meses_restantes = timelineUnificado.filter(r => !r.esIrregular).length;
 
     timelineUnificado.forEach((row) => {
         let fechaActual = new Date(`${row.fechaStr}T12:00:00`);
@@ -689,12 +670,6 @@ function calcularAmortizacionBackend(contratoObj) {
         
         let interes = (saldo * tasaAnual / 360) * diasParaInteres;
         let abonoReal = row.abonoFijo;
-        
-        if (tipoReal === 'frances' && !row.esIrregular && p_frances_meses_restantes > 0) {
-            let cuotaPura = (saldo * (tasaMensual / (1 - Math.pow(1 + tasaMensual, -p_frances_meses_restantes))));
-            abonoReal = cuotaPura - interes;
-            p_frances_meses_restantes--;
-        }
 
         let anticipoReal = row.anticipoFijo;
         let capital = abonoReal + anticipoReal;
@@ -761,7 +736,7 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
                 
                 db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
                     const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
-                    try { registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agrego a ${nombre_completo} como beneficiario de: ${nombreFondeador}`); } catch (bitErr) {}
+                    try { registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agrego a ${nombre_completo} como beneficiario de: ${nombreFondeador}`, req); } catch (bitErr) {}
                     res.json({ success: true, message: 'Beneficiario registrado exitosamente', id_beneficiario: result.insertId });
                 });
             });
@@ -775,7 +750,7 @@ router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
         const nombreBen = (results && results.length > 0) ? results[0].nombre_completo : 'Beneficiario';
         db.query('DELETE FROM BENEFICIARIOS WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_BENEFICIARIO', `Elimino al beneficiario: ${nombreBen}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_BENEFICIARIO', `Elimino al beneficiario: ${nombreBen}`, req);
             res.json({ success: true });
         });
     });
@@ -797,7 +772,7 @@ router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, 
         
         db.query('SELECT p.nombre_razon_social FROM CONTRATOS_INVERSION c JOIN PERSONAS p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
            const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
-           registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registro un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`);
+           registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registro un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`, req);
            res.json({ success: true });
         });
     });
@@ -945,7 +920,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
         doc.end();
 
         try {
-            registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargo constancia del contrato disposicion ${contrato.numero_disposicion || 'S/N'} perteneciente a: ${contrato.inversor}`);
+            registrarBitacora(req.usuario.id, 'EXPORTAR_CONTRATO', `Descargo constancia del contrato disposicion ${contrato.numero_disposicion || 'S/N'} perteneciente a: ${contrato.inversor}`, req);
         } catch (e) {
             console.error("Aviso: No se pudo registrar en bitacora", e);
         }
@@ -1022,7 +997,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             doc.font('Helvetica').text(fechaMostrar, rightColX + 110, startY + (infoRowHeight * 2));
 
             doc.font('Helvetica-Bold').text('SISTEMA:', rightColX, startY + (infoRowHeight * 3));
-            doc.font('Helvetica').text(sistema?.toUpperCase() || 'FRANCES', rightColX + 110, startY + (infoRowHeight * 3));
+            doc.font('Helvetica').text(sistema?.toUpperCase() || 'PERSONALIZADO', rightColX + 110, startY + (infoRowHeight * 3));
 
             let currentY = startY + (infoRowHeight * 5) + 20;
 
@@ -1109,7 +1084,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
             doc.end();
             
             try {
-                registrarBitacora(req.usuario.id, 'EXPORTAR_AMORTIZACION_ESTILIZADA', `Descargo tabla interactiva estilizada del contrato disposicion ${disposicion}`);
+                registrarBitacora(req.usuario.id, 'EXPORTAR_AMORTIZACION_ESTILIZADA', `Descargo tabla interactiva estilizada del contrato disposicion ${disposicion}`, req);
             } catch (e) {
                 console.error("Aviso: No se pudo registrar en bitacora", e);
             }

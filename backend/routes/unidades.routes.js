@@ -89,7 +89,7 @@ router.post('/', verificarToken, (req, res) => {
             }
             
             try {
-                registrarBitacora(req.usuario.id, 'CREAR_UNIDAD_NEGOCIO', `Creó la nueva unidad de negocio: ${nombre}`);
+                registrarBitacora(req.usuario.id, 'CREAR_UNIDAD_NEGOCIO', `Creó la nueva unidad de negocio: ${nombre}`, req);
             } catch (bitErr) {}
 
             res.status(201).json({
@@ -173,7 +173,7 @@ router.put('/:id', verificarToken, (req, res) => {
             }
             
             try {
-                registrarBitacora(req.usuario.id, 'EDITAR_UNIDAD_NEGOCIO', `Actualizó el nombre de la unidad ID ${id} a: ${nombre}`);
+                registrarBitacora(req.usuario.id, 'EDITAR_UNIDAD_NEGOCIO', `Actualizó el nombre de la unidad ID ${id} a: ${nombre}`, req);
             } catch (bitErr) {}
 
             res.status(200).json({
@@ -220,7 +220,7 @@ router.delete('/:id', verificarToken, (req, res) => {
         }
         
         try {
-            registrarBitacora(req.usuario.id, 'ELIMINAR_UNIDAD_NEGOCIO', `Eliminó la unidad de negocio ID: ${id}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_UNIDAD_NEGOCIO', `Eliminó la unidad de negocio ID: ${id}`, req);
         } catch (bitErr) {}
 
         res.status(200).json({

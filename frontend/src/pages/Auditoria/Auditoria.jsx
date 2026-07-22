@@ -17,6 +17,13 @@ function Auditoria() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
+  // Detalle tecnico (IP, metodo HTTP, ruta) oculto por defecto: se muestra
+  // solo si alguien le da clic a "Ver detalle tecnico" en esa fila.
+  const [filasExpandidas, setFilasExpandidas] = useState({});
+  const toggleDetalleTecnico = (id) => {
+    setFilasExpandidas(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     if (!token) { navigate('/'); return null; }
@@ -222,6 +229,42 @@ function Auditoria() {
                         <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-main)' }}>
                           {registro.detalle}
                         </p>
+                        {(registro.ip_address || registro.ruta) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => toggleDetalleTecnico(registro.id)}
+                              style={{
+                                marginTop: '6px',
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                textDecoration: 'underline'
+                              }}
+                            >
+                              {filasExpandidas[registro.id] ? 'Ocultar detalle técnico' : 'Ver detalle técnico'}
+                            </button>
+                            {filasExpandidas[registro.id] && (
+                              <div style={{
+                                marginTop: '6px',
+                                padding: '8px 10px',
+                                background: '#f8fafc',
+                                border: '1px solid var(--border-light)',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                lineHeight: 1.6
+                              }}>
+                                {registro.ip_address && <div><strong>IP:</strong> {registro.ip_address}</div>}
+                                {registro.metodo_http && <div><strong>Método:</strong> {registro.metodo_http}</div>}
+                                {registro.ruta && <div><strong>Ruta:</strong> {registro.ruta}</div>}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -419,7 +419,7 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
                     
                     db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
                         // REGISTRO EN BITACORA - CREAR SOLICITUD (Usa folio)
-                        registrarBitacora(solicitante_id, 'CREAR_SOLICITUD', `Creo la solicitud de recurso folio ${folio} por ${formatMoney(montoNum)}`);
+                        registrarBitacora(solicitante_id, 'CREAR_SOLICITUD', `Creo la solicitud de recurso folio ${folio} por ${formatMoney(montoNum)}`, req);
                         
                         res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
                         
@@ -526,7 +526,7 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
                             if (err6) return db.rollback(() => res.status(500).json({ success: false }));
                             
                             // REGISTRO EN BITACORA - AUTORIZAR (Usa folio)
-                            registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma etapa ${etapaFirma} en solicitud folio ${sol.folio}`);
+                            registrarBitacora(miUsuarioId, 'AUTORIZAR', `Firma etapa ${etapaFirma} en solicitud folio ${sol.folio}`, req);
                             
                             res.json({ success: true, nuevo_estatus: nuevoEstatus, message: 'Autorizado correctamente' });
 
@@ -593,7 +593,7 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
                 [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
                     db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
                         // REGISTRO EN BITACORA - RECHAZAR SOLICITUD (Usa folio)
-                        registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud folio ${folio}. Motivo: ${motivo || 'No especificado'}`);
+                        registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud folio ${folio}. Motivo: ${motivo || 'No especificado'}`, req);
                         
                         res.json({ success: true, message: 'Solicitud rechazada' });
                     });
@@ -623,7 +623,7 @@ router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (r
             `;
             db.query(queryFirma, [id, miUsuarioId], () => {
                 // REGISTRO EN BITACORA - Usa folio en lugar de ID
-                registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud folio ${folio}`);
+                registrarBitacora(miUsuarioId, 'SUBIR_COMPROBANTE', `Comprobante de pago subido para solicitud folio ${folio}`, req);
                 res.json({ success: true, message: 'Pago registrado' });
 
                 const querySol = `
@@ -705,7 +705,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             }
             
             // REGISTRO EN BITACORA - DESCARGAR PDF (Usa solo folio)
-            registrarBitacora(miUsuarioId, 'DESCARGAR_PDF_SOLICITUD', `Descargo el PDF de la solicitud folio ${solRows[0].folio}`);
+            registrarBitacora(miUsuarioId, 'DESCARGAR_PDF_SOLICITUD', `Descargo el PDF de la solicitud folio ${solRows[0].folio}`, req);
             
             generarPDFSolicitud(res, solRows[0], firmas || []);
         });

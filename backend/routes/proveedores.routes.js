@@ -455,7 +455,7 @@ router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
         const query = `UPDATE solicitudes_recursos SET fecha_limite_pago = ? WHERE id = ?`;
         db.query(query, [nueva_fecha, id], (err, result) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
-            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO', `Postergó el pago de la solicitud #${id} para la fecha ${nueva_fecha}`);
+            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO', `Postergó el pago de la solicitud #${id} para la fecha ${nueva_fecha}`, req);
             res.json({ success: true, message: 'Pago postergado correctamente' });
         });
     } 
@@ -484,7 +484,7 @@ router.post('/reportes/postergar-pago', verificarToken, (req, res) => {
                         const updateQuery = `UPDATE contratos_inversion SET pagos_irregulares_json = ? WHERE id = ?`;
                         db.query(updateQuery, [JSON.stringify(pagosIrregulares), id], (err) => {
                             if (err) return res.status(500).json({ success: false, message: err.message });
-                            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO_FONDEADOR', `Postergó el pago del fondeador contrato #${id} para la fecha ${nueva_fecha}`);
+                            registrarBitacora(req.usuario.id, 'POSTERGAR_PAGO_FONDEADOR', `Postergó el pago del fondeador contrato #${id} para la fecha ${nueva_fecha}`, req);
                             res.json({ success: true, message: 'Pago de fondeador postergado correctamente' });
                         });
                     } else {
@@ -517,7 +517,7 @@ router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (r
     `;
     db.query(query, [id_contrato, monto, url], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'PAGO_FONDEADOR', `Registró pago de rendimiento desde Reporte al contrato #${id_contrato}`);
+        registrarBitacora(req.usuario.id, 'PAGO_FONDEADOR', `Registró pago de rendimiento desde Reporte al contrato #${id_contrato}`, req);
         res.json({ success: true, message: 'Pago de inversor registrado exitosamente' });
     });
 });
@@ -566,7 +566,7 @@ router.post('/', verificarToken, (req, res) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: `Error en BD Proveedores: ${err.message}` }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Fallo al hacer COMMIT.' }));
-                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`);
+                    registrarBitacora(req.usuario.id, 'CREAR_PROVEEDOR', `Se registró al proveedor: ${nombre}`, req);
                     res.json({ success: true });
                 });
             });
@@ -593,7 +593,7 @@ router.put('/:id', verificarToken, (req, res) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: err.message }));
                 db.commit(err => {
                     if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`);
+                    registrarBitacora(req.usuario.id, 'EDITAR_PROVEEDOR', `Actualizó los datos de: ${nombre}`, req);
                     res.json({ success: true });
                 });
             });
@@ -607,7 +607,7 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
         const nombreProveedor = results[0].nombre_razon_social;
         db.query('UPDATE proveedores SET estatus_activo = ? WHERE id_persona = ?', [req.body.estatus_activo, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`);
+            registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió el estatus a ${req.body.estatus_activo ? 'Activo' : 'Suspendido'} del proveedor: ${nombreProveedor}`, req);
             res.json({ success: true });
         });
     });
@@ -619,7 +619,7 @@ router.delete('/:id', verificarToken, (req, res) => {
         const nombreProveedor = results[0].nombre_razon_social;
         db.query('UPDATE personas SET eliminado = 1 WHERE id = ?', [req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`);
+            registrarBitacora(req.usuario.id, 'ELIMINAR_PROVEEDOR', `Eliminó del directorio al proveedor: ${nombreProveedor}`, req);
             res.json({ success: true });
         });
     });
@@ -661,9 +661,9 @@ router.post('/pagos', verificarToken, upload.single('comprobante'), (req, res) =
         [id_proveedor, req.usuario.id, id_autoriza, monto_pago, concepto, num_factura_ref, url, estatus], (err) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
             if(estatus === 'PAGADO'){
-                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo a favor de: ${nombreProveedor}`);
+                registrarBitacora(req.usuario.id, 'PAGO_PROVEEDOR', `Registró y autorizó pago directo a favor de: ${nombreProveedor}`, req);
             } else {
-                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago para validación a favor de: ${nombreProveedor}`);
+                registrarBitacora(req.usuario.id, 'SOLICITUD_PAGO', `Envió solicitud de pago para validación a favor de: ${nombreProveedor}`, req);
             }
             res.json({ success: true, message: estatus === 'PAGADO' ? 'Pago registrado y autorizado' : 'Solicitud enviada para validación' });
         });
@@ -706,7 +706,7 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, (req, res) => {
         db.query('SELECT pp.concepto, pp.monto_pago, p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [id_pago], (err, row) => {
             if (!err && row.length > 0) {
                 const estatusLegible = nuevoEstatus.replace('_', ' ');
-                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`);
+                registrarBitacora(id_usuario, accionBitacora, `Marcó como ${estatusLegible} el pago de $${row[0].monto_pago} a favor de: ${row[0].nombre_razon_social}`, req);
             }
             res.json({ success: true });
         });
@@ -739,7 +739,7 @@ router.put('/autorizaciones/:id/aprobar', verificarToken, (req, res) => {
         const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
         db.query("UPDATE pagos_a_proveedores SET estatus = 'PAGADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'PAGO_AUTORIZADO', `Autorizó la salida de dinero a favor de: ${proveedor}`);
+            registrarBitacora(req.usuario.id, 'PAGO_AUTORIZADO', `Autorizó la salida de dinero a favor de: ${proveedor}`, req);
             res.json({ success: true });
         });
     });
@@ -751,7 +751,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, (req, res) => {
         const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
         db.query("UPDATE pagos_a_proveedores SET estatus = 'RECHAZADO', id_usuario_autoriza = ? WHERE id = ?", [req.usuario.id, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false });
-            registrarBitacora(req.usuario.id, 'PAGO_RECHAZADO', `Rechazó el pago solicitado para: ${proveedor}`);
+            registrarBitacora(req.usuario.id, 'PAGO_RECHAZADO', `Rechazó el pago solicitado para: ${proveedor}`, req);
             res.json({ success: true });
         });
     });
@@ -842,7 +842,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
             doc.restore();
         }
         doc.end();
-        registrarBitacora(req.usuario.id, 'DESCARGA_PDF', `Descargó Solicitud Universal de Pago para: ${pago.proveedor}`);
+        registrarBitacora(req.usuario.id, 'DESCARGA_PDF', `Descargó Solicitud Universal de Pago para: ${pago.proveedor}`, req);
     });
 });
 
@@ -928,7 +928,7 @@ router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), as
                 errores++; 
             }
         }
-        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} omitidos.`);
+        registrarBitacora(req.usuario.id, 'IMPORTAR_PROVEEDORES', `Importó proveedores desde Excel: ${procesados} exitosos, ${errores} omitidos.`, req);
         res.json({ success: true, message: `¡Se encontró la pestaña correcta! Proveedores importados: ${procesados}. Filas vacías o duplicados omitidos: ${errores}.` });
     } catch (error) { 
         console.error(error);

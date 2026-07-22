@@ -21,10 +21,21 @@ const viaticosroutes = require('./routes/viaticos.routes');
 const solicitudesRoutes = require('./routes/solicitudes.routes');
 const unidadesRoutes = require('./routes/unidades.routes');
 const configuracionRoutes = require('./routes/configuracion.routes');
+const logAccesos = require('./middlewares/logAccesos');
 
 const app = express();
+
+// Necesario para que req.ip / X-Forwarded-For reflejen la IP real del cliente
+// cuando la app corre detras de un reverse proxy (Plesk, Nginx, Apache).
+app.set('trust proxy', true);
+
 app.use(cors());
 app.use(express.json());
+
+// Bitacora tecnica global: registra CADA peticion al API (quien, que ruta,
+// metodo, IP, codigo de respuesta y duracion exacta), sin depender de que
+// cada endpoint la registre manualmente.
+app.use('/api', logAccesos);
 
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);

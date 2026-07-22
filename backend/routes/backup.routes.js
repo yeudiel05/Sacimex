@@ -30,7 +30,7 @@ router.get('/', verificarToken, async (req, res) => {
             }
         });
         
-        registrarBitacora(req.usuario.id, 'RESPALDO_BD', 'Descargó una copia completa de la base de datos (.sql)');
+        registrarBitacora(req.usuario.id, 'RESPALDO_BD', 'Descargó una copia completa de la base de datos (.sql)', req);
 
     } catch (error) {
         console.error("Error generando respaldo:", error);

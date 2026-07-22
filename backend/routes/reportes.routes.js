@@ -48,7 +48,7 @@ router.get('/clientes', verificarToken, async (req, res) => {
         res.setHeader('Content-Disposition', 'attachment; filename=Reporte_Clientes_Sacimex.xlsx');
 
         await workbook.xlsx.write(res);
-        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Clientes en Excel');
+        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Clientes en Excel', req);
         res.end();
     });
 });
@@ -80,7 +80,7 @@ router.get('/inversores', verificarToken, async (req, res) => {
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename=Reporte_Inversores_Sacimex.xlsx');
         await workbook.xlsx.write(res);
-        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Inversores');
+        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Inversores', req);
         res.end();
     });
 });
@@ -113,7 +113,7 @@ router.get('/proveedores', verificarToken, async (req, res) => {
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename=Reporte_Proveedores_Sacimex.xlsx');
         await workbook.xlsx.write(res);
-        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Proveedores');
+        registrarBitacora(req.usuario.id, 'EXPORTAR_REPORTE', 'Descargó reporte de Proveedores', req);
         res.end();
     });
 });

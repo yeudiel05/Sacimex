@@ -38,7 +38,7 @@ router.post('/', verificarToken, (req, res) => {
             return res.status(500).json({ success: false, message: 'Error interno al crear el rol.' });
         }
         
-        registrarBitacora(req.usuario.id, 'CREAR_ROL', `Se creó el nuevo rol: ${rolFormateado}`);
+        registrarBitacora(req.usuario.id, 'CREAR_ROL', `Se creó el nuevo rol: ${rolFormateado}`, req);
         res.json({ success: true, message: 'Rol creado con éxito.' });
     });
 });
@@ -62,7 +62,7 @@ router.put('/:id', verificarToken, (req, res) => {
     db.query('UPDATE catalogo_roles SET nombre_rol = ?, descripcion = ? WHERE id = ?', [rolFormateado, descripcion, req.params.id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al actualizar el rol.' });
         
-        registrarBitacora(req.usuario.id, 'EDITAR_ROL', `Se actualizaron los datos del rol ID ${req.params.id}`);
+        registrarBitacora(req.usuario.id, 'EDITAR_ROL', `Se actualizaron los datos del rol ID ${req.params.id}`, req);
         res.json({ success: true, message: 'Rol actualizado correctamente.' });
     });
 });
@@ -84,7 +84,7 @@ router.delete('/:id', verificarToken, (req, res) => {
     db.query('UPDATE catalogo_roles SET estatus_activo = 0 WHERE id = ?', [req.params.id], (err, result) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al intentar eliminar el rol.' });
         
-        registrarBitacora(req.usuario.id, 'ELIMINAR_ROL', `Se desactivó el rol ID ${req.params.id}`);
+        registrarBitacora(req.usuario.id, 'ELIMINAR_ROL', `Se desactivó el rol ID ${req.params.id}`, req);
         res.json({ success: true, message: 'Rol eliminado con éxito.' });
     });
 });
