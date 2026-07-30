@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './MatrizAutorizacion.css';
 
-const API = 'http://localhost:3001/api';
+const API = '/api';
 
 const COLORES_DEPTO = ['#10d440', '#4338ca', '#c2410c', '#0891b2', '#be185d', '#7c3aed', '#b45309', '#0f766e', '#dc2626'];
 const colorParaDepto = (idDepto) => COLORES_DEPTO[(idDepto || 0) % COLORES_DEPTO.length];

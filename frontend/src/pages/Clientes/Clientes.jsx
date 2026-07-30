@@ -49,7 +49,7 @@ function Clientes() {
   const fetchClientes = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const response = await fetch('http://localhost:3001/api/clientes', { headers });
+      const response = await fetch('/api/clientes', { headers });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
       if (data.success) setClientes(data.data);
@@ -86,7 +86,7 @@ function Clientes() {
   const ejecutarEliminar = async (id_persona) => {
     const authHeaders = getAuthHeaders(); if (!authHeaders) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/clientes/${id_persona}`, { method: 'DELETE', headers: authHeaders });
+      const response = await fetch(`/api/clientes/${id_persona}`, { method: 'DELETE', headers: authHeaders });
       if (handleAuthError(response.status)) return;
       if ((await response.json()).success) fetchClientes();
     } catch (error) { console.error(error); }
@@ -110,7 +110,7 @@ function Clientes() {
     if (!validarFormulario()) return;
     const authHeaders = getAuthHeaders(); if (!authHeaders) return;
     setIsLoading(true);
-    const url = isEditing ? `http://localhost:3001/api/clientes/${editId}` : 'http://localhost:3001/api/clientes';
+    const url = isEditing ? `/api/clientes/${editId}` : '/api/clientes';
     const method = isEditing ? 'PUT' : 'POST';
 
     try {
@@ -126,7 +126,7 @@ function Clientes() {
   const cambiarEstatus = async (id_persona, nuevoEstatus) => {
     const authHeaders = getAuthHeaders(); if (!authHeaders) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/clientes/${id_persona}/estatus`, {
+      const response = await fetch(`/api/clientes/${id_persona}/estatus`, {
         method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus: nuevoEstatus })
       });
       if (handleAuthError(response.status)) return;
@@ -138,7 +138,7 @@ function Clientes() {
   const fetchExpedientes = async (id_persona) => {
     const authHeaders = getAuthHeaders(); if (!authHeaders) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/clientes/expedientes/${id_persona}`, { headers: authHeaders });
+      const response = await fetch(`/api/clientes/expedientes/${id_persona}`, { headers: authHeaders });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
       if (data.success) setArchivosCliente(data.data);
@@ -173,7 +173,7 @@ function Clientes() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/clientes/expedientes/upload', { 
+      const response = await fetch('/api/clientes/expedientes/upload', { 
         method: 'POST', 
         headers: authHeaders, 
         body: formDataUpload 
@@ -193,7 +193,7 @@ function Clientes() {
     if (!window.confirm("¿Seguro que deseas eliminar este documento del servidor permanentemente?")) return;
     const authHeaders = getAuthHeaders(); if (!authHeaders) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/clientes/expedientes/${id_archivo}`, { method: 'DELETE', headers: authHeaders });
+      const response = await fetch(`/api/clientes/expedientes/${id_archivo}`, { method: 'DELETE', headers: authHeaders });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
       if (data.success) fetchExpedientes(clienteActivo.id);
@@ -620,7 +620,7 @@ function Clientes() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <a 
-                              href={`http://localhost:3001/${archivo.ruta_archivo}`} 
+                              href={`/${archivo.ruta_archivo}`} 
                               target="_blank" 
                               rel="noreferrer" 
                               style={{

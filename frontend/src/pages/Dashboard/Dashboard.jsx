@@ -32,7 +32,7 @@ function Dashboard() {
     if (showLoader) setIsLoading(true);
     
     try {
-      const res = await fetch('http://localhost:3001/api/dashboard/stats', { headers });
+      const res = await fetch('/api/dashboard/stats', { headers });
       if (res.status === 401 || res.status === 403) {
         localStorage.clear(); navigate('/'); return;
       }

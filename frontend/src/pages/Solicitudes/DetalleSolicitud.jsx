@@ -74,7 +74,7 @@ const DetalleSolicitud = () => {
     const [msgExito, setMsgExito]         = useState('');
 
     const miRol    = localStorage.getItem('rol')    || '';
-    const API_URL = 'http://localhost:3001/api';
+    const API_URL = '/api';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token');
@@ -236,7 +236,7 @@ const DetalleSolicitud = () => {
                     {/* NUEVO BOTÓN: VISUALIZAR COTIZACIÓN/SOPORTE ADJUNTO */}
                     {solicitud.cotizacion_path && (
                         <a 
-                            href={`http://localhost:3001/${solicitud.cotizacion_path}`} 
+                            href={`/${solicitud.cotizacion_path}`} 
                             target="_blank" 
                             rel="noreferrer" 
                             style={{ 

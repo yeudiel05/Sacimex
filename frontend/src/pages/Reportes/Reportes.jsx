@@ -17,7 +17,7 @@ function Reportes() {
     setLoading(tipo);
 
     try {
-      const response = await fetch(`http://localhost:3001/api/reportes/${tipo}`, {
+      const response = await fetch(`/api/reportes/${tipo}`, {
         method: 'GET',
         headers: headers
       });

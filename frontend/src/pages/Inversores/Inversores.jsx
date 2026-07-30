@@ -259,13 +259,13 @@ function Inversores() {
     const getAuthHeaders = () => { const token = localStorage.getItem('token'); if (!token) { navigate('/'); return null; } return { 'Authorization': `Bearer ${token}` }; };
     const handleAuthError = (status) => { if (status === 401 || status === 403) { localStorage.removeItem('token'); localStorage.removeItem('rol'); navigate('/'); return true; } return false; };
 
-    const fetchTasasActivas = async () => { const headers = getAuthHeaders(); if (!headers) return; try { const res = await fetch('http://localhost:3001/api/tasas', { headers }); const data = await res.json(); if (data.success) setTasas(data.data.filter(t => t.estatus_activo === 1 && (!t.tipo_producto || t.tipo_producto === 'FONDEO'))); } catch (error) { console.error(error); } };
-    const fetchInversores = async () => { const headers = getAuthHeaders(); if (!headers) return; try { const response = await fetch('http://localhost:3001/api/inversores', { headers }); if (handleAuthError(response.status)) return; const data = await response.json(); if (data.success) setInversores(data.data); } catch (error) { console.error(error); } };
+    const fetchTasasActivas = async () => { const headers = getAuthHeaders(); if (!headers) return; try { const res = await fetch('/api/tasas', { headers }); const data = await res.json(); if (data.success) setTasas(data.data.filter(t => t.estatus_activo === 1 && (!t.tipo_producto || t.tipo_producto === 'FONDEO'))); } catch (error) { console.error(error); } };
+    const fetchInversores = async () => { const headers = getAuthHeaders(); if (!headers) return; try { const response = await fetch('/api/inversores', { headers }); if (handleAuthError(response.status)) return; const data = await response.json(); if (data.success) setInversores(data.data); } catch (error) { console.error(error); } };
 
     const fetchPagosProximos = async () => {
         const headers = getAuthHeaders(); if (!headers) return;
         try {
-            const res = await fetch('http://localhost:3001/api/inversores/reportes/pagos-por-vencer', { headers });
+            const res = await fetch('/api/inversores/reportes/pagos-por-vencer', { headers });
             const data = await res.json();
             if(data.success) {
                 setPagosProximos(data.data);
@@ -278,7 +278,7 @@ function Inversores() {
     const fetchBancos = async () => {
         const headers = getAuthHeaders(); if (!headers) return;
         try {
-            const res = await fetch('http://localhost:3001/api/configuracion/bancos', { headers });
+            const res = await fetch('/api/configuracion/bancos', { headers });
             const data = await res.json();
             if (data.success) setBancosDb(data.data.filter(b => b.estatus_activo === 1));
         } catch (error) { console.error(error); }
@@ -487,7 +487,7 @@ function Inversores() {
             }));
 
         try {
-            const res = await fetch(`http://localhost:3001/api/inversores/contratos/${contratoParaAmortizacion.id}/pagos-irregulares`, {
+            const res = await fetch(`/api/inversores/contratos/${contratoParaAmortizacion.id}/pagos-irregulares`, {
                 method: 'PUT', 
                 headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -520,8 +520,8 @@ function Inversores() {
         const headers = getAuthHeaders(); if(!headers) return;
         try {
             const [resContratos, resMovimientos] = await Promise.all([
-                fetch(`http://localhost:3001/api/inversores/contratos/${inversor.id}`, { headers }),
-                fetch(`http://localhost:3001/api/inversores/movimientos/${inversor.id}`, { headers })
+                fetch(`/api/inversores/contratos/${inversor.id}`, { headers }),
+                fetch(`/api/inversores/movimientos/${inversor.id}`, { headers })
             ]);
 
             const dataContratos = await resContratos.json();
@@ -647,7 +647,7 @@ function Inversores() {
         
         const headers = getAuthHeaders(); if(!headers) return; setIsAlerting(true);
         try {
-            const res = await fetch('http://localhost:3001/api/inversores/alertas-correo', {
+            const res = await fetch('/api/inversores/alertas-correo', {
                 method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: targetEmail, id_inversor: inversorActivo.id })
             });
@@ -660,7 +660,7 @@ function Inversores() {
     const descargarPDFInteractivo = async () => {
         const headers = getAuthHeaders(); if (!headers) return; setIsLoading(true);
         try {
-            const url = `http://localhost:3001/api/inversores/contratos/${contratoParaAmortizacion.id}/tabla-amortizacion/generar-pdf`;
+            const url = `/api/inversores/contratos/${contratoParaAmortizacion.id}/tabla-amortizacion/generar-pdf`;
             const payload = {
                 tablaData: tablaInteractivaRender,
                 fondeador: inversorActivo?.nombre || '',
@@ -687,7 +687,7 @@ function Inversores() {
     
     const ejecutarEliminarInversor = async (id) => { 
         const headers = getAuthHeaders(); if (!headers) return; 
-        try { const res = await fetch(`http://localhost:3001/api/inversores/${id}`, { method: 'DELETE', headers }); 
+        try { const res = await fetch(`/api/inversores/${id}`, { method: 'DELETE', headers }); 
             if (handleAuthError(res.status)) return; 
             if ((await res.json()).success) { setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null }); fetchInversores(); }
         } catch (error) { console.error(error); } 
@@ -697,13 +697,13 @@ function Inversores() {
 
     const handleSubmit = async (e) => {
         e.preventDefault(); if (!validarFormulario()) return; const headers = getAuthHeaders(); if (!headers) return; setIsLoading(true);
-        const url = isEditing ? `http://localhost:3001/api/inversores/${editId}` : 'http://localhost:3001/api/inversores';
+        const url = isEditing ? `/api/inversores/${editId}` : '/api/inversores';
         const method = isEditing ? 'PUT' : 'POST';
         const payload = { ...formData, limite_credito: parseInputMonto(formData.limite_credito) };
         try { const res = await fetch(url, { method: method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); if (handleAuthError(res.status)) return; const data = await res.json(); if (data.success) { setIsModalOpen(false); fetchInversores(); } else setFormError(data.message); } catch (error) { setFormError("Error de servidor."); } finally { setIsLoading(false); }
     };
 
-    const cambiarEstatusInversor = async (id_persona, estatus_actual) => { const nuevoEstatus = estatus_actual === 1 ? 0 : 1; const authHeaders = getAuthHeaders(); if (!authHeaders) return; try { const response = await fetch(`http://localhost:3001/api/inversores/${id_persona}/estatus`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); if (handleAuthError(response.status)) return; if ((await response.json()).success) fetchInversores(); } catch (error) {} };
+    const cambiarEstatusInversor = async (id_persona, estatus_actual) => { const nuevoEstatus = estatus_actual === 1 ? 0 : 1; const authHeaders = getAuthHeaders(); if (!authHeaders) return; try { const response = await fetch(`/api/inversores/${id_persona}/estatus`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); if (handleAuthError(response.status)) return; if ((await response.json()).success) fetchInversores(); } catch (error) {} };
 
     const abrirModalFondeoDesdeSimulador = () => { 
         let idTasa = '';
@@ -731,7 +731,7 @@ function Inversores() {
         const payload = { ...formFondeo }; payload.monto_inicial = parseInputMonto(payload.monto_inicial); if (payload.tipo_amortizacion === 'personalizado') payload.plan_json = JSON.stringify(payload.plan_personalizado);
         const headers = getAuthHeaders(); setIsLoading(true);
         try { 
-            const res = await fetch('http://localhost:3001/api/inversores/inversion', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+            const res = await fetch('/api/inversores/inversion', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
             const data = await res.json(); 
             if(data.success) { 
                 setIsFondeoModalOpen(false); setDropdownFondeadorOpen(false); setFormFondeo({ id_inversor: '', monto_inicial: '', id_tasa: '', plazo_meses: '12', frecuencia_pagos: 'MENSUAL', tipo_amortizacion: 'personalizado', fecha_inicio: new Date().toISOString().split('T')[0], plan_personalizado: [], numero_disposicion: '' }); setFiltroFondeador(''); fetchInversores(); alert("Contrato Generado."); 
@@ -742,7 +742,7 @@ function Inversores() {
     };
 
     const abrirPanel = async (inversor) => { setInversorActivo(inversor); setActiveTab('contratos'); setShowNuevoContrato(false); setShowNuevoMovimiento(false); setEditandoContratoId(null); setPanelOpen(true); fetchContratos(inversor.id); fetchBeneficiarios(inversor.id); fetchMovimientos(inversor.id); };
-    const fetchContratos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/contratos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setContratos(data.data); } catch(e) {} };
+    const fetchContratos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`/api/inversores/contratos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setContratos(data.data); } catch(e) {} };
 
     const iniciarEdicionContrato = (c) => {
         setFormContrato({
@@ -759,7 +759,7 @@ function Inversores() {
         e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true); 
         if (editandoContratoId) {
             try {
-                const res = await fetch(`http://localhost:3001/api/inversores/contratos/${editandoContratoId}`, {
+                const res = await fetch(`/api/inversores/contratos/${editandoContratoId}`, {
                     method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fecha_inicio: formContrato.fecha_inicio, numero_disposicion: formContrato.numero_disposicion })
                 });
@@ -771,7 +771,7 @@ function Inversores() {
         } else {
             const payload = { ...formContrato, id_inversor: inversorActivo.id }; payload.monto_inicial = parseInputMonto(payload.monto_inicial); if (payload.tipo_amortizacion === 'personalizado') payload.plan_json = JSON.stringify(payload.plan_personalizado);
             try { 
-                const res = await fetch('http://localhost:3001/api/inversores/contratos', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+                const res = await fetch('/api/inversores/contratos', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
                 const data = await res.json(); 
                 if (data.success) { 
                     setShowNuevoContrato(false); fetchContratos(inversorActivo.id); fetchPagosProximos(); 
@@ -782,8 +782,8 @@ function Inversores() {
         }
     };
 
-    const generarPDFContrato = async (id_contrato) => { const headers = getAuthHeaders(); setIsLoading(true); try { const response = await fetch(`http://localhost:3001/api/inversores/contratos/${id_contrato}/pdf`, { headers }); const blob = await response.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `Contrato_${id_contrato}.pdf`; link.click(); } catch (error) {} finally { setIsLoading(false); } };
-    const fetchBeneficiarios = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setBeneficiarios(data.data); } catch(e) {} };
+    const generarPDFContrato = async (id_contrato) => { const headers = getAuthHeaders(); setIsLoading(true); try { const response = await fetch(`/api/inversores/contratos/${id_contrato}/pdf`, { headers }); const blob = await response.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `Contrato_${id_contrato}.pdf`; link.click(); } catch (error) {} finally { setIsLoading(false); } };
+    const fetchBeneficiarios = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`/api/inversores/beneficiarios/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setBeneficiarios(data.data); } catch(e) {} };
     const totalPorcentaje = beneficiarios.reduce((acc, curr) => acc + parseFloat(curr.porcentaje), 0);
     
     const handleGuardarBeneficiario = async (e) => { 
@@ -805,7 +805,7 @@ function Inversores() {
             
             if (fileIne) formData.append('ine', fileIne);
 
-            const res = await fetch('http://localhost:3001/api/inversores/beneficiarios', { 
+            const res = await fetch('/api/inversores/beneficiarios', { 
                 method: 'POST', 
                 headers: { 
                     'Authorization': `Bearer ${token}` 
@@ -831,8 +831,8 @@ function Inversores() {
         } 
     };
 
-    const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Eliminar?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) {} };
-    const fetchMovimientos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`http://localhost:3001/api/inversores/movimientos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setMovimientos(data.data); } catch(e){} };
+    const eliminarBeneficiario = async (id) => { if (!window.confirm("¿Eliminar?")) return; const headers = getAuthHeaders(); try { const res = await fetch(`/api/inversores/beneficiarios/${id}`, { method: 'DELETE', headers }); if ((await res.json()).success) fetchBeneficiarios(inversorActivo.id); } catch (error) {} };
+    const fetchMovimientos = async (id_inversor) => { const headers = getAuthHeaders(); try { const res = await fetch(`/api/inversores/movimientos/${id_inversor}`, { headers }); const data = await res.json(); if (data.success) setMovimientos(data.data); } catch(e){} };
     
     const handleGuardarMovimiento = async (e) => { 
         e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true); 
@@ -842,7 +842,7 @@ function Inversores() {
         formDataUpload.append('monto', parseInputMonto(formMovimiento.monto)); 
         if (fileComprobante) formDataUpload.append('comprobante', fileComprobante); 
         try { 
-            const res = await fetch('http://localhost:3001/api/inversores/movimientos', { method: 'POST', headers, body: formDataUpload }); 
+            const res = await fetch('/api/inversores/movimientos', { method: 'POST', headers, body: formDataUpload }); 
             const data = await res.json(); 
             if (data.success) { 
                 setShowNuevoMovimiento(false); 
@@ -964,7 +964,7 @@ function Inversores() {
                                 <strong style={{ display: 'block', color: '#0f172a' }}>{b.nombre_completo}</strong> 
                                 <span style={{ fontSize: '12px', color: '#64748b' }}>Parentesco: {b.parentesco} - Tel: {b.telefono || 'N/A'}</span> 
                                 {b.ine_url && (
-                                    <a href={`http://localhost:3001${b.ine_url}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '6px', fontSize: '12px', color: '#2563eb', textDecoration: 'none', fontWeight: 'bold' }}>
+                                    <a href={`${b.ine_url}`} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '6px', fontSize: '12px', color: '#2563eb', textDecoration: 'none', fontWeight: 'bold' }}>
                                         📄 Ver Documento INE
                                     </a>
                                 )}
@@ -1049,7 +1049,7 @@ function Inversores() {
                                         </div>
                                         <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}> 
                                             <span className="mov-monto retiro" style={{ fontWeight: 'bold', fontSize: '15px', color: iconColor }}>-{formatMoney(mov.monto)}</span> 
-                                            {mov.recibo_comprobante && (<a href={`http://localhost:3001/${mov.recibo_comprobante}`} target="_blank" rel="noreferrer" className="btn-cancel" style={{ padding: '4px 10px', fontSize: '11px', textDecoration: 'none' }}>Ver Doc</a>)} 
+                                            {mov.recibo_comprobante && (<a href={`/${mov.recibo_comprobante}`} target="_blank" rel="noreferrer" className="btn-cancel" style={{ padding: '4px 10px', fontSize: '11px', textDecoration: 'none' }}>Ver Doc</a>)} 
                                         </div> 
                                     </div> 
                                 ); 

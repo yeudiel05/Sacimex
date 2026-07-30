@@ -76,14 +76,14 @@ function Configuracion() {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
           const [resTasas, resUnidades, resConceptos, resBancos, resDeptos, resPuestos, resRoles, resCategorias] = await Promise.all([
-              fetch('http://localhost:3001/api/tasas', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/unidades', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/conceptos', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/bancos', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/departamentos', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/puestos', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/roles', { headers }).catch(()=>null),
-              fetch('http://localhost:3001/api/configuracion/categorias', { headers }).catch(()=>null) 
+              fetch('/api/tasas', { headers }).catch(()=>null),
+              fetch('/api/unidades', { headers }).catch(()=>null),
+              fetch('/api/configuracion/conceptos', { headers }).catch(()=>null),
+              fetch('/api/configuracion/bancos', { headers }).catch(()=>null),
+              fetch('/api/configuracion/departamentos', { headers }).catch(()=>null),
+              fetch('/api/configuracion/puestos', { headers }).catch(()=>null),
+              fetch('/api/roles', { headers }).catch(()=>null),
+              fetch('/api/configuracion/categorias', { headers }).catch(()=>null) 
           ]);
 
           if (resTasas && resTasas.ok) { const d = await resTasas.json(); if(d.success) setTasas(d.data); }
@@ -105,7 +105,7 @@ function Configuracion() {
     setIsBackingUp(true);
 
     try {
-      const res = await fetch('http://localhost:3001/api/backup', { method: 'GET', headers });
+      const res = await fetch('/api/backup', { method: 'GET', headers });
       if (!res.ok) throw new Error("Error al generar respaldo");
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -134,7 +134,7 @@ function Configuracion() {
     e.preventDefault(); setFormError('');
     if (Number(formData.tasa_anual_esperada) <= 0) return setFormError('El porcentaje debe ser mayor a 0.');
     const headers = getAuthHeaders(); setIsLoading(true);
-    const url = isEditing ? `http://localhost:3001/api/tasas/${editId}` : 'http://localhost:3001/api/tasas';
+    const url = isEditing ? `/api/tasas/${editId}` : '/api/tasas';
     const method = isEditing ? 'PUT' : 'POST';
     const payload = { ...formData, cobra_iva: formData.cobra_iva ? 1 : 0 };
     try {
@@ -145,10 +145,10 @@ function Configuracion() {
   };
   const cambiarEstatus = async (id, estatus_actual) => {
     const headers = getAuthHeaders();
-    await fetch(`http://localhost:3001/api/tasas/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual === 1 ? 0 : 1 }) });
+    await fetch(`/api/tasas/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual === 1 ? 0 : 1 }) });
     fetchAllData();
   };
-  const triggerEliminar = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Producto', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/tasas/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
+  const triggerEliminar = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Producto', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`/api/tasas/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
   // CONTROLADORES DE MODALES (UNIDADES)
@@ -157,7 +157,7 @@ function Configuracion() {
   const openEditUnidadModal = (u) => { setIsEditingUnidad(true); setEditUnidadId(u.id); setUnidadFormData({ nombre: u.nombre }); setIsUnidadModalOpen(true); };
   const handleUnidadSubmit = async (e) => {
     e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true);
-    const url = isEditingUnidad ? `http://localhost:3001/api/unidades/${editUnidadId}` : 'http://localhost:3001/api/unidades';
+    const url = isEditingUnidad ? `/api/unidades/${editUnidadId}` : '/api/unidades';
     try {
       const res = await fetch(url, { method: isEditingUnidad ? 'PUT' : 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(unidadFormData) });
       const data = await res.json();
@@ -166,10 +166,10 @@ function Configuracion() {
   };
   const cambiarEstatusUnidad = async (id, estatus_actual) => {
     const headers = getAuthHeaders();
-    await fetch(`http://localhost:3001/api/unidades/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
+    await fetch(`/api/unidades/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
     fetchAllData();
   };
-  const triggerEliminarUnidad = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Unidad', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/unidades/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
+  const triggerEliminarUnidad = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Unidad', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`/api/unidades/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
   // CONTROLADORES DE MODALES (CONCEPTOS)
@@ -178,7 +178,7 @@ function Configuracion() {
   const openEditConceptoModal = (c) => { setIsEditingConcepto(true); setFormConcepto({ clave: c.clave, descripcion: c.descripcion, requiere_vobo: c.requiere_vobo === 1, area_visto_bueno: c.area_visto_bueno || '' }); setIsConceptoModalOpen(true); };
   const handleConceptoSubmit = async (e) => {
       e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true);
-      const url = isEditingConcepto ? `http://localhost:3001/api/configuracion/conceptos/${formConcepto.clave}` : 'http://localhost:3001/api/configuracion/conceptos';
+      const url = isEditingConcepto ? `/api/configuracion/conceptos/${formConcepto.clave}` : '/api/configuracion/conceptos';
       try {
           const res = await fetch(url, { method: isEditingConcepto ? 'PUT' : 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(formConcepto) });
           const data = await res.json();
@@ -187,10 +187,10 @@ function Configuracion() {
   };
   const cambiarEstatusConcepto = async (clave, estatus_actual) => {
     const headers = getAuthHeaders();
-    await fetch(`http://localhost:3001/api/configuracion/conceptos/${clave}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
+    await fetch(`/api/configuracion/conceptos/${clave}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) });
     fetchAllData();
   };
-  const triggerEliminarConcepto = (clave, descripcion) => { setConfirmModal({ isOpen: true, title: 'Eliminar Concepto', message: `¿Estás seguro de eliminar "${descripcion}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/conceptos/${clave}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
+  const triggerEliminarConcepto = (clave, descripcion) => { setConfirmModal({ isOpen: true, title: 'Eliminar Concepto', message: `¿Estás seguro de eliminar "${descripcion}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/conceptos/${clave}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
   // CONTROLADORES DE MODALES (BANCOS)
@@ -199,15 +199,15 @@ function Configuracion() {
   const openEditBancoModal = (b) => { setIsEditingBanco(true); setEditBancoId(b.id); setBancoFormData({ nombre: b.nombre }); setIsBancoModalOpen(true); };
   const handleBancoSubmit = async (e) => {
       e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true);
-      const url = isEditingBanco ? `http://localhost:3001/api/configuracion/bancos/${editBancoId}` : 'http://localhost:3001/api/configuracion/bancos';
+      const url = isEditingBanco ? `/api/configuracion/bancos/${editBancoId}` : '/api/configuracion/bancos';
       try {
           const res = await fetch(url, { method: isEditingBanco ? 'PUT' : 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(bancoFormData) });
           const data = await res.json();
           if (data.success) { setIsBancoModalOpen(false); fetchAllData(); } else alert(data.message);
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
-  const cambiarEstatusBanco = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/bancos/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
-  const triggerEliminarBanco = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Banco', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/bancos/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
+  const cambiarEstatusBanco = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/bancos/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
+  const triggerEliminarBanco = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Banco', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/bancos/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
   // CONTROLADORES DE MODALES (CATEGORÍAS)
@@ -216,15 +216,15 @@ function Configuracion() {
   const openEditCategoriaModal = (c) => { setIsEditingCategoria(true); setEditCategoriaId(c.id); setCategoriaFormData({ nombre: c.nombre }); setIsCategoriaModalOpen(true); };
   const handleCategoriaSubmit = async (e) => {
       e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true);
-      const url = isEditingCategoria ? `http://localhost:3001/api/configuracion/categorias/${editCategoriaId}` : 'http://localhost:3001/api/configuracion/categorias';
+      const url = isEditingCategoria ? `/api/configuracion/categorias/${editCategoriaId}` : '/api/configuracion/categorias';
       try {
           const res = await fetch(url, { method: isEditingCategoria ? 'PUT' : 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(categoriaFormData) });
           const data = await res.json();
           if (data.success) { setIsCategoriaModalOpen(false); fetchAllData(); } else alert(data.message);
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
-  const cambiarEstatusCategoria = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/categorias/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
-  const triggerEliminarCategoria = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Categoría', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/categorias/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
+  const cambiarEstatusCategoria = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/categorias/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
+  const triggerEliminarCategoria = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Categoría', message: `¿Estás seguro de eliminar "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/categorias/${id}`, { method: 'DELETE', headers }); fetchAllData(); } }); };
 
   // ==========================================
   // CONTROLADORES DE MODALES (PUESTOS)
@@ -247,7 +247,7 @@ function Configuracion() {
       e.preventDefault(); 
       if(!puestoFormData.nombre.trim()) return alert("El nombre es requerido.");
       const headers = getAuthHeaders(); setIsLoading(true);
-      const url = isEditingPuesto ? `http://localhost:3001/api/configuracion/puestos/${editPuestoId}` : 'http://localhost:3001/api/configuracion/puestos';
+      const url = isEditingPuesto ? `/api/configuracion/puestos/${editPuestoId}` : '/api/configuracion/puestos';
       const payload = { ...puestoFormData, puede_solicitar_default: puestoFormData.puede_solicitar_default ? 1 : 0 };
       try {
           const res = await fetch(url, { method: isEditingPuesto ? 'PUT' : 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -255,8 +255,8 @@ function Configuracion() {
           if (data.success) { setIsPuestoModalOpen(false); fetchAllData(); } else alert(data.message);
       } catch (error) { console.error(error); } finally { setIsLoading(false); }
   };
-  const cambiarEstatusPuesto = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`http://localhost:3001/api/configuracion/puestos/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
-  const triggerEliminarPuesto = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Puesto', message: `¿Estás seguro de eliminar el cargo "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); const res = await fetch(`http://localhost:3001/api/configuracion/puestos/${id}`, { method: 'DELETE', headers }); const data = await res.json(); if(data.success) fetchAllData(); else alert(data.message); } }); };
+  const cambiarEstatusPuesto = async (id, estatus_actual) => { const headers = getAuthHeaders(); await fetch(`/api/configuracion/puestos/${id}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: estatus_actual ? 0 : 1 }) }); fetchAllData(); };
+  const triggerEliminarPuesto = (id, nombre) => { setConfirmModal({ isOpen: true, title: 'Eliminar Puesto', message: `¿Estás seguro de eliminar el cargo "${nombre}"?`, onConfirm: async () => { const headers = getAuthHeaders(); const res = await fetch(`/api/configuracion/puestos/${id}`, { method: 'DELETE', headers }); const data = await res.json(); if(data.success) fetchAllData(); else alert(data.message); } }); };
 
 
   return (

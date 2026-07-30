@@ -60,7 +60,7 @@ function Usuarios() {
   const fetchUsuarios = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch('http://localhost:3001/api/usuarios', { headers });
+      const res = await fetch('/api/usuarios', { headers });
       const data = await res.json();
       if (data.success) setUsuarios(data.data);
     } catch (error) { console.error(error); }
@@ -69,7 +69,7 @@ function Usuarios() {
   const fetchRoles = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch('http://localhost:3001/api/roles', { headers });
+      const res = await fetch('/api/roles', { headers });
       const data = await res.json();
       if (data.success) setRoles(data.data);
     } catch (error) { console.error(error); }
@@ -78,7 +78,7 @@ function Usuarios() {
   const fetchUnidades = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch('http://localhost:3001/api/unidades', { headers });
+      const res = await fetch('/api/unidades', { headers });
       const data = await res.json();
       if (data.success) setUnidades(data.data);
     } catch (error) { console.error("Error al obtener unidades:", error); }
@@ -87,7 +87,7 @@ function Usuarios() {
   const fetchBancos = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-          const res = await fetch('http://localhost:3001/api/configuracion/bancos', { headers });
+          const res = await fetch('/api/configuracion/bancos', { headers });
           const data = await res.json();
           if (data.success) setBancosDb(data.data);
       } catch (error) { console.error(error); }
@@ -96,7 +96,7 @@ function Usuarios() {
   const fetchDepartamentos = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-          const res = await fetch('http://localhost:3001/api/configuracion/departamentos', { headers });
+          const res = await fetch('/api/configuracion/departamentos', { headers });
           const data = await res.json();
           if (data.success) setDepartamentos(data.data);
       } catch (error) { console.error(error); }
@@ -105,7 +105,7 @@ function Usuarios() {
   const fetchPuestos = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-          const res = await fetch('http://localhost:3001/api/configuracion/puestos', { headers });
+          const res = await fetch('/api/configuracion/puestos', { headers });
           const data = await res.json();
           if (data.success) setPuestosDb(data.data.filter(p => p.estatus_activo === 1 || p.estatus_activo === true));
       } catch (error) { console.error(error); }
@@ -138,7 +138,7 @@ function Usuarios() {
   const fetchExpedienteCompleto = async (id) => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/usuarios/${id}`, { headers });
+      const res = await fetch(`/api/usuarios/${id}`, { headers });
       const data = await res.json();
       if (data.success) {
         const u = data.data; // Aquí vienen todos los campos de la BD cruzados
@@ -193,7 +193,7 @@ function Usuarios() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
 
-    const url = isEditing ? `http://localhost:3001/api/usuarios/${editId}` : 'http://localhost:3001/api/usuarios';
+    const url = isEditing ? `/api/usuarios/${editId}` : '/api/usuarios';
     const method = isEditing ? 'PUT' : 'POST';
 
     const formPayload = new FormData();
@@ -229,7 +229,7 @@ function Usuarios() {
     const nuevoEstatus = estatus_actual === 1 ? 0 : 1;
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/usuarios/${id}/estatus`, { 
+      const res = await fetch(`/api/usuarios/${id}/estatus`, { 
         method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) 
       });
       if ((await res.json()).success) fetchUsuarios();
@@ -242,7 +242,7 @@ function Usuarios() {
       message: `¿Estás seguro de eliminar al usuario ${nombre}? Perderá el acceso inmediatamente.`,
       onConfirm: async () => {
         const headers = getAuthHeaders();
-        await fetch(`http://localhost:3001/api/usuarios/${id_persona}`, { method: 'DELETE', headers });
+        await fetch(`/api/usuarios/${id_persona}`, { method: 'DELETE', headers });
         fetchUsuarios();
       }
     });
@@ -255,7 +255,7 @@ function Usuarios() {
     const headers = getAuthHeaders();
     setIsLoading(true);
     
-    const url = isEditingRol ? `http://localhost:3001/api/roles/${editRolId}` : 'http://localhost:3001/api/roles';
+    const url = isEditingRol ? `/api/roles/${editRolId}` : '/api/roles';
     const method = isEditingRol ? 'PUT' : 'POST';
 
     try {
@@ -292,7 +292,7 @@ function Usuarios() {
     if(!window.confirm("¿Seguro que deseas desactivar este rol? Ningún usuario nuevo podrá asignárselo.")) return;
     const headers = getAuthHeaders();
     try {
-      const res = await fetch(`http://localhost:3001/api/roles/${id_rol}`, { method: 'DELETE', headers });
+      const res = await fetch(`/api/roles/${id_rol}`, { method: 'DELETE', headers });
       const data = await res.json();
       if (data.success) fetchRoles(); else alert(data.message);
     } catch (error) { console.error(error); }
@@ -464,7 +464,7 @@ function Usuarios() {
                                             ROL: {user.rol}
                                         </span>
                                         {user.firma ? (
-                                            <img src={`http://localhost:3001/${user.firma}`} alt="Firma" style={{ height: '24px', objectFit: 'contain', border: '1px dashed #cbd5e1', padding: '2px', borderRadius: '4px' }} />
+                                            <img src={`/${user.firma}`} alt="Firma" style={{ height: '24px', objectFit: 'contain', border: '1px dashed #cbd5e1', padding: '2px', borderRadius: '4px' }} />
                                         ) : (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: '12px'}}><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>

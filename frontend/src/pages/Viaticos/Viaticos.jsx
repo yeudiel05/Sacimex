@@ -93,7 +93,7 @@ function Viaticos() {
       return;
     }
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+      const res = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
@@ -175,7 +175,7 @@ function Viaticos() {
     if (!comp) return;
     setGuardandoComp(prev => ({ ...prev, [sol.id]: true }));
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+      const res = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify(comp)
@@ -200,7 +200,7 @@ function Viaticos() {
     if (!comp) return;
     setGuardandoComp(prev => ({ ...prev, [sol.id]: true }));
     try {
-      const resGuardar = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal`, {
+      const resGuardar = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify(comp)
@@ -212,7 +212,7 @@ function Viaticos() {
       }
       setComprobaciones(prev => ({ ...prev, [sol.id]: { ...comp, cargada: true } }));
 
-      const resPdf = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
+      const resPdf = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       if (!resPdf.ok) {
@@ -236,7 +236,7 @@ function Viaticos() {
   // =========================================================
   const fetchUnidadesNegocio = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/unidades', {
+      const res = await fetch('/api/unidades', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
@@ -251,7 +251,7 @@ function Viaticos() {
   useEffect(() => {
     const fetchPerfilEmpleado = async () => {
       try {
-        const res = await fetch('http://localhost:3001/api/viaticos/perfil', {
+        const res = await fetch('/api/viaticos/perfil', {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
         const data = await res.json();
@@ -316,7 +316,7 @@ function Viaticos() {
   const fetchMisSolicitudes = async () => {
     setCargandoSolicitudes(true);
     try {
-      const res = await fetch('http://localhost:3001/api/viaticos/mis-solicitudes', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+      const res = await fetch('/api/viaticos/mis-solicitudes', { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
       const data = await res.json();
       if (data.success) setMisSolicitudes(data.data);
     } catch (error) { console.error(error); } finally { setCargandoSolicitudes(false); }
@@ -336,7 +336,7 @@ function Viaticos() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch('http://localhost:3001/api/viaticos', {
+      const res = await fetch('/api/viaticos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify(payloadFinal)
@@ -362,7 +362,7 @@ function Viaticos() {
     const fd = new FormData();
     fd.append('comprobante_empleado', file);
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${idSolicitud}/confirmar-recepcion`, {
+      const res = await fetch(`/api/viaticos/${idSolicitud}/confirmar-recepcion`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }, body: fd
       });
       const data = await res.json();
@@ -380,7 +380,7 @@ function Viaticos() {
     if (!file) return;
     const fd = new FormData(); fd.append('comprobante_gastos', file);
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/comprobante-gastos`, {
+      const res = await fetch(`/api/viaticos/${id_solicitud}/comprobante-gastos`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }, body: fd
       });
       const data = await res.json();
@@ -390,7 +390,7 @@ function Viaticos() {
 
   const handleVerPDF = async (id_solicitud) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
+      const res = await fetch(`/api/viaticos/${id_solicitud}/pdf`, {
         method: 'GET', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       if (!res.ok) throw new Error("Error al obtener el PDF");
@@ -642,13 +642,13 @@ function Viaticos() {
                           Imprimir / Ver Formato
                         </button>
                         {sol.url_comprobante_transferencia && (
-                          <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>
+                          <a href={`/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>
                         )}
                         {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
                           <>
                             <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
                             {sol.url_comprobante_gastos ? (
-                              <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
+                              <a href={`/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
                             ) : limiteVencido ? (
                               <div style={{ padding: '10px 14px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', maxWidth: '280px', lineHeight: '1.5' }}>
                                 ⛔ Plazo vencido. Los viáticos no comprobados en 5 días hábiles de haber regresado de comisión serán descontados de nómina.

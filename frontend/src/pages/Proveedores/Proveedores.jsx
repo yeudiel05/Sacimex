@@ -71,7 +71,7 @@ function Proveedores() {
   const fetchProveedores = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const response = await fetch('http://localhost:3001/api/proveedores', { headers });
+      const response = await fetch('/api/proveedores', { headers });
       if (handleAuthError(response.status)) return;
       const data = await response.json();
       if (data.success) {
@@ -86,7 +86,7 @@ function Proveedores() {
   const fetchBancos = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-          const res = await fetch('http://localhost:3001/api/configuracion/bancos', { headers });
+          const res = await fetch('/api/configuracion/bancos', { headers });
           const data = await res.json();
           if (data.success) setBancosDb(data.data.filter(b => b.estatus_activo === 1));
       } catch (error) { console.error(error); }
@@ -95,7 +95,7 @@ function Proveedores() {
   const fetchCategorias = async () => {
   const headers = getAuthHeaders(); if (!headers) return;
   try {
-      const res = await fetch('http://localhost:3001/api/configuracion/categorias', { headers });
+      const res = await fetch('/api/configuracion/categorias', { headers });
       const data = await res.json();
       if (data.success) setCategoriasDb(data.data);
   } catch (error) { console.error(error); }
@@ -105,7 +105,7 @@ function Proveedores() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
     try {
-        const response = await fetch(`http://localhost:3001/api/proveedores/reportes/pagos-del-mes?mes=${mesFiltro}&anio=${anioFiltro}`, { headers });
+        const response = await fetch(`/api/proveedores/reportes/pagos-del-mes?mes=${mesFiltro}&anio=${anioFiltro}`, { headers });
         const data = await response.json();
         if (data.success) {
             setDatosReporte(data.data);
@@ -124,7 +124,7 @@ function Proveedores() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
     try {
-        const response = await fetch(`http://localhost:3001/api/proveedores/reportes/lista-gastos?mes=${mesListaGastos}&anio=${anioListaGastos}`, { headers });
+        const response = await fetch(`/api/proveedores/reportes/lista-gastos?mes=${mesListaGastos}&anio=${anioListaGastos}`, { headers });
         const data = await response.json();
         if (data.success) {
             setListaGastos(data.data);
@@ -166,7 +166,7 @@ function Proveedores() {
       if (fileFondeador) formDataUpload.append('comprobante', fileFondeador);
 
       try {
-          const res = await fetch('http://localhost:3001/api/proveedores/pagos-fondeador', {
+          const res = await fetch('/api/proveedores/pagos-fondeador', {
               method: 'POST',
               headers: { 'Authorization': headers.Authorization },
               body: formDataUpload
@@ -207,7 +207,7 @@ function Proveedores() {
     formDataUpload.append('archivo_excel', file);
 
     try {
-        const response = await fetch('http://localhost:3001/api/proveedores/importar', {
+        const response = await fetch('/api/proveedores/importar', {
             method: 'POST',
             headers: { Authorization },
             body: formDataUpload
@@ -248,7 +248,7 @@ function Proveedores() {
   const ejecutarEliminar = async (id) => { 
     const headers = getAuthHeaders(); if (!headers) return; 
     try { 
-        const res = await fetch(`http://localhost:3001/api/proveedores/${id}`, { method: 'DELETE', headers }); 
+        const res = await fetch(`/api/proveedores/${id}`, { method: 'DELETE', headers }); 
         if (handleAuthError(res.status)) return; 
         if ((await res.json()).success) fetchProveedores(); 
     } catch (error) { console.error(error); } 
@@ -277,7 +277,7 @@ function Proveedores() {
     if (!validarFormulario()) return; 
     const headers = getAuthHeaders(); if (!headers) return; 
     setIsLoading(true); 
-    const url = isEditing ? `http://localhost:3001/api/proveedores/${editId}` : 'http://localhost:3001/api/proveedores'; 
+    const url = isEditing ? `/api/proveedores/${editId}` : '/api/proveedores'; 
     const method = isEditing ? 'PUT' : 'POST'; 
     
     try { 
@@ -294,7 +294,7 @@ function Proveedores() {
     const nuevoEstatus = estatus_actual === 1 ? 0 : 1; 
     const headers = getAuthHeaders(); if (!headers) return; 
     try { 
-        const res = await fetch(`http://localhost:3001/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); 
+        const res = await fetch(`/api/proveedores/${id_persona}/estatus`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ estatus_activo: nuevoEstatus }) }); 
         if ((await res.json()).success) fetchProveedores(); 
     } catch (error) { console.error(error); } 
   };
@@ -308,7 +308,7 @@ function Proveedores() {
 
   const fetchPagos = async (id_proveedor) => {
     const headers = getAuthHeaders();
-    const res = await fetch(`http://localhost:3001/api/proveedores/${id_proveedor}/pagos`, { headers });
+    const res = await fetch(`/api/proveedores/${id_proveedor}/pagos`, { headers });
     const data = await res.json();
     if (data.success) setPagos(data.data);
   };
@@ -328,7 +328,7 @@ function Proveedores() {
     if (fileComprobante) formDataUpload.append('comprobante', fileComprobante);
 
     try {
-      const res = await fetch('http://localhost:3001/api/proveedores/pagos', { method: 'POST', headers, body: formDataUpload });
+      const res = await fetch('/api/proveedores/pagos', { method: 'POST', headers, body: formDataUpload });
       const data = await res.json();
       if (data.success) {
         setShowNuevoPago(false);
@@ -344,7 +344,7 @@ function Proveedores() {
     const headers = getAuthHeaders();
     setIsLoading(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/proveedores/pagos/${id_pago}/autorizacion`, {
+      const res = await fetch(`/api/proveedores/pagos/${id_pago}/autorizacion`, {
         method: 'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion })
@@ -1096,7 +1096,7 @@ function Proveedores() {
                                 )}
 
                                 {pago.url_comprobante_pago && ( 
-                                  <a href={`http://localhost:3001/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" style={{ padding: '4px 10px', fontSize: '12px' }} title="Ver Factura/XML">Doc</a> 
+                                  <a href={`/${pago.url_comprobante_pago}`} target="_blank" rel="noreferrer" className="btn-view" style={{ padding: '4px 10px', fontSize: '12px' }} title="Ver Factura/XML">Doc</a> 
                                 )}
                               </div>
                             </div>

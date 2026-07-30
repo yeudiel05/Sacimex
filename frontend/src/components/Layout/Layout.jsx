@@ -48,7 +48,7 @@ function Layout() {
     if (!token) return;
 
     try {
-      const res = await fetch('http://localhost:3001/api/notificaciones', {
+      const res = await fetch('/api/notificaciones', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -88,7 +88,7 @@ function Layout() {
       const token = localStorage.getItem('token');
       // Le avisamos al backend que registre la salida en la bitácora
       if (token) {
-        await fetch('http://localhost:3001/api/logout', {
+        await fetch('/api/logout', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

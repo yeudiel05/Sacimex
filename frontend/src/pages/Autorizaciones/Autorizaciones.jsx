@@ -46,11 +46,11 @@ function Autorizaciones() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/solicitudes/pendientes', { headers });
+      const res = await fetch('/api/solicitudes/pendientes', { headers });
       if (handleAuthError(res.status)) return;
       const data = await res.json();
       if (data.success) {
-          const resHistorial = await fetch('http://localhost:3001/api/solicitudes/', { headers });
+          const resHistorial = await fetch('/api/solicitudes/', { headers });
           const dataHistorial = await resHistorial.json();
           
           const todas = [...data.data, ...(dataHistorial.success ? dataHistorial.data.filter(s => s.estatus === 'PAGADO' || s.estatus === 'RECHAZADO') : [])];
@@ -70,7 +70,7 @@ function Autorizaciones() {
   const verPDFSeguro = async (id_solicitud) => {
     const headers = getAuthHeaders(); if (!headers) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/solicitudes/${id_solicitud}/pdf`, { method: 'GET', headers: headers });
+      const response = await fetch(`/api/solicitudes/${id_solicitud}/pdf`, { method: 'GET', headers: headers });
       if (handleAuthError(response.status)) return;
       if (!response.ok) throw new Error("Error al obtener el PDF");
       const blob = await response.blob();
@@ -98,10 +98,10 @@ function Autorizaciones() {
       if (modalConfig.tipo === 'PAGAR') {
         if (!archivoFirma) { setIsProcessing(false); return alert("Debes adjuntar el comprobante de pago bancario."); }
         const formData = new FormData(); formData.append('comprobante', archivoFirma);
-        res = await fetch(`http://localhost:3001/api/solicitudes/comprobante/${modalConfig.id_solicitud}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData });
+        res = await fetch(`/api/solicitudes/comprobante/${modalConfig.id_solicitud}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData });
       } else {
         if (modalConfig.tipo === 'RECHAZAR' && !comentario.trim()) { setIsProcessing(false); return alert("Debes ingresar un motivo para el rechazo."); }
-        const endpoint = modalConfig.tipo === 'RECHAZAR' ? `http://localhost:3001/api/solicitudes/rechazar/${modalConfig.id_solicitud}` : `http://localhost:3001/api/solicitudes/autorizar/${modalConfig.id_solicitud}`;
+        const endpoint = modalConfig.tipo === 'RECHAZAR' ? `/api/solicitudes/rechazar/${modalConfig.id_solicitud}` : `/api/solicitudes/autorizar/${modalConfig.id_solicitud}`;
         const payload = modalConfig.tipo === 'RECHAZAR' ? { motivo: comentario } : { comentario: comentario || 'Aprobado' };
         res = await fetch(endpoint, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       }
@@ -269,7 +269,7 @@ function Autorizaciones() {
                       
                       {/* BOTÓN NUEVO: VER COTIZACIÓN ADJUNTA */}
                       {sol.cotizacion_path && (
-                          <a href={`http://localhost:3001/${sol.cotizacion_path}`} target="_blank" rel="noreferrer" className="btn-view" style={{ borderColor: '#3b82f6', color: '#3b82f6', backgroundColor: '#eff6ff', textDecoration: 'none' }} title="Ver Cotización/Soporte Adjunto">
+                          <a href={`/${sol.cotizacion_path}`} target="_blank" rel="noreferrer" className="btn-view" style={{ borderColor: '#3b82f6', color: '#3b82f6', backgroundColor: '#eff6ff', textDecoration: 'none' }} title="Ver Cotización/Soporte Adjunto">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '14px', marginRight: '4px' }}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                               Cotización
                           </a>

@@ -34,7 +34,7 @@ function Auditoria() {
     const fetchAuditoria = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-        const res = await fetch('http://localhost:3001/api/auditoria', { headers });
+        const res = await fetch('/api/auditoria', { headers });
         if (res.status === 401 || res.status === 403) { localStorage.clear(); navigate('/'); return; }
         const data = await res.json();
         if (data.success) setRegistros(data.data);
@@ -51,7 +51,7 @@ function Auditoria() {
     const headers = getAuthHeaders(); if (!headers) return;
     setIsDownloading(true);
 
-    let url = 'http://localhost:3001/api/auditoria/reporte/pdf';
+    let url = '/api/auditoria/reporte/pdf';
     if (fechaInicio && fechaFin) {
       url += `?fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`;
     }

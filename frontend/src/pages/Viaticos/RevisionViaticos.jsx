@@ -14,7 +14,7 @@ function RevisionViaticos() {
   const fetchSolicitudes = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch('http://localhost:3001/api/viaticos/todas', {
+      const res = await fetch('/api/viaticos/todas', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401 || res.status === 403) { localStorage.clear(); navigate('/'); return; }
@@ -35,7 +35,7 @@ function RevisionViaticos() {
 
   const handleVerPDF = async (id_solicitud) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/pdf`, {
+      const res = await fetch(`/api/viaticos/${id_solicitud}/pdf`, {
         method: 'GET', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       if (!res.ok) throw new Error("Error al obtener el PDF");
@@ -53,7 +53,7 @@ function RevisionViaticos() {
     if (!window.confirm(`¿Estás seguro de marcar esta solicitud como ${nuevoEstatus}?`)) return;
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${id}/estatus`, {
+      const res = await fetch(`/api/viaticos/${id}/estatus`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ estatus: nuevoEstatus })
@@ -62,7 +62,7 @@ function RevisionViaticos() {
       if (data.success) {
         alert(data.message || `Solicitud marcada como ${nuevoEstatus}`);
         setSolicitudes(prev => prev.map(s => s.id === id ? { ...s, estatus: nuevoEstatus } : s));
-        fetch('http://localhost:3001/api/viaticos/todas?t=' + Date.now(), {
+        fetch('/api/viaticos/todas?t=' + Date.now(), {
           headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json()).then(d => { if (d.success) setSolicitudes(d.data); });
       } else {
@@ -79,7 +79,7 @@ function RevisionViaticos() {
     const formData = new FormData();
     formData.append('comprobante', file);
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${id_solicitud}/comprobante`, {
+      const res = await fetch(`/api/viaticos/${id_solicitud}/comprobante`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }, body: formData
       });
       const data = await res.json();
@@ -93,7 +93,7 @@ function RevisionViaticos() {
   // ============================================================
   const descargarComprobacionDHO = async (sol) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
+      const res = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       if (!res.ok) {
@@ -242,7 +242,7 @@ function RevisionViaticos() {
                           <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirComprobante(sol.id, e)} />
 
                           {sol.url_comprobante_transferencia ? (
-                            <a href={`http://localhost:3001/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer"
+                            <a href={`/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer"
                               style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #cbd5e1', color: '#3b82f6', background: 'white', borderRadius: '6px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
                               Ver Transferencia
                             </a>
@@ -254,14 +254,14 @@ function RevisionViaticos() {
                           )}
 
                           {sol.comprobante_recepcion_path && (
-                            <a href={`http://localhost:3001/${sol.comprobante_recepcion_path}`} target="_blank" rel="noreferrer"
+                            <a href={`/${sol.comprobante_recepcion_path}`} target="_blank" rel="noreferrer"
                               style={{ display: 'inline-block', padding: '6px 12px', border: '1px solid #14b8a6', color: '#14b8a6', background: '#ccfbf1', borderRadius: '6px', fontWeight: 'bold', textDecoration: 'none', fontSize: '12px' }}>
                               Ver Acuse
                             </a>
                           )}
 
                           {sol.url_comprobante_gastos && (
-                            <a href={`http://localhost:3001/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer"
+                            <a href={`/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer"
                               style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '6px', fontSize: '12px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
                               Ver Facturas de Gasto
                             </a>
