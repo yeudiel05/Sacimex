@@ -49,7 +49,7 @@ function Login() {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -71,7 +71,7 @@ function Login() {
 
         // --- GATILLO SILENCIOSO PARA ALERTAS GLOBALES ---
         // Se ejecuta en segundo plano sin interrumpir el login del usuario
-        fetch('http://localhost:3001/api/inversores/trigger-alertas-login', { 
+        fetch('/api/inversores/trigger-alertas-login', { 
             method: 'POST' 
         }).catch(err => console.log('Silenced Alertas Error:', err));
         // ------------------------------------------------
