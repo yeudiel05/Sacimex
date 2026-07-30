@@ -256,4 +256,75 @@ router.delete('/categorias/:id', verificarToken, (req, res) => {
     });
 });
 
+// ==========================================
+// APIS DE MATRIZ DE AUTORIZACION
+// (quién firma cada nivel; reemplaza los ifs hardcodeados del código)
+// ==========================================
+
+const soloAdmin = (req, res, next) => {
+    if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'Solo un administrador puede modificar la matriz de autorización.' });
+    next();
+};
+
+router.get('/matriz-autorizacion', verificarToken, (req, res) => {
+    db.query(`
+        SELECT m.id, m.id_departamento, cd.nombre AS departamento_nombre,
+               m.nivel, m.etiqueta_nivel,
+               m.id_rol, r.nombre_rol,
+               m.id_usuario, u.username,
+               m.estatus_activo
+        FROM matriz_autorizacion m
+        LEFT JOIN catalogo_departamentos cd ON m.id_departamento = cd.id
+        LEFT JOIN catalogo_roles r ON m.id_rol = r.id
+        LEFT JOIN usuarios u ON m.id_usuario = u.id
+        ORDER BY (m.id_departamento IS NULL) DESC, cd.nombre ASC, m.nivel ASC
+    `, (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: results });
+    });
+});
+
+router.post('/matriz-autorizacion', verificarToken, soloAdmin, (req, res) => {
+    const { id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario } = req.body;
+    db.query(
+        'INSERT INTO matriz_autorizacion (id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario) VALUES (?, ?, ?, ?, ?)',
+        [id_departamento || null, nivel, etiqueta_nivel, id_rol || null, id_usuario || null],
+        (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            registrarBitacora(req.usuario.id, 'CREAR_REGLA_AUTORIZACION', `Creo regla de autorizacion: nivel ${nivel} - ${etiqueta_nivel}`, req);
+            res.json({ success: true, message: 'Regla de autorización creada.' });
+        }
+    );
+});
+
+router.put('/matriz-autorizacion/:id', verificarToken, soloAdmin, (req, res) => {
+    const { id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario } = req.body;
+    db.query(
+        'UPDATE matriz_autorizacion SET id_departamento = ?, nivel = ?, etiqueta_nivel = ?, id_rol = ?, id_usuario = ? WHERE id = ?',
+        [id_departamento || null, nivel, etiqueta_nivel, id_rol || null, id_usuario || null, req.params.id],
+        (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            registrarBitacora(req.usuario.id, 'EDITAR_REGLA_AUTORIZACION', `Modifico la regla de autorizacion ID ${req.params.id}`, req);
+            res.json({ success: true, message: 'Regla actualizada.' });
+        }
+    );
+});
+
+router.put('/matriz-autorizacion/:id/estatus', verificarToken, soloAdmin, (req, res) => {
+    const { estatus_activo } = req.body;
+    db.query('UPDATE matriz_autorizacion SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        registrarBitacora(req.usuario.id, 'ESTATUS_REGLA_AUTORIZACION', `Cambio estatus de la regla ID ${req.params.id} a ${estatus_activo ? 'Activa' : 'Inactiva'}`, req);
+        res.json({ success: true });
+    });
+});
+
+router.delete('/matriz-autorizacion/:id', verificarToken, soloAdmin, (req, res) => {
+    db.query('DELETE FROM matriz_autorizacion WHERE id = ?', [req.params.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: 'No se pudo eliminar la regla.' });
+        registrarBitacora(req.usuario.id, 'ELIMINAR_REGLA_AUTORIZACION', `Elimino la regla de autorizacion ID ${req.params.id}`, req);
+        res.json({ success: true, message: 'Regla eliminada.' });
+    });
+});
+
 module.exports = router;

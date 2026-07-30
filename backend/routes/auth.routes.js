@@ -52,6 +52,7 @@ router.post('/login', (req, res) => {
             id: user.id, 
             username: user.username, 
             rol: user.rol,
+            id_departamento: user.id_departamento,
             puesto: user.puesto || 'Sin Puesto',
             puedeSolicitar: user.puede_solicitar || 0
         };

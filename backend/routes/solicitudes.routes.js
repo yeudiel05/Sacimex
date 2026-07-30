@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel } = require('../utils/motorAutorizacion');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
@@ -154,14 +155,9 @@ function formatMoney(n) {
 router.get('/', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
     const miId  = req.usuario.id;
+    const miIdDepartamento = req.usuario.id_departamento;
 
-    db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miId], (errD, rowsD) => {
-        if (errD) return res.status(500).json({ success: false, message: 'Error interno' });
-
-        const miDeptoRaw = (rowsD && rowsD.length > 0) ? (rowsD[0].depto_emp || '') : '';
-        const miDeptoCore = getCoreDepto(miDeptoRaw);
-
-        let query = `
+    let query = `
             SELECT 
                 s.id, s.folio, s.concepto_id, s.unidad_negocio, s.monto, 
                 s.estatus, s.nivel_actual, s.niveles_requeridos,
@@ -178,43 +174,33 @@ router.get('/', verificarToken, (req, res) => {
             )
         `;
 
-        if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(miRol)) {
-            if (miDeptoCore === 'TI') {
-                query += ` WHERE s.solicitante_id = ${db.escape(miId)} OR cp.area_visto_bueno LIKE '%TI%' OR cp.area_visto_bueno LIKE '%SISTEMA%'`;
-            } else if (miDeptoCore === 'DHO') {
-                query += ` WHERE s.solicitante_id = ${db.escape(miId)} OR cp.area_visto_bueno LIKE '%DHO%' OR cp.area_visto_bueno LIKE '%HUMANO%'`;
-            } else if (miDeptoRaw !== '') {
-                query += ` WHERE s.solicitante_id = ${db.escape(miId)} OR cp.area_visto_bueno = ${db.escape(miDeptoRaw)}`;
-            } else {
-                query += ` WHERE s.solicitante_id = ${db.escape(miId)}`;
-            }
+    // Antes esto comparaba texto libre con LIKE '%TI%' / '%DHO%'. Ahora que
+    // conceptos_pago.id_area_visto_bueno es una FK real, comparamos por id.
+    if (!['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(miRol)) {
+        if (miIdDepartamento != null) {
+            query += ` WHERE s.solicitante_id = ${db.escape(miId)} OR cp.id_area_visto_bueno = ${db.escape(miIdDepartamento)}`;
+        } else {
+            query += ` WHERE s.solicitante_id = ${db.escape(miId)}`;
         }
-        query += ' ORDER BY s.fecha_solicitud DESC';
+    }
+    query += ' ORDER BY s.fecha_solicitud DESC';
 
-        db.query(query, (err, results) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            res.json({ success: true, data: results });
-        });
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, data: results });
     });
 });
 
 router.get('/pendientes', verificarToken, (req, res) => {
     const miRol = req.usuario.rol;
     const miId = req.usuario.id;
-    
-    db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miId], (err, rows) => {
-        if (err) return res.status(500).json({ success: false, message: 'Error interno al verificar permisos de departamento' });
-        
-        const miDeptoCore = getCoreDepto((rows && rows.length > 0) ? rows[0].depto_emp : '');
-        const rolANivel = { 'REVISOR': 0, 'AUTORIZADOR_1': 1, 'AUTORIZADOR_2': 2 };
-        const nivelRol = rolANivel[miRol];
 
-        let query = `
+    let query = `
             SELECT s.id, s.folio, s.concepto_id, s.unidad_negocio, s.monto,
                    s.estatus, s.nivel_actual, s.niveles_requeridos, s.fecha_solicitud,
                    s.solicitante_id,
                    p.nombre_razon_social AS solicitante_nombre,
-                   cp.area_visto_bueno
+                   cp.area_visto_bueno, cp.id_area_visto_bueno
             FROM solicitudes_recursos s
             LEFT JOIN usuarios u ON s.solicitante_id = u.id
             LEFT JOIN empleados e ON u.id_empleado = e.id_persona
@@ -228,34 +214,34 @@ router.get('/pendientes', verificarToken, (req, res) => {
             ORDER BY s.fecha_solicitud ASC
         `;
 
-        db.query(query, (err2, results) => {
-            if (err2) return res.status(500).json({ success: false, message: err2.message });
-            
+    db.query(query, async (err2, results) => {
+        if (err2) return res.status(500).json({ success: false, message: err2.message });
+
+        try {
             const filtradas = [];
 
-            results.forEach(sol => {
-                const areaReqCore = getCoreDepto(sol.area_visto_bueno);
+            for (const sol of results) {
                 let me_toca_firmar = false;
                 let visible = false;
 
                 if (miRol === 'ADMIN') {
                     me_toca_firmar = true;
                     visible = true;
+                } else if (miRol === 'TESORERIA' && sol.estatus === 'AUTORIZADO_FINAL') {
+                    visible = true; me_toca_firmar = true;
+                } else if (sol.estatus === 'AUTORIZADO_FINAL' && sol.solicitante_id !== miId && miRol !== 'TESORERIA') {
+                    visible = false;
                 } else {
-                    if (miRol === 'TESORERIA' && sol.estatus === 'AUTORIZADO_FINAL') {
-                        visible = true; me_toca_firmar = true;
-                    } else if (sol.estatus === 'AUTORIZADO_FINAL' && sol.solicitante_id !== miId && miRol !== 'TESORERIA') {
-                        visible = false;
-                    } else {
-                        if (sol.solicitante_id === miId) visible = true;
-                        
-                        if (sol.nivel_actual === nivelRol) {
-                            visible = true; me_toca_firmar = true;
-                        }
-                        
-                        if (sol.nivel_actual === -1 && miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO') {
-                            visible = true; me_toca_firmar = true;
-                        }
+                    if (sol.solicitante_id === miId) visible = true;
+
+                    const resultado = await puedeFirmarAsync({
+                        usuario: req.usuario,
+                        nivel: sol.nivel_actual,
+                        idDepartamentoVoBo: sol.id_area_visto_bueno
+                    });
+                    if (resultado.puede) {
+                        visible = true;
+                        me_toca_firmar = true;
                     }
                 }
 
@@ -263,24 +249,19 @@ router.get('/pendientes', verificarToken, (req, res) => {
                     sol.me_toca_firmar = me_toca_firmar;
                     filtradas.push(sol);
                 }
-            });
+            }
 
             res.json({ success: true, data: filtradas });
-        });
+        } catch (errMotor) {
+            res.status(500).json({ success: false, message: 'Error validando autorización' });
+        }
     });
 });
 
 router.get('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
-    const miId = req.usuario.id;
-    const miRol = req.usuario.rol;
 
-    db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miId], (errDep, resDep) => {
-        if (errDep) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
-        
-        const miDeptoCore = getCoreDepto((resDep && resDep.length > 0) ? resDep[0].depto_emp : '');
-
-        const querySolicitud = `
+    const querySolicitud = `
             SELECT s.*, 
                    p.nombre_razon_social AS solicitante_nombre,
                    pprov.nombre_razon_social AS proveedor_nombre, 
@@ -291,7 +272,7 @@ router.get('/:id', verificarToken, (req, res) => {
                    prov.numero_cuenta AS proveedor_clabe,
                    cp.descripcion AS concepto_desc, 
                    cp.clave AS concepto_clave,
-                   cp.requiere_vobo, cp.area_visto_bueno
+                   cp.requiere_vobo, cp.area_visto_bueno, cp.id_area_visto_bueno
             FROM solicitudes_recursos s
             LEFT JOIN usuarios u ON s.solicitante_id = u.id
             LEFT JOIN empleados e ON u.id_empleado = e.id_persona
@@ -306,7 +287,7 @@ router.get('/:id', verificarToken, (req, res) => {
             WHERE s.id = ?
         `;
         
-        const queryFirmas = `
+    const queryFirmas = `
             SELECT b.comentarios as comentario, b.fecha_firma, b.accion, b.etapa_firma,
                    p.nombre_razon_social AS aprobador, e.puesto AS aprobador_puesto
             FROM historial_firmas_pago b 
@@ -317,31 +298,35 @@ router.get('/:id', verificarToken, (req, res) => {
             ORDER BY b.fecha_firma ASC
         `;
         
-        db.query(querySolicitud, [id], (errSol, resSol) => {
+    db.query(querySolicitud, [id], (errSol, resSol) => {
             if (errSol) return res.status(500).json({ success: false, message: errSol.message });
             if (resSol.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' });
             
             const sol = resSol[0];
-            const areaReqCore = getCoreDepto(sol.area_visto_bueno);
-            let me_toca_firmar = false;
 
-            if (!['PAGADO', 'RECHAZADO', 'AUTORIZADO_FINAL'].includes(sol.estatus)) {
-                if (miRol === 'ADMIN') {
-                    me_toca_firmar = true;
-                } else {
-                    if (sol.nivel_actual === -1 && miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO') me_toca_firmar = true;
-                    if (sol.nivel_actual === 0 && miRol === 'REVISOR') me_toca_firmar = true;
-                    if (sol.nivel_actual === 1 && miRol === 'AUTORIZADOR_1') me_toca_firmar = true;
-                    if (sol.nivel_actual === 2 && miRol === 'AUTORIZADOR_2') me_toca_firmar = true;
-                }
+            const conMeTocaFirmar = (me_toca_firmar) => {
+                sol.me_toca_firmar = me_toca_firmar;
+                continuarConFirmas();
+            };
+
+            if (['PAGADO', 'RECHAZADO', 'AUTORIZADO_FINAL'].includes(sol.estatus)) {
+                conMeTocaFirmar(false);
+            } else {
+                puedeFirmar({
+                    usuario: req.usuario,
+                    nivel: sol.nivel_actual,
+                    idDepartamentoVoBo: sol.id_area_visto_bueno
+                }, (errMotor, resultado) => {
+                    conMeTocaFirmar(!errMotor && resultado.puede);
+                });
             }
-            sol.me_toca_firmar = me_toca_firmar;
             
-            db.query(queryFirmas, [id], (err2, resFirmas) => {
-                if (err2) return res.status(500).json({ success: false, message: err2.message });
-                res.json({ success: true, solicitud: sol, firmas: resFirmas });
-            });
-        });
+            function continuarConFirmas() {
+                db.query(queryFirmas, [id], (err2, resFirmas) => {
+                    if (err2) return res.status(500).json({ success: false, message: err2.message });
+                    res.json({ success: true, solicitud: sol, firmas: resFirmas });
+                });
+            }
     });
 });
 
@@ -456,11 +441,10 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
 router.post('/autorizar/:id', verificarToken, (req, res) => {
     const { id } = req.params;
     const { comentario } = req.body;
-    const miRol = req.usuario.rol;
     const miUsuarioId = req.usuario.id;
 
     db.query(`
-        SELECT s.folio, s.monto, s.nivel_actual, s.estatus, s.niveles_requeridos, cp.area_visto_bueno 
+        SELECT s.folio, s.monto, s.nivel_actual, s.estatus, s.niveles_requeridos, cp.id_area_visto_bueno 
         FROM solicitudes_recursos s 
         LEFT JOIN conceptos_pago cp ON (
             s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR 
@@ -474,41 +458,33 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
 
         if (['PAGADO', 'RECHAZADO'].includes(sol.estatus)) return res.status(400).json({ success: false, message: "Ya procesada" });
 
-        db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miUsuarioId], (errD, rowsD) => {
-            if (errD) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
+        puedeFirmar({
+            usuario: req.usuario,
+            nivel: sol.nivel_actual,
+            idDepartamentoVoBo: sol.id_area_visto_bueno
+        }, (errMotor, resultado) => {
+            if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
+            if (!resultado.puede) return res.status(403).json({ success: false, message: `No tienes permisos en el nivel actual` });
 
-            const miDeptoCore = getCoreDepto((rowsD && rowsD.length > 0) ? rowsD[0].depto_emp : '');
-            const areaReqCore = getCoreDepto(sol.area_visto_bueno);
-            
-            let puede = false;
-            let etapaFirma = '';
-
-            if (sol.nivel_actual === -1 && (miRol === 'ADMIN' || (miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO'))) { 
-                puede = true; etapaFirma = 'VISTO BUENO'; 
-            } else if (sol.nivel_actual === 0 && (miRol === 'REVISOR' || miRol === 'ADMIN')) { 
-                puede = true; etapaFirma = 'REVISOR'; 
-            } else if (sol.nivel_actual === 1 && (miRol === 'AUTORIZADOR_1' || miRol === 'ADMIN')) { 
-                puede = true; etapaFirma = 'AUTORIZADOR_1'; 
-            } else if (sol.nivel_actual === 2 && (miRol === 'AUTORIZADOR_2' || miRol === 'ADMIN')) { 
-                puede = true; etapaFirma = 'AUTORIZADOR_2'; 
-            }
-
-            if (!puede) return res.status(403).json({ success: false, message: `No tienes permisos en el nivel actual` });
-
+            const etapaFirma = resultado.etiqueta;
             const nuevoNivel = sol.nivel_actual + 1;
             let nuevoEstatus;
-            let rolNotificar = '';
 
             if (sol.nivel_actual === -1) {
                 nuevoEstatus = 'PENDIENTE';
-                rolNotificar = 'REVISOR';
             } else if (nuevoNivel >= sol.niveles_requeridos) {
                 nuevoEstatus = 'AUTORIZADO_FINAL';
-                rolNotificar = 'TESORERIA';
             } else {
                 nuevoEstatus = `AUTORIZADO_${nuevoNivel}`;
-                rolNotificar = nuevoNivel === 1 ? 'AUTORIZADOR_1' : 'AUTORIZADOR_2';
             }
+
+            // Resuelve dinámicamente a quién notificar en el siguiente nivel
+            // (antes era `nuevoNivel === 1 ? 'AUTORIZADOR_1' : 'AUTORIZADOR_2'`, fijo a 2 niveles).
+            const resolverRolNotificar = (cb) => {
+                if (sol.nivel_actual === -1) return cb('REVISOR');
+                if (nuevoEstatus === 'AUTORIZADO_FINAL') return cb('TESORERIA');
+                obtenerRolDeNivel(nuevoNivel, req.usuario.id_departamento, (errRol, rol) => cb(rol));
+            };
 
             db.beginTransaction(err3 => {
                 if (err3) return res.status(500).json({ success: false });
@@ -530,7 +506,8 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
                             
                             res.json({ success: true, nuevo_estatus: nuevoEstatus, message: 'Autorizado correctamente' });
 
-                            if (rolNotificar) {
+                            resolverRolNotificar(async (rolNotificar) => {
+                                if (!rolNotificar) return;
                                 const emailSiguiente = await getEmailByRol(rolNotificar);
                                 if (emailSiguiente) {
                                     const isTeso = rolNotificar === 'TESORERIA';
@@ -538,7 +515,7 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
                                     const cuerpo = isTeso ? 'Una solicitud completo su autorizacion y esta lista para pago.' : 'Una solicitud avanzo y requiere tu firma.';
                                     enviarCorreo(emailSiguiente, `${titulo} - Folio ${sol.folio}`, `<h3>${titulo}</h3><p>${cuerpo}</p>`);
                                 }
-                            }
+                            });
                         });
                     });
                 });
@@ -561,7 +538,7 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
         const folio = (rowsFolio && rowsFolio.length > 0) ? rowsFolio[0].folio : id;
 
         db.query(`
-            SELECT s.monto, s.nivel_actual, cp.area_visto_bueno 
+            SELECT s.monto, s.nivel_actual, cp.id_area_visto_bueno 
             FROM solicitudes_recursos s 
             LEFT JOIN conceptos_pago cp ON (
                 s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR 
@@ -573,21 +550,15 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
             if (err || rows.length === 0) return res.status(404).json({ success: false });
             const sol = rows[0];
 
-            db.query('SELECT e.departamento AS depto_emp FROM usuarios u LEFT JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?', [miUsuarioId], (errD, rowsD) => {
-                if (errD) return res.status(500).json({ success: false, message: 'Error interno al verificar departamento' });
-                
-                const miDeptoCore = getCoreDepto((rowsD && rowsD.length > 0) ? rowsD[0].depto_emp : '');
-                const areaReqCore = getCoreDepto(sol.area_visto_bueno);
-                
-                let puede = false;
-                let etapaFirma = '';
+            puedeFirmar({
+                usuario: req.usuario,
+                nivel: sol.nivel_actual,
+                idDepartamentoVoBo: sol.id_area_visto_bueno
+            }, (errMotor, resultado) => {
+                if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
+                if (!resultado.puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
 
-                if (sol.nivel_actual === -1 && (miRol === 'ADMIN' || (miDeptoCore === areaReqCore && miDeptoCore !== 'OTRO'))) { puede = true; etapaFirma = 'VISTO BUENO'; }
-                if (sol.nivel_actual === 0 && (miRol === 'REVISOR' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'REVISOR'; }
-                if (sol.nivel_actual === 1 && (miRol === 'AUTORIZADOR_1' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_1'; }
-                if (sol.nivel_actual === 2 && (miRol === 'AUTORIZADOR_2' || miRol === 'ADMIN')) { puede = true; etapaFirma = 'AUTORIZADOR_2'; }
-
-                if (!puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
+                const etapaFirma = resultado.etiqueta;
 
                 db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
                 [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {

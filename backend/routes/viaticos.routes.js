@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { puedeAutorizarViaticos } = require('../utils/motorAutorizacion');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -56,7 +57,7 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
 });
 
 router.get('/todas', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') return res.status(403).json({ success: false });
+    if (!puedeAutorizarViaticos(req.usuario)) return res.status(403).json({ success: false });
     db.query('SELECT sv.*, u.username as solicitante_usuario FROM solicitudes_viaticos sv JOIN usuarios u ON sv.id_usuario = u.id ORDER BY sv.fecha_solicitud DESC', (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
@@ -64,7 +65,7 @@ router.get('/todas', verificarToken, (req, res) => {
 });
 
 router.put('/:id/estatus', verificarToken, (req, res) => {
-    if (req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'D.H.O' && req.usuario.rol !== 'DHO') {
+    if (!puedeAutorizarViaticos(req.usuario)) {
         return res.status(403).json({ success: false, message: 'Permisos insuficientes para autorizar.' });
     }
     const { estatus } = req.body;

@@ -10,6 +10,7 @@ import Proveedores from './pages/Proveedores/Proveedores';
 import Layout from './components/Layout/Layout';
 import Usuarios from './pages/Usuarios/Usuarios';
 import Configuracion from './pages/Configuracion/Configuracion';
+import MatrizAutorizacion from './pages/Configuracion/MatrizAutorizacion';
 import Reportes from './pages/Reportes/Reportes';
 import Auditoria from './pages/Auditoria/Auditoria';
 import Autorizaciones from './pages/Autorizaciones/Autorizaciones';
@@ -103,6 +104,7 @@ function App() {
           <Route path="/reportes" element={<ProtectedRoute rolesPermitidos={['ADMIN', 'CONTADOR']}><Reportes /></ProtectedRoute>} />
           <Route path="/usuarios" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Usuarios /></ProtectedRoute>} />
           <Route path="/configuracion" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Configuracion /></ProtectedRoute>} />
+          <Route path="/configuracion/matriz-autorizacion" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><MatrizAutorizacion /></ProtectedRoute>} />
           <Route path="/auditoria" element={<ProtectedRoute rolesPermitidos={['ADMIN']}><Auditoria /></ProtectedRoute>} />
 
         </Route>

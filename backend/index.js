@@ -58,7 +58,30 @@ app.use('/api/solicitudes', solicitudesRoutes);
 app.use('/api/unidades', unidadesRoutes);
 app.use('/api/configuracion', configuracionRoutes);
 
+// =============================================
+// Servir el frontend (React + Vite) en produccion
+// =============================================
+// El build de Vite vive en ../frontend/dist relativo a este archivo
+// (es decir: httpdocs/frontend/dist en el servidor)
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+
+  // Catch-all: cualquier ruta GET que no sea /api o /uploads,
+  // regresa el index.html de React (para que funcione el ruteo de React Router).
+  // Se usa app.use() en vez de app.get('*', ...) porque Express 5 cambio
+  // la sintaxis de rutas comodin y '*' ya no funciona igual.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+} else {
+  console.warn('Aviso: no se encontro frontend/dist. Corre "npm run build" en la carpeta frontend.');
+}
+
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => { 
-    console.log(`Servidor Backend modular corriendo en el puerto ${PORT}`); 
+app.listen(PORT, () => {
+    console.log(`Servidor Backend modular corriendo en el puerto ${PORT}`);
 });
