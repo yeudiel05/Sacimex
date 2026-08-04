@@ -17,14 +17,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // ==========================================
-// OBTENER TODOS LOS CLIENTES
+// OBTENER TODOS LOS clientes
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
     const query = `
     SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
            p.telefono, p.email_contacto AS email, c.limite_credito AS credito, c.estatus, 
            c.tipo_garantia, c.nombre_aval, c.kyc_validado
-    FROM PERSONAS p INNER JOIN CLIENTES c ON p.id = c.id_persona
+    FROM personas p INNER JOIN clientes c ON p.id = c.id_persona
     WHERE p.eliminado = FALSE ORDER BY p.id DESC
   `;
     db.query(query, (err, results) => {
@@ -42,11 +42,11 @@ router.post('/', verificarToken, (req, res) => {
 
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false });
-        db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
+        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
             [tipo_persona, nombre, rfc, direccion, telefono, email], (err, resultPersona) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Posible RFC duplicado' }));
                 const idNuevaPersona = resultPersona.insertId;
-                db.query('INSERT INTO CLIENTES (id_persona, limite_credito, estatus, tipo_garantia, nombre_aval) VALUES (?, ?, ?, ?, ?)',
+                db.query('INSERT INTO clientes (id_persona, limite_credito, estatus, tipo_garantia, nombre_aval) VALUES (?, ?, ?, ?, ?)',
                     [idNuevaPersona, credito, 'En revision', tipo_garantia || 'Ninguna', nombre_aval || ''], (err) => {
                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
                         db.commit(err => {
@@ -69,10 +69,10 @@ router.put('/:id', verificarToken, (req, res) => {
     const { tipo_persona, nombre, rfc, direccion, telefono, email, credito, tipo_garantia, nombre_aval } = req.body;
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false });
-        db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?',
+        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?',
             [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                db.query('UPDATE CLIENTES SET limite_credito=?, tipo_garantia=?, nombre_aval=? WHERE id_persona=?',
+                db.query('UPDATE clientes SET limite_credito=?, tipo_garantia=?, nombre_aval=? WHERE id_persona=?',
                     [credito, tipo_garantia, nombre_aval, id], (err) => {
                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
                         db.commit(err => {
@@ -95,11 +95,11 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
     const { estatus } = req.body;
 
     // CORRECCIÓN: Buscamos el nombre para la bitácora
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_persona], (err, results) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_persona], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false });
         const nombreCliente = results[0].nombre_razon_social;
 
-        db.query('UPDATE CLIENTES SET estatus = ? WHERE id_persona = ?', [estatus, id_persona], (err) => {
+        db.query('UPDATE clientes SET estatus = ? WHERE id_persona = ?', [estatus, id_persona], (err) => {
             if (err) return res.status(500).json({ success: false });
             registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambió estatus a '${estatus}' para el cliente: ${nombreCliente}`, req);
             res.json({ success: true });
@@ -114,11 +114,11 @@ router.delete('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
 
     // CORRECCIÓN: Buscamos el nombre para la bitácora
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id], (err, results) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false });
         const nombreCliente = results[0].nombre_razon_social;
 
-        db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
+        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false });
             registrarBitacora(req.usuario.id, 'ELIMINAR_CLIENTE', `Eliminó el expediente del cliente: ${nombreCliente}`, req);
             res.json({ success: true });
@@ -135,10 +135,10 @@ router.post('/expedientes/upload', verificarToken, upload.single('archivo'), (re
     const rutaArchivo = `uploads/${req.file.filename}`;
 
     // Buscamos el nombre del cliente para la bitácora
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_persona], (err, results) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_persona], (err, results) => {
         const nombreCliente = (results && results.length > 0) ? results[0].nombre_razon_social : 'Cliente Desconocido';
 
-        db.query('INSERT INTO EXPEDIENTES_CLIENTES (id_persona, nombre_archivo, ruta_archivo, tipo_documento) VALUES (?, ?, ?, ?)',
+        db.query('INSERT INTO expedientes_clientes (id_persona, nombre_archivo, ruta_archivo, tipo_documento) VALUES (?, ?, ?, ?)',
             [id_persona, req.file.originalname, rutaArchivo, tipo_documento], (err) => {
                 if (err) return res.status(500).json({ success: false });
                 
@@ -153,7 +153,7 @@ router.post('/expedientes/upload', verificarToken, upload.single('archivo'), (re
 // EXPEDIENTES: OBTENER DOCUMENTOS
 // ==========================================
 router.get('/expedientes/:id_persona', verificarToken, (req, res) => {
-    db.query('SELECT * FROM EXPEDIENTES_CLIENTES WHERE id_persona = ? ORDER BY fecha_subida DESC', [req.params.id_persona], (err, results) => {
+    db.query('SELECT * FROM expedientes_clientes WHERE id_persona = ? ORDER BY fecha_subida DESC', [req.params.id_persona], (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
     });
@@ -168,8 +168,8 @@ router.delete('/expedientes/:id', verificarToken, (req, res) => {
     // Buscamos la ruta física, el nombre del archivo y el nombre del cliente para la bitácora
     const queryInfo = `
         SELECT e.ruta_archivo, e.nombre_archivo, p.nombre_razon_social 
-        FROM EXPEDIENTES_CLIENTES e
-        JOIN PERSONAS p ON e.id_persona = p.id
+        FROM expedientes_clientes e
+        JOIN personas p ON e.id_persona = p.id
         WHERE e.id = ?
     `;
 
@@ -180,7 +180,7 @@ router.delete('/expedientes/:id', verificarToken, (req, res) => {
         const nombreDoc = results[0].nombre_archivo;
         const nombreCliente = results[0].nombre_razon_social;
 
-        db.query('DELETE FROM EXPEDIENTES_CLIENTES WHERE id = ?', [id], (err2) => {
+        db.query('DELETE FROM expedientes_clientes WHERE id = ?', [id], (err2) => {
             if (err2) return res.status(500).json({ success: false });
             
             // Eliminar el archivo físico del servidor

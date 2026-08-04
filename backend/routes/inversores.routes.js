@@ -113,7 +113,7 @@ function cleanDateStr(dateVal) {
 // Validacion de Disposicion Unica
 function checkDisposicionUnica(db, numero_disposicion, id_exclude, callback) {
     if (!numero_disposicion) return callback(true);
-    let q = 'SELECT id FROM CONTRATOS_INVERSION WHERE numero_disposicion = ?';
+    let q = 'SELECT id FROM contratos_inversion WHERE numero_disposicion = ?';
     let p = [numero_disposicion];
     if (id_exclude) {
         q += ' AND id != ?';
@@ -134,7 +134,7 @@ router.get('/', verificarToken, (req, res) => {
         SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
                p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
                i.origen_fondos, i.estatus_activo, i.limite_credito
-        FROM PERSONAS p INNER JOIN INVERSORES i ON p.id = i.id_persona
+        FROM personas p INNER JOIN inversores i ON p.id = i.id_persona
         WHERE p.eliminado = FALSE ORDER BY p.id DESC
     `;
     db.query(query, (err, results) => {
@@ -161,27 +161,27 @@ router.post('/', verificarToken, (req, res) => {
             return res.status(500).json({ success: false, message: "Error interno del servidor." });
         }
         
-        db.query('INSERT INTO PERSONAS (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
+        db.query('INSERT INTO personas (tipo_persona, nombre_razon_social, rfc, direccion, telefono, email_contacto) VALUES (?, ?, ?, ?, ?, ?)',
             [tipoPersonaReal, nombreCompleto, rfcFinal, direccion, telefono, email], (err, resultPersona) => {
             if (err) {
-                console.error("Error en INSERT PERSONAS:", err.sqlMessage || err);
+                console.error("Error en INSERT personas:", err.sqlMessage || err);
                 return db.rollback(() => res.status(500).json({ success: false, message: `Error en Personas: ${err.sqlMessage}` }));
             }
             
             const idNuevaPersona = resultPersona.insertId;
             
-            db.query('INSERT INTO INVERSORES (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
+            db.query('INSERT INTO inversores (id_persona, clabe_bancaria, numero_cuenta, banco, origen_fondos, estatus_activo, limite_credito) VALUES (?, ?, ?, ?, ?, 1, ?)',
                 [idNuevaPersona, clabe_bancaria, numero_cuenta, banco, origen_fondos || 'AHORRO PERSONAL', limite_credito || 0], (err) => {
                 if (err) {
-                    console.error("Error en INSERT INVERSORES:", err.sqlMessage || err);
+                    console.error("Error en INSERT inversores:", err.sqlMessage || err);
                     return db.rollback(() => res.status(500).json({ success: false, message: `Error en Inversores: ${err.sqlMessage}` }));
                 }
                 
                 if (ben_nombre) {
-                    db.query('INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
+                    db.query('INSERT INTO beneficiarios (id_inversor, nombre_completo, parentesco, telefono, porcentaje) VALUES (?, ?, ?, ?, 100)', 
                         [idNuevaPersona, ben_nombre, ben_parentesco, ben_telefono], (err) => {
                         if (err) {
-                            console.error("Error en INSERT BENEFICIARIOS:", err.sqlMessage || err);
+                            console.error("Error en INSERT beneficiarios:", err.sqlMessage || err);
                             return db.rollback(() => res.status(500).json({ success: false, message: `Error en Beneficiarios: ${err.sqlMessage}` }));
                         }
                         commitFondeador();
@@ -215,11 +215,11 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
     const { id_persona } = req.params;
     const { estatus_activo } = req.body;
 
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_persona], (err, results) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_persona], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false, error: err?.message });
         const nombreFondeador = results[0].nombre_razon_social;
         
-        db.query('UPDATE INVERSORES SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
+        db.query('UPDATE inversores SET estatus_activo = ? WHERE id_persona = ?', [estatus_activo, id_persona], (err) => {
             if (err) return res.status(500).json({ success: false, error: err.message });
             registrarBitacora(req.usuario.id, 'CAMBIO_ESTATUS', `Cambio el estatus a ${estatus_activo ? 'Activo' : 'Inactivo'} del fondeador: ${nombreFondeador}`, req);
             res.json({ success: true });
@@ -233,11 +233,11 @@ router.put('/:id', verificarToken, (req, res) => {
     
     db.beginTransaction(err => {
         if (err) return res.status(500).json({ success: false, error: err.message });
-        db.query('UPDATE PERSONAS SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
+        db.query('UPDATE personas SET tipo_persona=?, nombre_razon_social=?, rfc=?, direccion=?, telefono=?, email_contacto=? WHERE id=?', 
             [tipo_persona, nombre, rfc, direccion, telefono, email, id], (err) => {
             if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
             
-            db.query('UPDATE INVERSORES SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=?, limite_credito=? WHERE id_persona=?', 
+            db.query('UPDATE inversores SET clabe_bancaria=?, numero_cuenta=?, banco=?, origen_fondos=?, limite_credito=? WHERE id_persona=?', 
                 [clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito, id], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ success: false, error: err.message }));
                 db.commit(err => {
@@ -252,11 +252,11 @@ router.put('/:id', verificarToken, (req, res) => {
 
 router.delete('/:id', verificarToken, (req, res) => {
     const id = req.params.id;
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id], (err, results) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false, error: err?.message });
         const nombreFondeador = results[0].nombre_razon_social;
         
-        db.query('UPDATE PERSONAS SET eliminado = TRUE WHERE id = ?', [id], (err) => {
+        db.query('UPDATE personas SET eliminado = TRUE WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false, error: err.message });
             registrarBitacora(req.usuario.id, 'ELIMINAR_FONDEADOR', `Elimino del directorio al fondeador: ${nombreFondeador}`, req);
             res.json({ success: true });
@@ -269,14 +269,14 @@ router.delete('/:id', verificarToken, (req, res) => {
 // ==========================================
 
 router.get('/tasas', verificarToken, (req, res) => {
-    db.query('SELECT * FROM CATALOGO_TASAS WHERE estatus_activo = 1', (err, results) => {
+    db.query('SELECT * FROM catalogo_tasas WHERE estatus_activo = 1', (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, data: results });
     });
 });
 
 router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
-    db.query('SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada FROM CONTRATOS_INVERSION c JOIN CATALOGO_TASAS t ON c.id_tasa = t.id WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC', 
+    db.query('SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada FROM contratos_inversion c JOIN catalogo_tasas t ON c.id_tasa = t.id WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC', 
         [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, data: results });
@@ -289,13 +289,13 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
 router.post('/contratos', verificarToken, (req, res) => {
     const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
   
-    db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
+    db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_inversor], (err, resPer) => {
         const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
         
         checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
             if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado.' });
 
-            db.query('INSERT INTO CONTRATOS_INVERSION (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
+            db.query('INSERT INTO contratos_inversion (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, reinversion_automatica, fecha_inicio, fecha_fin, estatus, numero_disposicion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "ACTIVO", ?)',
               [id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion || 'personalizado', plan_json || null, reinversion_automatica, fecha_inicio, fecha_fin, numero_disposicion || null], (err, result) => {
                 if (err) {
                     console.error("Error al guardar contrato estatico:", err);
@@ -315,14 +315,14 @@ router.post('/contratos', verificarToken, (req, res) => {
 router.put('/contratos/:id', verificarToken, (req, res) => {
     const { fecha_inicio, numero_disposicion } = req.body;
     
-    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [req.params.id], (err, rows) => {
+    db.query('SELECT numero_disposicion FROM contratos_inversion WHERE id = ?', [req.params.id], (err, rows) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al consultar contrato.' });
         const disp = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         
         checkDisposicionUnica(db, numero_disposicion, req.params.id, (esValido) => {
             if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado en otro contrato.' });
 
-            db.query('UPDATE CONTRATOS_INVERSION SET fecha_inicio = ?, numero_disposicion = ? WHERE id = ?', 
+            db.query('UPDATE contratos_inversion SET fecha_inicio = ?, numero_disposicion = ? WHERE id = ?', 
                 [fecha_inicio, numero_disposicion, req.params.id], (err) => {
                 if (err) return res.status(500).json({ success: false, message: "Error al actualizar contrato" });
                 
@@ -343,11 +343,11 @@ router.post('/inversion', verificarToken, (req, res) => {
     checkDisposicionUnica(db, numero_disposicion, null, (esValido) => {
         if (!esValido) return res.status(400).json({ success: false, message: 'El Numero de Disposicion ya se encuentra registrado.' });
 
-        db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, results) => {
+        db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_inversor], (err, results) => {
             const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Fondeador Desconocido';
 
             const query = `
-                INSERT INTO CONTRATOS_INVERSION 
+                INSERT INTO contratos_inversion 
                 (id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, plan_json, fecha_inicio, fecha_fin, estatus, numero_disposicion) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO', ?)
             `;
@@ -386,10 +386,10 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
     const jsonStr = JSON.stringify(pagos_irregulares);
     const planStr = JSON.stringify(plan_json);
     
-    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [req.params.id], (errSelect, rows) => {
+    db.query('SELECT numero_disposicion FROM contratos_inversion WHERE id = ?', [req.params.id], (errSelect, rows) => {
         const disposicion = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         
-        db.query('UPDATE CONTRATOS_INVERSION SET pagos_irregulares_json = ?, plan_json = ?, tipo_amortizacion = "personalizado" WHERE id = ?', 
+        db.query('UPDATE contratos_inversion SET pagos_irregulares_json = ?, plan_json = ?, tipo_amortizacion = "personalizado" WHERE id = ?', 
         [jsonStr, planStr, req.params.id], (err) => {
             if (err) return res.status(500).json({ success: false, message: 'Error al actualizar.' });
             
@@ -696,11 +696,11 @@ function calcularAmortizacionBackend(contratoObj) {
 }
 
 // ==========================================
-// BENEFICIARIOS Y MOVIMIENTOS
+// beneficiarios Y MOVIMIENTOS
 // ==========================================
 
 router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
-    db.query('SELECT * FROM BENEFICIARIOS WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
+    db.query('SELECT * FROM beneficiarios WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
     });
@@ -714,11 +714,11 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
     if (!id_inversor) return res.status(400).json({ success: false, message: 'Falta el campo requerido: id_inversor' });
     if (!nombre_completo) return res.status(400).json({ success: false, message: 'Falta el campo requerido: nombre_completo' });
     
-    db.query('SELECT id_persona FROM INVERSORES WHERE id_persona = ?', [id_inversor], (err, results) => {
+    db.query('SELECT id_persona FROM inversores WHERE id_persona = ?', [id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al verificar inversor', error: err.message });
         if (results.length === 0) return res.status(404).json({ success: false, message: `No se encontro el inversor con ID: ${id_inversor}` });
         
-        db.query('SELECT COALESCE(SUM(porcentaje), 0) as total FROM BENEFICIARIOS WHERE id_inversor = ?', [id_inversor], (err, sumResults) => {
+        db.query('SELECT COALESCE(SUM(porcentaje), 0) as total FROM beneficiarios WHERE id_inversor = ?', [id_inversor], (err, sumResults) => {
             if (err) return res.status(500).json({ success: false, message: 'Error al verificar porcentajes', error: err.message });
             
             const porcentajeActual = parseFloat(porcentaje || 100);
@@ -730,11 +730,11 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
             }
             
             // *** CONSULTA SQL CORRECTA SEGUN TU INDICACION ***
-            const query = `INSERT INTO BENEFICIARIOS (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento, ine_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            const query = `INSERT INTO beneficiarios (id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento, ine_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
             db.query(query, [id_inversor, nombre_completo, parentesco || null, telefono || null, porcentaje || 100, fecha_nacimiento || null, url_ine], (err, result) => {
                 if (err) return res.status(500).json({ success: false, message: 'Error al guardar el beneficiario', error: err.message });
                 
-                db.query('SELECT nombre_razon_social FROM PERSONAS WHERE id = ?', [id_inversor], (err, resPer) => {
+                db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_inversor], (err, resPer) => {
                     const nombreFondeador = (resPer && resPer.length > 0) ? resPer[0].nombre_razon_social : 'Desconocido';
                     try { registrarBitacora(req.usuario.id, 'AGREGAR_BENEFICIARIO', `Agrego a ${nombre_completo} como beneficiario de: ${nombreFondeador}`, req); } catch (bitErr) {}
                     res.json({ success: true, message: 'Beneficiario registrado exitosamente', id_beneficiario: result.insertId });
@@ -746,9 +746,9 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
 
 router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
     const { id } = req.params;
-    db.query('SELECT nombre_completo FROM BENEFICIARIOS WHERE id = ?', [id], (err, results) => {
+    db.query('SELECT nombre_completo FROM beneficiarios WHERE id = ?', [id], (err, results) => {
         const nombreBen = (results && results.length > 0) ? results[0].nombre_completo : 'Beneficiario';
-        db.query('DELETE FROM BENEFICIARIOS WHERE id = ?', [id], (err) => {
+        db.query('DELETE FROM beneficiarios WHERE id = ?', [id], (err) => {
             if (err) return res.status(500).json({ success: false });
             registrarBitacora(req.usuario.id, 'ELIMINAR_BENEFICIARIO', `Elimino al beneficiario: ${nombreBen}`, req);
             res.json({ success: true });
@@ -757,7 +757,7 @@ router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
 });
 
 router.get('/movimientos/:id_inversor', verificarToken, (req, res) => {
-    db.query('SELECT m.*, c.id as contrato_id FROM MOVIMIENTOS_INVERSION m JOIN CONTRATOS_INVERSION c ON m.id_contrato = c.id WHERE c.id_inversor = ? ORDER BY m.fecha_movimiento DESC', 
+    db.query('SELECT m.*, c.id as contrato_id FROM movimientos_inversion m JOIN contratos_inversion c ON m.id_contrato = c.id WHERE c.id_inversor = ? ORDER BY m.fecha_movimiento DESC', 
         [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, data: results });
@@ -767,10 +767,10 @@ router.get('/movimientos/:id_inversor', verificarToken, (req, res) => {
 router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, res) => {
     const { id_contrato, tipo, monto } = req.body;
     let recibo = req.file ? `uploads/${req.file.filename}` : null;
-    db.query('INSERT INTO MOVIMIENTOS_INVERSION (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', [id_contrato, tipo, monto, recibo], (err) => {
+    db.query('INSERT INTO movimientos_inversion (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', [id_contrato, tipo, monto, recibo], (err) => {
         if (err) return res.status(500).json({ success: false });
         
-        db.query('SELECT p.nombre_razon_social FROM CONTRATOS_INVERSION c JOIN PERSONAS p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
+        db.query('SELECT p.nombre_razon_social FROM contratos_inversion c JOIN personas p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
            const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
            registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registro un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`, req);
            res.json({ success: true });
@@ -938,7 +938,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
         return res.status(400).json({ success: false, message: 'Faltan los datos de la tabla.' });
     }
 
-    db.query('SELECT numero_disposicion FROM CONTRATOS_INVERSION WHERE id = ?', [idContrato], (errSelect, rows) => {
+    db.query('SELECT numero_disposicion FROM contratos_inversion WHERE id = ?', [idContrato], (errSelect, rows) => {
         const disposicion = (rows && rows.length > 0) ? rows[0].numero_disposicion : 'S/N';
         
         try {
