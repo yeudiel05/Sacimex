@@ -523,7 +523,7 @@ router.post('/pagos-fondeador', verificarToken, upload.single('comprobante'), (r
 });
 
 // ==========================================
-// CRUD NORMAL DE PROVEEDORES (CORREGIDO)
+// CRUD NORMAL DE proveedores (CORREGIDO)
 // ==========================================
 router.get('/', verificarToken, (req, res) => {
     const query = `
@@ -539,7 +539,7 @@ router.get('/', verificarToken, (req, res) => {
     `;
     db.query(query, (err, results) => {
         if (err) {
-            console.log("🚨 ERROR SQL EN GET PROVEEDORES:", err.message);
+            console.log("🚨 ERROR SQL EN GET proveedores:", err.message);
             return res.status(500).json({ success: false, message: err.message });
         }
         res.json({ success: true, data: results });
@@ -847,7 +847,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, (req, res) => {
 });
 
 // ==========================================
-// IMPORTAR PROVEEDORES DESDE EXCEL (ESCÁNER MULTI-PESTAÑA)
+// IMPORTAR proveedores DESDE EXCEL (ESCÁNER MULTI-PESTAÑA)
 // ==========================================
 router.post('/importar', verificarToken, uploadExcel.single('archivo_excel'), async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });

@@ -17,7 +17,7 @@ router.get('/stats', verificarToken, async (req, res) => {
 
         const añoActual = new Date().getFullYear();
 
-        // Ejecutamos las consultas en paralelo uniendo con la tabla PERSONAS (p.eliminado = 0)
+        // Ejecutamos las consultas en paralelo uniendo con la tabla personas (p.eliminado = 0)
         const [
             clientes, 
             fondeadores, 

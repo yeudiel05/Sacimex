@@ -70,7 +70,7 @@ router.delete('/puestos/:id', verificarToken, (req, res) => {
 
 
 // ==========================================
-// 2. RUTAS DE USUARIOS
+// 2. RUTAS DE usuarios
 // ==========================================
 
 // Obtener Lista Completa de Usuarios
