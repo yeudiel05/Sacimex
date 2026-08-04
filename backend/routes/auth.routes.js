@@ -16,7 +16,7 @@ router.post('/login', (req, res) => {
   `;
   
   db.query(query, [usuario], async (err, results) => {
-    if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
+    if (err) return res.status(500).json({ success: false, message: err.message, code: err.code });
     
     if (results.length > 0) {
       const user = results[0];
