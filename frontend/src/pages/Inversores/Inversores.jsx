@@ -1727,12 +1727,12 @@ function Inversores() {
                             <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} className="btn-close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><IconClose/></button>
                         </div>
                         
-                        <div className="modal-body" style={{ backgroundColor: '#f8fafc', overflowY: 'auto', flexGrow: 1, minHeight: 0, padding: '32px' }}>
+                        <div className="modal-body" style={{ backgroundColor: '#f8fafc', flexGrow: 1, minHeight: 0, padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'hidden' }}>
                             
-                            <div style={{ marginBottom: '24px', padding: '24px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                            <div style={{ flexShrink: 0, maxHeight: '220px', overflowY: 'auto', padding: '16px 20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
-                                        <h5 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '16px', fontWeight: '800' }}>+ Inyectar Pagos Irregulares (Abonos a Capital)</h5>
+                                        <h5 style={{ margin: '0 0 4px 0', color: '#166534', fontSize: '14px', fontWeight: '800' }}>+ Inyectar Pagos Irregulares (Abonos a Capital)</h5>
                                         <p style={{ margin: 0, fontSize: '13px', color: '#15803d', maxWidth: '600px', lineHeight: '1.5' }}>
                                             Agrega fechas de abono no contempladas en el calendario original. El motor recalculara automaticamente los intereses de las siguientes mensualidades basandose en el nuevo saldo reducido. Si marcas la casilla "No cobrar dia", <strong>el interes del dia del abono se descuenta</strong>.
                                         </p>
@@ -1775,7 +1775,7 @@ function Inversores() {
                                 )}
                             </div> 
                             
-                            <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'auto' }}>
+                            <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'auto', flexGrow: 1, minHeight: 0 }}>
                                 <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                                     <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
                                         <strong>Nota interactiva:</strong> Edita la Fecha de Vencimiento y el Abono a Principal directamente en la tabla. El motor recalculará todo al instante.
