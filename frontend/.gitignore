@@ -24,7 +24,7 @@ dist-ssr
 backend/uploads/
 
 node_modules/
-.env
+backend/.env
 frontend/dist/
 backend/uploads/*
 !backend/uploads/.gitkeep
