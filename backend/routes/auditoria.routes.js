@@ -46,14 +46,14 @@ function consultarBitacora(whereYOrden, params, callback) {
     });
 }
 
-router.get('/', verificarToken, (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN'), (req, res) => {
     consultarBitacora(' ORDER BY b.fecha DESC', [], (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al obtener la bitácora.' });
         res.json({ success: true, data: results });
     });
 });
 
-router.get('/reporte/pdf', verificarToken, (req, res) => {
+router.get('/reporte/pdf', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { fechaInicio, fechaFin } = req.query;
 
     let whereYOrden = ' WHERE 1=1';
@@ -111,7 +111,7 @@ router.get('/reporte/pdf', verificarToken, (req, res) => {
 // Bitacora TECNICA de accesos: literalmente cada peticion al API (incluidas lecturas),
 // capturada automaticamente por el middleware logAccesos.js sin depender de logs manuales.
 // Solo ADMIN puede consultarla: es informacion muy detallada (IP, ruta, duracion, etc).
-router.get('/accesos', verificarToken, (req, res) => {
+router.get('/accesos', verificarToken, autorizar('ADMIN'), (req, res) => {
     if (req.usuario.rol !== 'ADMIN') {
         return res.status(403).json({ success: false, message: 'No tienes permiso para ver la bitacora tecnica de accesos.' });
     }

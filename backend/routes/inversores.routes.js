@@ -1095,7 +1095,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
     });
 });
 
-router.post('/trigger-alertas-login', (req, res) => {
+router.post('/trigger-alertas-login', verificarToken, (req, res) => {
     console.log('Iniciando sesion: Revisando vencimientos globales...');
 
     const queryFondeadores = `

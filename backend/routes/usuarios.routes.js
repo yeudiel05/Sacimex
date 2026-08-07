@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs'); 
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -24,14 +25,14 @@ const upload = multer({ storage });
 // 1. APIS DE CATALOGO DE PUESTOS
 // ==========================================
 
-router.get('/puestos', verificarToken, (req, res) => {
+router.get('/puestos', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('SELECT * FROM catalogo_puestos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/puestos', verificarToken, (req, res) => {
+router.post('/puestos', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
     db.query('INSERT INTO catalogo_puestos (nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default) VALUES (?, ?, ?, ?, ?)', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0], (err) => {
@@ -41,7 +42,7 @@ router.post('/puestos', verificarToken, (req, res) => {
     });
 });
 
-router.put('/puestos/:id', verificarToken, (req, res) => {
+router.put('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
     db.query('UPDATE catalogo_puestos SET nombre = ?, departamento_default = ?, nivel_default = ?, rol_default = ?, puede_solicitar_default = ? WHERE id = ?', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0, req.params.id], (err) => {
@@ -51,7 +52,7 @@ router.put('/puestos/:id', verificarToken, (req, res) => {
     });
 });
 
-router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
+router.put('/puestos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_puestos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -60,7 +61,7 @@ router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/puestos/:id', verificarToken, (req, res) => {
+router.delete('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto esta en uso.' });
         registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Elimino un puesto (ID: ${req.params.id})`, req);
@@ -74,7 +75,7 @@ router.delete('/puestos/:id', verificarToken, (req, res) => {
 // ==========================================
 
 // Obtener Lista Completa de Usuarios
-router.get('/', verificarToken, (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN'), (req, res) => {
     const query = `
         SELECT u.id as id_usuario, u.username, u.rol, u.estatus_activo, 
                u.puede_solicitar, u.nivel_autorizacion, u.ruta_firma_png AS firma,
@@ -94,7 +95,7 @@ router.get('/', verificarToken, (req, res) => {
 });
 
 // Obtener Expediente Completo de un solo Usuario
-router.get('/:id', verificarToken, (req, res) => {
+router.get('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { id } = req.params;
     
     const query = `
@@ -117,7 +118,7 @@ router.get('/:id', verificarToken, (req, res) => {
 });
 
 // Crear Nuevo Usuario
-router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
+router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), async (req, res) => {
     const { 
         nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, puede_solicitar, nivel_autorizacion,
         titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria 
@@ -167,7 +168,7 @@ router.post('/', verificarToken, upload.single('firma'), async (req, res) => {
 // ================================================================
 // EDITAR USUARIO - CORREGIDO (async en la función principal)
 // ================================================================
-router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, res) => {
+router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('firma'), async (req, res) => {
     const { id_usuario } = req.params;
     const { 
         nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona, puede_solicitar, nivel_autorizacion,
@@ -244,7 +245,7 @@ router.put('/:id_usuario', verificarToken, upload.single('firma'), async (req, r
 // ================================================================
 // CAMBIAR ESTATUS - CORREGIDO
 // ================================================================
-router.put('/:id/estatus', verificarToken, (req, res) => {
+router.put('/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     
     // Obtenemos el username para la bitácora
@@ -265,7 +266,7 @@ router.put('/:id/estatus', verificarToken, (req, res) => {
 // ================================================================
 // ELIMINAR USUARIO - CORREGIDO
 // ================================================================
-router.delete('/:id_persona', verificarToken, (req, res) => {
+router.delete('/:id_persona', verificarToken, autorizar('ADMIN'), (req, res) => {
     const idPersona = req.params.id_persona;
     
     // Obtenemos el nombre de la persona para la bitácora
