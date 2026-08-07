@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel } = require('../utils/motorAutorizacion');
 const PDFDocument = require('pdfkit');
 const path = require('path');
@@ -152,7 +153,7 @@ function formatMoney(n) {
 // RUTAS PRINCIPALES DE SOLICITUDES
 // =====================================================================
 
-router.get('/', verificarToken, (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const miRol = req.usuario.rol;
     const miId  = req.usuario.id;
     const miIdDepartamento = req.usuario.id_departamento;
@@ -191,7 +192,7 @@ router.get('/', verificarToken, (req, res) => {
     });
 });
 
-router.get('/pendientes', verificarToken, (req, res) => {
+router.get('/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const miRol = req.usuario.rol;
     const miId = req.usuario.id;
 
@@ -258,7 +259,7 @@ router.get('/pendientes', verificarToken, (req, res) => {
     });
 });
 
-router.get('/:id', verificarToken, (req, res) => {
+router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const { id } = req.params;
 
     const querySolicitud = `
@@ -330,7 +331,7 @@ router.get('/:id', verificarToken, (req, res) => {
     });
 });
 
-router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) => {
+router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), upload.single('cotizacion'), (req, res) => {
     try {
         const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago, unidad_negocio } = req.body;
         
@@ -438,7 +439,7 @@ router.post('/crear', verificarToken, upload.single('cotizacion'), (req, res) =>
 // ================================================================
 // AUTORIZAR - Usa folio
 // ================================================================
-router.post('/autorizar/:id', verificarToken, (req, res) => {
+router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const { id } = req.params;
     const { comentario } = req.body;
     const miUsuarioId = req.usuario.id;
@@ -527,7 +528,7 @@ router.post('/autorizar/:id', verificarToken, (req, res) => {
 // ================================================================
 // RECHAZAR - Usa folio
 // ================================================================
-router.post('/rechazar/:id', verificarToken, (req, res) => {
+router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const { id } = req.params;
     const { motivo } = req.body;
     const miRol = req.usuario.rol;
@@ -574,7 +575,7 @@ router.post('/rechazar/:id', verificarToken, (req, res) => {
     });
 });
 
-router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (req, res) => {
+router.post('/comprobante/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), upload.single('comprobante'), (req, res) => {
     const { id } = req.params;
     const miUsuarioId = req.usuario.id;
 
@@ -619,7 +620,7 @@ router.post('/comprobante/:id', verificarToken, upload.single('comprobante'), (r
 // =====================================================================
 // GENERADOR PDF
 // =====================================================================
-router.get('/:id/pdf', verificarToken, (req, res) => {
+router.get('/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
     const { id } = req.params;
     const miUsuarioId = req.usuario.id;
 

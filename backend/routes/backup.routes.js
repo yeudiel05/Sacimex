@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const mysqldump = require('mysqldump');
 const path = require('path');
 const fs = require('fs');
 
-router.get('/', verificarToken, async (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN'), async (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
 
     const fecha = new Date().toISOString().split('T')[0];

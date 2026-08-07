@@ -2,19 +2,20 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 
 // ==========================================
 // APIS DE CATÁLOGO DE CONCEPTOS DE PAGO
 // ==========================================
 
-router.get('/conceptos', verificarToken, (req, res) => {
+router.get('/conceptos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query('SELECT * FROM conceptos_pago ORDER BY id ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/conceptos', verificarToken, (req, res) => {
+router.post('/conceptos', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { clave, descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno } = req.body;
     db.query('INSERT INTO conceptos_pago (clave, descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno) VALUES (?, ?, ?, ?, ?, ?)', 
     [clave, descripcion, uso_cfdi || null, metodo_pago || null, requiere_vobo ? 1 : 0, requiere_vobo ? area_visto_bueno : null], (err) => {
@@ -24,7 +25,7 @@ router.post('/conceptos', verificarToken, (req, res) => {
     });
 });
 
-router.put('/conceptos/:clave', verificarToken, (req, res) => {
+router.put('/conceptos/:clave', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { descripcion, uso_cfdi, metodo_pago, requiere_vobo, area_visto_bueno } = req.body;
     db.query(`UPDATE conceptos_pago 
               SET descripcion = ?, 
@@ -40,7 +41,7 @@ router.put('/conceptos/:clave', verificarToken, (req, res) => {
     });
 });
 
-router.put('/conceptos/:clave/estatus', verificarToken, (req, res) => {
+router.put('/conceptos/:clave/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE conceptos_pago SET estatus_activo = ? WHERE clave = ?', [estatus_activo, req.params.clave], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al cambiar estatus' });
@@ -49,7 +50,7 @@ router.put('/conceptos/:clave/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/conceptos/:clave', verificarToken, (req, res) => {
+router.delete('/conceptos/:clave', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('DELETE FROM conceptos_pago WHERE clave = ?', [req.params.clave], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este concepto ya fue usado en solicitudes pasadas.' });
         registrarBitacora(req.usuario.id, 'ELIMINAR_CONCEPTO', `Elimino la cuenta de gasto con clave: ${req.params.clave}`, req);
@@ -61,14 +62,14 @@ router.delete('/conceptos/:clave', verificarToken, (req, res) => {
 // APIS DE CATÁLOGO DE BANCOS
 // ==========================================
 
-router.get('/bancos', verificarToken, (req, res) => {
+router.get('/bancos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query('SELECT * FROM catalogo_bancos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/bancos', verificarToken, (req, res) => {
+router.post('/bancos', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('INSERT INTO catalogo_bancos (nombre) VALUES (?)', [nombre.toUpperCase().trim()], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'El banco ya existe o hubo un error.' });
@@ -77,7 +78,7 @@ router.post('/bancos', verificarToken, (req, res) => {
     });
 });
 
-router.put('/bancos/:id', verificarToken, (req, res) => {
+router.put('/bancos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('UPDATE catalogo_bancos SET nombre = ? WHERE id = ?', [nombre.toUpperCase().trim(), req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -86,7 +87,7 @@ router.put('/bancos/:id', verificarToken, (req, res) => {
     });
 });
 
-router.put('/bancos/:id/estatus', verificarToken, (req, res) => {
+router.put('/bancos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_bancos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -95,7 +96,7 @@ router.put('/bancos/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/bancos/:id', verificarToken, (req, res) => {
+router.delete('/bancos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('DELETE FROM catalogo_bancos WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este banco ya esta asignado a cuentas o proveedores.' });
         registrarBitacora(req.usuario.id, 'ELIMINAR_BANCO', `Elimino un banco del catalogo (ID: ${req.params.id})`, req);
@@ -107,14 +108,14 @@ router.delete('/bancos/:id', verificarToken, (req, res) => {
 // APIS DE CATÁLOGO DE DEPARTAMENTOS / AREAS
 // ==========================================
 
-router.get('/departamentos', verificarToken, (req, res) => {
+router.get('/departamentos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query('SELECT * FROM catalogo_departamentos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/departamentos', verificarToken, (req, res) => {
+router.post('/departamentos', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('INSERT INTO catalogo_departamentos (nombre) VALUES (?)', [nombre.toUpperCase().trim()], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'El departamento ya existe.' });
@@ -123,7 +124,7 @@ router.post('/departamentos', verificarToken, (req, res) => {
     });
 });
 
-router.put('/departamentos/:id', verificarToken, (req, res) => {
+router.put('/departamentos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('UPDATE catalogo_departamentos SET nombre = ? WHERE id = ?', [nombre.toUpperCase().trim(), req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -132,7 +133,7 @@ router.put('/departamentos/:id', verificarToken, (req, res) => {
     });
 });
 
-router.put('/departamentos/:id/estatus', verificarToken, (req, res) => {
+router.put('/departamentos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_departamentos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -141,7 +142,7 @@ router.put('/departamentos/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/departamentos/:id', verificarToken, (req, res) => {
+router.delete('/departamentos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('DELETE FROM catalogo_departamentos WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este departamento esta en uso por usuarios o reglas de VoBo.' });
         registrarBitacora(req.usuario.id, 'ELIMINAR_DEPTO', `Elimino un departamento (ID: ${req.params.id})`, req);
@@ -153,14 +154,14 @@ router.delete('/departamentos/:id', verificarToken, (req, res) => {
 // APIS DE CATÁLOGO DE PUESTOS
 // ==========================================
 
-router.get('/puestos', verificarToken, (req, res) => {
+router.get('/puestos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query('SELECT * FROM catalogo_puestos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/puestos', verificarToken, (req, res) => {
+router.post('/puestos', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
     db.query('INSERT INTO catalogo_puestos (nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default) VALUES (?, ?, ?, ?, ?)', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0], (err) => {
@@ -170,7 +171,7 @@ router.post('/puestos', verificarToken, (req, res) => {
     });
 });
 
-router.put('/puestos/:id', verificarToken, (req, res) => {
+router.put('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre, departamento_default, nivel_default, rol_default, puede_solicitar_default } = req.body;
     db.query('UPDATE catalogo_puestos SET nombre = ?, departamento_default = ?, nivel_default = ?, rol_default = ?, puede_solicitar_default = ? WHERE id = ?', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0, req.params.id], (err) => {
@@ -180,7 +181,7 @@ router.put('/puestos/:id', verificarToken, (req, res) => {
     });
 });
 
-router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
+router.put('/puestos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_puestos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -189,7 +190,7 @@ router.put('/puestos/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/puestos/:id', verificarToken, (req, res) => {
+router.delete('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('SELECT nombre FROM catalogo_puestos WHERE id = ?', [req.params.id], (err, results) => {
         const nombrePuesto = (results && results.length > 0) ? results[0].nombre : 'Puesto Desconocido';
         
@@ -205,14 +206,14 @@ router.delete('/puestos/:id', verificarToken, (req, res) => {
 // APIS DE CATÁLOGO DE CATEGORIAS DE PROVEEDOR
 // ==========================================
 
-router.get('/categorias', verificarToken, (req, res) => {
+router.get('/categorias', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query('SELECT * FROM catalogo_categorias_proveedor ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al cargar categorias' });
         res.json({ success: true, data: results });
     });
 });
 
-router.post('/categorias', verificarToken, (req, res) => {
+router.post('/categorias', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('INSERT INTO catalogo_categorias_proveedor (nombre) VALUES (?)', [nombre.toUpperCase().trim()], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'La categoria ya existe o hubo un error.' });
@@ -221,7 +222,7 @@ router.post('/categorias', verificarToken, (req, res) => {
     });
 });
 
-router.put('/categorias/:id', verificarToken, (req, res) => {
+router.put('/categorias/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { nombre } = req.body;
     db.query('UPDATE catalogo_categorias_proveedor SET nombre = ? WHERE id = ?', [nombre.toUpperCase().trim(), req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -230,7 +231,7 @@ router.put('/categorias/:id', verificarToken, (req, res) => {
     });
 });
 
-router.put('/categorias/:id/estatus', verificarToken, (req, res) => {
+router.put('/categorias/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { estatus_activo } = req.body;
     
     db.query('SELECT nombre FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err, results) => {
@@ -244,7 +245,7 @@ router.put('/categorias/:id/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/categorias/:id', verificarToken, (req, res) => {
+router.delete('/categorias/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('SELECT nombre FROM catalogo_categorias_proveedor WHERE id = ?', [req.params.id], (err, results) => {
         const nombreCat = (results && results.length > 0) ? results[0].nombre : 'Categoria';
         
@@ -266,7 +267,7 @@ const soloAdmin = (req, res, next) => {
     next();
 };
 
-router.get('/matriz-autorizacion', verificarToken, (req, res) => {
+router.get('/matriz-autorizacion', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
     db.query(`
         SELECT m.id, m.id_departamento, cd.nombre AS departamento_nombre,
                m.nivel, m.etiqueta_nivel,
@@ -284,7 +285,7 @@ router.get('/matriz-autorizacion', verificarToken, (req, res) => {
     });
 });
 
-router.post('/matriz-autorizacion', verificarToken, soloAdmin, (req, res) => {
+router.post('/matriz-autorizacion', verificarToken, autorizar('ADMIN'), soloAdmin, (req, res) => {
     const { id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario } = req.body;
     db.query(
         'INSERT INTO matriz_autorizacion (id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario) VALUES (?, ?, ?, ?, ?)',
@@ -297,7 +298,7 @@ router.post('/matriz-autorizacion', verificarToken, soloAdmin, (req, res) => {
     );
 });
 
-router.put('/matriz-autorizacion/:id', verificarToken, soloAdmin, (req, res) => {
+router.put('/matriz-autorizacion/:id', verificarToken, autorizar('ADMIN'), soloAdmin, (req, res) => {
     const { id_departamento, nivel, etiqueta_nivel, id_rol, id_usuario } = req.body;
     db.query(
         'UPDATE matriz_autorizacion SET id_departamento = ?, nivel = ?, etiqueta_nivel = ?, id_rol = ?, id_usuario = ? WHERE id = ?',
@@ -310,7 +311,7 @@ router.put('/matriz-autorizacion/:id', verificarToken, soloAdmin, (req, res) => 
     );
 });
 
-router.put('/matriz-autorizacion/:id/estatus', verificarToken, soloAdmin, (req, res) => {
+router.put('/matriz-autorizacion/:id/estatus', verificarToken, autorizar('ADMIN'), soloAdmin, (req, res) => {
     const { estatus_activo } = req.body;
     db.query('UPDATE matriz_autorizacion SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -319,7 +320,7 @@ router.put('/matriz-autorizacion/:id/estatus', verificarToken, soloAdmin, (req, 
     });
 });
 
-router.delete('/matriz-autorizacion/:id', verificarToken, soloAdmin, (req, res) => {
+router.delete('/matriz-autorizacion/:id', verificarToken, autorizar('ADMIN'), soloAdmin, (req, res) => {
     db.query('DELETE FROM matriz_autorizacion WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se pudo eliminar la regla.' });
         registrarBitacora(req.usuario.id, 'ELIMINAR_REGLA_AUTORIZACION', `Elimino la regla de autorizacion ID ${req.params.id}`, req);

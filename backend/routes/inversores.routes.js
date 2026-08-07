@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const PDFDocument = require('pdfkit');
 const multer = require('multer');
 const path = require('path');
@@ -129,7 +130,7 @@ function checkDisposicionUnica(db, numero_disposicion, id_exclude, callback) {
 // RUTAS CRUD (FONDEADORES)
 // ==========================================
 
-router.get('/', verificarToken, (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     const query = `
         SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
                p.telefono, p.email_contacto AS email, i.clabe_bancaria, i.numero_cuenta, i.banco, 
@@ -143,7 +144,7 @@ router.get('/', verificarToken, (req, res) => {
     });
 });
 
-router.post('/', verificarToken, (req, res) => {
+router.post('/', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { 
         tipo_persona,
         nombre, apellidos, rfc, direccion, telefono, email, 
@@ -211,7 +212,7 @@ router.post('/', verificarToken, (req, res) => {
     });
 });
 
-router.put('/:id_persona/estatus', verificarToken, (req, res) => {
+router.put('/:id_persona/estatus', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { id_persona } = req.params;
     const { estatus_activo } = req.body;
 
@@ -227,7 +228,7 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
     });
 });
 
-router.put('/:id', verificarToken, (req, res) => {
+router.put('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { id } = req.params;
     const { tipo_persona, nombre, rfc, direccion, telefono, email, clabe_bancaria, numero_cuenta, banco, origen_fondos, limite_credito } = req.body;
     
@@ -250,7 +251,7 @@ router.put('/:id', verificarToken, (req, res) => {
     });
 });
 
-router.delete('/:id', verificarToken, (req, res) => {
+router.delete('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const id = req.params.id;
     db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false, error: err?.message });
@@ -268,14 +269,14 @@ router.delete('/:id', verificarToken, (req, res) => {
 // TASAS Y CONTRATOS DE INVERSION
 // ==========================================
 
-router.get('/tasas', verificarToken, (req, res) => {
+router.get('/tasas', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     db.query('SELECT * FROM catalogo_tasas WHERE estatus_activo = 1', (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, data: results });
     });
 });
 
-router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
+router.get('/contratos/:id_inversor', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     db.query('SELECT c.*, t.nombre_tasa, t.tasa_anual_esperada FROM contratos_inversion c JOIN catalogo_tasas t ON c.id_tasa = t.id WHERE c.id_inversor = ? ORDER BY c.fecha_inicio DESC', 
         [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
@@ -286,7 +287,7 @@ router.get('/contratos/:id_inversor', verificarToken, (req, res) => {
 // ==========================================
 // 1. CREAR CONTRATO ESTATICO
 // ==========================================
-router.post('/contratos', verificarToken, (req, res) => {
+router.post('/contratos', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, tipo_amortizacion, reinversion_automatica, fecha_inicio, fecha_fin, plan_json, numero_disposicion } = req.body;
   
     db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [id_inversor], (err, resPer) => {
@@ -312,7 +313,7 @@ router.post('/contratos', verificarToken, (req, res) => {
 // ==========================================
 // 2. EDITAR CONTRATO
 // ==========================================
-router.put('/contratos/:id', verificarToken, (req, res) => {
+router.put('/contratos/:id', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { fecha_inicio, numero_disposicion } = req.body;
     
     db.query('SELECT numero_disposicion FROM contratos_inversion WHERE id = ?', [req.params.id], (err, rows) => {
@@ -333,7 +334,7 @@ router.put('/contratos/:id', verificarToken, (req, res) => {
     });
 });
 
-router.post('/inversion', verificarToken, (req, res) => {
+router.post('/inversion', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { id_inversor, id_tasa, monto_inicial, frecuencia_pagos, plazo_meses, tipo_amortizacion, plan_json, fecha_inicio, numero_disposicion } = req.body;
 
     const fInicio = fecha_inicio ? new Date(fecha_inicio + 'T12:00:00') : new Date();
@@ -381,7 +382,7 @@ router.post('/inversion', verificarToken, (req, res) => {
 // ================================================================
 // REESTRUCTURACION - CORREGIDO (usa disposicion)
 // ================================================================
-router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
+router.put('/contratos/:id/pagos-irregulares', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { pagos_irregulares, plan_json, huboInyeccion } = req.body;
     const jsonStr = JSON.stringify(pagos_irregulares);
     const planStr = JSON.stringify(plan_json);
@@ -404,7 +405,7 @@ router.put('/contratos/:id/pagos-irregulares', verificarToken, (req, res) => {
 });
 
 // ENVIO MANUAL DE ALERTA POR CORREO
-router.post('/alertas-correo', verificarToken, (req, res) => {
+router.post('/alertas-correo', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const { email, id_inversor } = req.body;
 
     if (!email) {
@@ -536,7 +537,7 @@ router.post('/alertas-correo', verificarToken, (req, res) => {
 // ==========================================
 // RUTA DE BANDEJA DE ALERTAS GLOBALES (FIFO UNIFICADO)
 // ==========================================
-router.get('/reportes/pagos-por-vencer', verificarToken, (req, res) => {
+router.get('/reportes/pagos-por-vencer', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     
     const queryFondeadores = `
         SELECT 
@@ -699,7 +700,7 @@ function calcularAmortizacionBackend(contratoObj) {
 // beneficiarios Y MOVIMIENTOS
 // ==========================================
 
-router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
+router.get('/beneficiarios/:id_inversor', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     db.query('SELECT * FROM beneficiarios WHERE id_inversor = ?', [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
@@ -707,7 +708,7 @@ router.get('/beneficiarios/:id_inversor', verificarToken, (req, res) => {
 });
 
 // *** CORRECCION APLICADA AQUI: LA CONSULTA SQL AHORA INCLUYE ine_url ***
-router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) => {
+router.post('/beneficiarios', verificarToken, autorizar('ADMIN', 'CONTADOR'), upload.single('ine'), (req, res) => {
     const { id_inversor, nombre_completo, parentesco, telefono, porcentaje, fecha_nacimiento } = req.body;
     const url_ine = req.file ? `/uploads/${req.file.filename}` : null;
     
@@ -744,7 +745,7 @@ router.post('/beneficiarios', verificarToken, upload.single('ine'), (req, res) =
     });
 });
 
-router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
+router.delete('/beneficiarios/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     const { id } = req.params;
     db.query('SELECT nombre_completo FROM beneficiarios WHERE id = ?', [id], (err, results) => {
         const nombreBen = (results && results.length > 0) ? results[0].nombre_completo : 'Beneficiario';
@@ -756,7 +757,7 @@ router.delete('/beneficiarios/:id', verificarToken, (req, res) => {
     });
 });
 
-router.get('/movimientos/:id_inversor', verificarToken, (req, res) => {
+router.get('/movimientos/:id_inversor', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     db.query('SELECT m.*, c.id as contrato_id FROM movimientos_inversion m JOIN contratos_inversion c ON m.id_contrato = c.id WHERE c.id_inversor = ? ORDER BY m.fecha_movimiento DESC', 
         [req.params.id_inversor], (err, results) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
@@ -764,7 +765,7 @@ router.get('/movimientos/:id_inversor', verificarToken, (req, res) => {
     });
 });
 
-router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, res) => {
+router.post('/movimientos', verificarToken, autorizar('ADMIN', 'CONTADOR'), upload.single('comprobante'), (req, res) => {
     const { id_contrato, tipo, monto } = req.body;
     let recibo = req.file ? `uploads/${req.file.filename}` : null;
     db.query('INSERT INTO movimientos_inversion (id_contrato, tipo, monto, recibo_comprobante, estatus_movimiento) VALUES (?, ?, ?, ?, "COMPLETADO")', [id_contrato, tipo, monto, recibo], (err) => {
@@ -781,7 +782,7 @@ router.post('/movimientos', verificarToken, upload.single('comprobante'), (req, 
 // =========================================================================
 // RUTA GENERADORA DE CONSTANCIA DE DEPOSITO EN PDF
 // =========================================================================
-router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
+router.get('/contratos/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE'), (req, res) => {
     const idContrato = req.params.id;
 
     const query = `
@@ -930,7 +931,7 @@ router.get('/contratos/:id/pdf', verificarToken, (req, res) => {
 // ==========================================
 // RUTA WYSIWYG: TABLA DE AMORTIZACION PDF ESTILIZADO
 // ==========================================
-router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (req, res) => {
+router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     const idContrato = req.params.id;
     const { tablaData, fondeador, montoInicial, tasa, sistema, fechaInicio, numeroDisposicion } = req.body;
 
@@ -1095,7 +1096,7 @@ router.post('/contratos/:id/tabla-amortizacion/generar-pdf', verificarToken, (re
     });
 });
 
-router.post('/trigger-alertas-login', verificarToken, (req, res) => {
+router.post('/trigger-alertas-login', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
     console.log('Iniciando sesion: Revisando vencimientos globales...');
 
     const queryFondeadores = `

@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 
-router.get('/', verificarToken, (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE'), (req, res) => {
     const notificaciones = [];
     const rolUsuario = req.usuario.rol; // Sacamos el rol del usuario logueado
 
