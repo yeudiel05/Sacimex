@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const PDFDocument = require('pdfkit');
 
 // --- Consultas a bitacora_auditoria con detalle tecnico opcional -----------

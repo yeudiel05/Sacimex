@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
+const { autorizar } = require('../middlewares/autorizar');
 const { puedeAutorizarViaticos } = require('../utils/motorAutorizacion');
 const multer = require('multer');
 const path = require('path');
