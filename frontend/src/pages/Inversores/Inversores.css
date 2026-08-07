@@ -444,3 +444,13 @@ input:focus, .custom-select:focus, .calc-select:focus {
 .btn-confirm-cancel:hover { background-color: var(--border-light); transform: translateY(-1px);}
 .btn-confirm-delete { background-color: #ef4444; color: white; border: none; padding: 12px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; flex: 1; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2); }
 .btn-confirm-delete:hover { background-color: #dc2626; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);}
+/* Visor de amortizacion: tabla ocupa todo el espacio disponible */
+.visor-amortizacion-tabla {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.visor-amortizacion-tabla table {
+  width: 100%;
+  border-collapse: collapse;
+}

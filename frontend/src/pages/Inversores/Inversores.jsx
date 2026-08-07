@@ -1715,7 +1715,7 @@ function Inversores() {
             {/* --- VISOR INTERACTIVO E INYECCIONES DE CAPITAL --- */}
             {showVisorAmortizacion && contratoParaAmortizacion && (
                 <div className="modal-overlay" style={{ zIndex: 6000 }}>
-                    <div className="modal-content fade-in-down" style={{ maxWidth: '1200px', width: '95%', height: '90vh', display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden' }}>
+                    <div className="modal-content fade-in-down" style={{ maxWidth: '1400px', width: '98%', height: '96vh', display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden' }}>
                         
                         <div className="modal-header" style={{ flexShrink: 0, padding: '24px 32px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
@@ -1727,9 +1727,9 @@ function Inversores() {
                             <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} className="btn-close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><IconClose/></button>
                         </div>
                         
-                        <div className="modal-body" style={{ backgroundColor: '#f8fafc', flexGrow: 1, minHeight: 0, padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'hidden' }}>
+                        <div className="modal-body" style={{ backgroundColor: '#f8fafc', flexGrow: 1, minHeight: 0, padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
                             
-                            <div style={{ flexShrink: 0, maxHeight: '220px', overflowY: 'auto', padding: '16px 20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                            <div style={{ flexShrink: 0, maxHeight: '160px', overflowY: 'auto', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
                                         <h5 style={{ margin: '0 0 4px 0', color: '#166534', fontSize: '14px', fontWeight: '800' }}>+ Inyectar Pagos Irregulares (Abonos a Capital)</h5>
@@ -1775,7 +1775,7 @@ function Inversores() {
                                 )}
                             </div> 
                             
-                            <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'auto', flexGrow: 1, minHeight: 0 }}>
+                            <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'auto', flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                                     <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
                                         <strong>Nota interactiva:</strong> Edita la Fecha de Vencimiento y el Abono a Principal directamente en la tabla. El motor recalculará todo al instante.
