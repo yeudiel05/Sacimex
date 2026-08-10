@@ -251,28 +251,28 @@ function Usuarios() {
       if (data.success) {
         const u = data.data; // Aquí vienen todos los campos de la BD cruzados
         setFormData({
-            username: u.username || '',
-            password: '', // Por seguridad, siempre vacío
-            rol: u.rol || 'AUXILIAR',
-            puede_solicitar: u.puede_solicitar || 0,
-            nivel_autorizacion: u.nivel_autorizacion || 0,
-            id_persona: u.id_persona || null,
-            titulo: u.titulo || '',
-            nombre_completo: u.nombre_razon_social || u.nombre || '',
-            iniciales: u.iniciales || '',
-            telefono: u.telefono || '',
-            correo_electronico: u.email_contacto || u.correo_electronico || u.email || '',
-            no_empleado: u.no_empleado || '',
-            empresa_maestra: u.empresa_maestra || '',
-            puesto: u.puesto || '',
-            clave_puesto: u.clave_puesto || '',
-            nivel: u.nivel || '',
-            area_departamento: u.departamento || u.area_departamento || '',
-            sucursal_unidad: u.unidad_negocio || u.sucursal_unidad || '',
-            zona: u.zona || '',
-            jefe_inmediato: u.jefe_inmediato || '',
-            banco: u.banco || '',
-            cuenta_bancaria: u.cuenta_bancaria || ''
+            username:           u.username            || '',
+            password:           '',
+            rol:                u.rol                 || 'AUXILIAR',
+            puede_solicitar:    u.puede_solicitar     || 0,
+            nivel_autorizacion: u.nivel_autorizacion  || 0,
+            id_persona:         u.id_persona          || null,
+            titulo:             u.titulo              || '',
+            nombre_completo:    u.nombre_razon_social || u.nombre_completo || u.nombre || '',
+            iniciales:          u.iniciales           || '',
+            telefono:           u.telefono            || '',
+            correo_electronico: u.email_contacto      || u.correo_electronico || u.email || '',
+            no_empleado:        u.no_empleado         || '',
+            empresa_maestra:    u.empresa_maestra     || '',
+            puesto:             u.puesto              || '',
+            clave_puesto:       u.clave_puesto        || '',
+            nivel:              u.nivel               || '',
+            area_departamento:  u.departamento        || u.area_departamento  || '',
+            sucursal_unidad:    u.unidad_negocio      || u.sucursal_unidad    || '',
+            zona:               u.zona                || '',
+            jefe_inmediato:     u.jefe_inmediato      || '',
+            banco:              u.banco               || '',
+            cuenta_bancaria:    u.cuenta_bancaria     || ''
         });
       }
     } catch (error) {
@@ -287,10 +287,18 @@ function Usuarios() {
     setFormError('');
     setArchivoFirma(null);
     
-    // Abrimos el modal rápido
-    setIsModalOpen(true);
+    // Resetear form antes de abrir para no mostrar datos del usuario anterior
+    setFormData({
+      username: '', password: '', rol: 'AUXILIAR', puede_solicitar: 0,
+      nivel_autorizacion: 0, id_persona: null, titulo: '', nombre_completo: '',
+      iniciales: '', telefono: '', correo_electronico: '', no_empleado: '',
+      empresa_maestra: '', puesto: '', clave_puesto: '', nivel: '',
+      area_departamento: '', sucursal_unidad: '', zona: '', jefe_inmediato: '',
+      banco: '', cuenta_bancaria: ''
+    });
     
-    // Llamamos a la API para rellenar los datos completos del empleado
+    // Abrir modal y cargar datos
+    setIsModalOpen(true);
     fetchExpedienteCompleto(userId);
   };
 
