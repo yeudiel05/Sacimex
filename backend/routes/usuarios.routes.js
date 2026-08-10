@@ -3,7 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs'); 
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
+const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -25,7 +25,7 @@ const upload = multer({ storage });
 // 1. APIS DE CATALOGO DE PUESTOS
 // ==========================================
 
-router.get('/puestos', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.get('/puestos', verificarToken, autorizarModulo('usuarios', ['ADMIN'], 'puede_ver'), (req, res) => {
     db.query('SELECT * FROM catalogo_puestos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
@@ -47,7 +47,7 @@ router.put('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('UPDATE catalogo_puestos SET nombre = ?, departamento_default = ?, nivel_default = ?, rol_default = ?, puede_solicitar_default = ? WHERE id = ?', 
     [nombre.toUpperCase().trim(), departamento_default, nivel_default || 0, rol_default || 'AUXILIAR', puede_solicitar_default || 0, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'EDITAR_PUESTO', `Modifico el puesto ID ${req.params.id} a: ${nombre}`, req);
+        registrarBitacora(req.usuario.id, 'EDITAR_PUESTO', `Modificó el puesto "${nombre}"`, req);
         res.json({ success: true, message: 'Puesto actualizado.' });
     });
 });
@@ -56,7 +56,7 @@ router.put('/puestos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res
     const { estatus_activo } = req.body;
     db.query('UPDATE catalogo_puestos SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'ESTATUS_PUESTO_CATALOGO', `Cambio estatus del puesto ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`, req);
+        registrarBitacora(req.usuario.id, 'ESTATUS_PUESTO_CATALOGO', `Cambió estatus del puesto ID ${req.params.id} a ${estatus_activo ? 'Activo' : 'Inactivo'}`, req);
         res.json({ success: true });
     });
 });
@@ -64,7 +64,7 @@ router.put('/puestos/:id/estatus', verificarToken, autorizar('ADMIN'), (req, res
 router.delete('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
     db.query('DELETE FROM catalogo_puestos WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se puede eliminar porque este puesto esta en uso.' });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Elimino un puesto (ID: ${req.params.id})`, req);
+        registrarBitacora(req.usuario.id, 'ELIMINAR_PUESTO', `Eliminó un puesto del catálogo`, req);
         res.json({ success: true, message: 'Puesto eliminado.' });
     });
 });
@@ -75,7 +75,7 @@ router.delete('/puestos/:id', verificarToken, autorizar('ADMIN'), (req, res) => 
 // ==========================================
 
 // Obtener Lista Completa de Usuarios
-router.get('/', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.get('/', verificarToken, autorizarModulo('usuarios', ['ADMIN'], 'puede_ver'), (req, res) => {
     const query = `
         SELECT u.id as id_usuario, u.username, u.rol, u.estatus_activo, 
                u.puede_solicitar, u.nivel_autorizacion, u.ruta_firma_png AS firma,
@@ -95,7 +95,7 @@ router.get('/', verificarToken, autorizar('ADMIN'), (req, res) => {
 });
 
 // Obtener Expediente Completo de un solo Usuario
-router.get('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.get('/:id', verificarToken, autorizarModulo('usuarios', ['ADMIN'], 'puede_ver'), (req, res) => {
     const { id } = req.params;
     
     const query = `

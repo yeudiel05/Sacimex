@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
+const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const ExcelJS = require('exceljs');
 
 const setupExcelWorksheet = (workbook, sheetName, columns) => {
@@ -14,7 +14,7 @@ const setupExcelWorksheet = (workbook, sheetName, columns) => {
     return worksheet;
 };
 
-router.get('/clientes', verificarToken, autorizar('ADMIN', 'CONTADOR'), async (req, res) => {
+router.get('/clientes', verificarToken, autorizarModulo('reportes', ['ADMIN', 'CONTADOR'], 'puede_ver'), async (req, res) => {
     const query = `
         SELECT p.nombre_razon_social AS nombre, p.rfc, p.telefono, p.email_contacto, 
                c.limite_credito, c.estatus, c.tipo_garantia 
@@ -54,7 +54,7 @@ router.get('/clientes', verificarToken, autorizar('ADMIN', 'CONTADOR'), async (r
     });
 });
 
-router.get('/inversores', verificarToken, autorizar('ADMIN', 'CONTADOR'), async (req, res) => {
+router.get('/inversores', verificarToken, autorizarModulo('reportes', ['ADMIN', 'CONTADOR'], 'puede_ver'), async (req, res) => {
     const query = `
         SELECT p.nombre_razon_social AS nombre, p.rfc, p.telefono, i.clabe_bancaria, i.banco, 
                IF(i.estatus_activo=1, 'Activo', 'Inactivo') as estatus 
@@ -86,7 +86,7 @@ router.get('/inversores', verificarToken, autorizar('ADMIN', 'CONTADOR'), async 
     });
 });
 
-router.get('/proveedores', verificarToken, autorizar('ADMIN', 'CONTADOR'), async (req, res) => {
+router.get('/proveedores', verificarToken, autorizarModulo('reportes', ['ADMIN', 'CONTADOR'], 'puede_ver'), async (req, res) => {
     const query = `
         SELECT p.nombre_razon_social AS nombre, p.rfc, p.telefono, pr.categoria, 
                pr.cuenta_bancaria, pr.banco, IF(pr.estatus_activo=1, 'Activo', 'Inactivo') as estatus 

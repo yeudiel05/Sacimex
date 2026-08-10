@@ -16,7 +16,7 @@ router.post('/login', (req, res) => {
   `;
   
   db.query(query, [usuario], async (err, results) => {
-    if (err) return res.status(500).json({ success: false, message: err.message, code: err.code });
+    if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
     
     if (results.length > 0) {
       const user = results[0];
@@ -60,18 +60,41 @@ router.post('/login', (req, res) => {
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
         
         registrarBitacora(user.id, 'LOGIN', `El usuario ${user.username} inició sesión`, req);
-        
-        res.json({ 
-            success: true, 
-            message: 'Login exitoso', 
-            token, 
-            rol: user.rol,
-            username: user.username,
-            departamento: user.departamento || '',
-            puesto: user.puesto || 'Sin Puesto',
-            puedeSolicitar: user.puede_solicitar || 0,
-            nombre: user.nombre_completo || user.username
-        });
+
+        // Cargar permisos granulares del usuario
+        db.query(
+          `SELECT modulo, puede_ver, puede_crear, puede_editar, puede_eliminar
+           FROM permisos_usuario WHERE id_usuario = ?`,
+          [user.id],
+          (errP, rowsP) => {
+            const permisos = {};
+            if (!errP && rowsP) {
+              rowsP.forEach(p => {
+                if (p.puede_ver) {
+                  permisos[p.modulo] = {
+                    ver:      !!p.puede_ver,
+                    crear:    !!p.puede_crear,
+                    editar:   !!p.puede_editar,
+                    eliminar: !!p.puede_eliminar,
+                  };
+                }
+              });
+            }
+
+            res.json({ 
+                success: true, 
+                message: 'Login exitoso', 
+                token, 
+                rol: user.rol,
+                username: user.username,
+                departamento: user.departamento || '',
+                puesto: user.puesto || 'Sin Puesto',
+                puedeSolicitar: user.puede_solicitar || 0,
+                nombre: user.nombre_completo || user.username,
+                permisos
+            });
+          }
+        );
         
       } else {
         registrarBitacora(0, 'LOGIN_FALLIDO', `Fallo de contraseña con usuario: ${usuario}`, req);

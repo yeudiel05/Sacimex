@@ -262,6 +262,15 @@ router.delete('/categorias/:id', verificarToken, autorizar('ADMIN'), (req, res) 
 // (quién firma cada nivel; reemplaza los ifs hardcodeados del código)
 // ==========================================
 
+// Nombres amigables para los módulos en los logs
+const NOMBRES_MODULO = {
+    dashboard: 'Dashboard', clientes: 'Clientes', inversores: 'Fondeadores',
+    proveedores: 'Proveedores', solicitudes: 'Solicitudes', historial: 'Historial de Solicitudes',
+    autorizaciones: 'Autorizar Pagos', viaticos: 'Viáticos', bandeja_dho: 'Bandeja D.H.O.',
+    reportes: 'Reportes', auditoria: 'Auditoría', usuarios: 'Usuarios y Roles',
+    configuracion: 'Configuración', matriz: 'Matriz de Autorización',
+};
+
 const soloAdmin = (req, res, next) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'Solo un administrador puede modificar la matriz de autorización.' });
     next();
@@ -292,7 +301,7 @@ router.post('/matriz-autorizacion', verificarToken, autorizar('ADMIN'), soloAdmi
         [id_departamento || null, nivel, etiqueta_nivel, id_rol || null, id_usuario || null],
         (err) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
-            registrarBitacora(req.usuario.id, 'CREAR_REGLA_AUTORIZACION', `Creo regla de autorizacion: nivel ${nivel} - ${etiqueta_nivel}`, req);
+            registrarBitacora(req.usuario.id, 'CREAR_REGLA_AUTORIZACION', `Creó regla de autorización: nivel ${nivel} - "${etiqueta_nivel}"`, req);
             res.json({ success: true, message: 'Regla de autorización creada.' });
         }
     );
@@ -305,7 +314,7 @@ router.put('/matriz-autorizacion/:id', verificarToken, autorizar('ADMIN'), soloA
         [id_departamento || null, nivel, etiqueta_nivel, id_rol || null, id_usuario || null, req.params.id],
         (err) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
-            registrarBitacora(req.usuario.id, 'EDITAR_REGLA_AUTORIZACION', `Modifico la regla de autorizacion ID ${req.params.id}`, req);
+            registrarBitacora(req.usuario.id, 'EDITAR_REGLA_AUTORIZACION', `Modificó la regla de autorización "${etiqueta_nivel || req.params.id}"`, req);
             res.json({ success: true, message: 'Regla actualizada.' });
         }
     );
@@ -315,7 +324,7 @@ router.put('/matriz-autorizacion/:id/estatus', verificarToken, autorizar('ADMIN'
     const { estatus_activo } = req.body;
     db.query('UPDATE matriz_autorizacion SET estatus_activo = ? WHERE id = ?', [estatus_activo, req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        registrarBitacora(req.usuario.id, 'ESTATUS_REGLA_AUTORIZACION', `Cambio estatus de la regla ID ${req.params.id} a ${estatus_activo ? 'Activa' : 'Inactiva'}`, req);
+        registrarBitacora(req.usuario.id, 'ESTATUS_REGLA_AUTORIZACION', `Cambió estatus de regla de autorización a ${estatus_activo ? 'Activa' : 'Inactiva'}`, req);
         res.json({ success: true });
     });
 });
@@ -323,8 +332,94 @@ router.put('/matriz-autorizacion/:id/estatus', verificarToken, autorizar('ADMIN'
 router.delete('/matriz-autorizacion/:id', verificarToken, autorizar('ADMIN'), soloAdmin, (req, res) => {
     db.query('DELETE FROM matriz_autorizacion WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ success: false, message: 'No se pudo eliminar la regla.' });
-        registrarBitacora(req.usuario.id, 'ELIMINAR_REGLA_AUTORIZACION', `Elimino la regla de autorizacion ID ${req.params.id}`, req);
+        registrarBitacora(req.usuario.id, 'ELIMINAR_REGLA_AUTORIZACION', `Eliminó una regla de autorización`, req);
         res.json({ success: true, message: 'Regla eliminada.' });
+    });
+});
+
+// ============================================================
+// PERMISOS GRANULARES POR USUARIO
+// ============================================================
+
+// GET /api/configuracion/mis-permisos — el usuario consulta SUS propios permisos (en tiempo real)
+router.get('/mis-permisos', verificarToken, (req, res) => {
+    db.query(
+        `SELECT modulo, puede_ver, puede_crear, puede_editar, puede_eliminar
+         FROM permisos_usuario
+         WHERE id_usuario = ?`,
+        [req.usuario.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false });
+            const permisos = {};
+            rows.forEach(p => {
+                if (p.puede_ver) {
+                    permisos[p.modulo] = {
+                        ver:      !!p.puede_ver,
+                        crear:    !!p.puede_crear,
+                        editar:   !!p.puede_editar,
+                        eliminar: !!p.puede_eliminar,
+                    };
+                }
+            });
+            res.json({ success: true, permisos });
+        }
+    );
+});
+
+// GET /api/configuracion/permisos/:id_usuario
+router.get('/permisos/:id_usuario', verificarToken, soloAdmin, (req, res) => {
+    db.query(
+        `SELECT p.*, u.username, u.rol
+         FROM permisos_usuario p
+         JOIN usuarios u ON p.id_usuario = u.id
+         WHERE p.id_usuario = ?
+         ORDER BY p.modulo ASC`,
+        [req.params.id_usuario],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+// POST /api/configuracion/permisos — crear o actualizar permiso (upsert)
+router.post('/permisos', verificarToken, soloAdmin, (req, res) => {
+    const { id_usuario, modulo, puede_ver, puede_crear, puede_editar, puede_eliminar } = req.body;
+    if (!id_usuario || !modulo) return res.status(400).json({ success: false, message: 'id_usuario y modulo son requeridos' });
+
+    const sql = `
+        INSERT INTO permisos_usuario (id_usuario, modulo, puede_ver, puede_crear, puede_editar, puede_eliminar, creado_por)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            puede_ver = VALUES(puede_ver),
+            puede_crear = VALUES(puede_crear),
+            puede_editar = VALUES(puede_editar),
+            puede_eliminar = VALUES(puede_eliminar),
+            creado_por = VALUES(creado_por)
+    `;
+    db.query(sql, [id_usuario, modulo, puede_ver ? 1 : 0, puede_crear ? 1 : 0, puede_editar ? 1 : 0, puede_eliminar ? 1 : 0, req.usuario.id], (err) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        // Buscar el username del usuario afectado para el log
+        db.query('SELECT username FROM usuarios WHERE id = ?', [id_usuario], (errU, rowsU) => {
+            const nombreAfectado = (rowsU && rowsU[0]) ? rowsU[0].username : `ID ${id_usuario}`;
+            const nombreModulo = NOMBRES_MODULO[modulo] || modulo;
+            registrarBitacora(req.usuario.id, 'EDITAR_PERMISOS_USUARIO', `Actualizó permisos de "${nombreAfectado}" en módulo "${nombreModulo}"`, req);
+        });
+        res.json({ success: true, message: 'Permisos actualizados.' });
+    });
+});
+
+// DELETE /api/configuracion/permisos/:id — eliminar permiso (vuelve a usar solo el rol)
+router.delete('/permisos/:id', verificarToken, soloAdmin, (req, res) => {
+    // Primero obtenemos el detalle del permiso para el log
+    db.query(`SELECT u.username, p.modulo FROM permisos_usuario p JOIN usuarios u ON p.id_usuario = u.id WHERE p.id = ?`, [req.params.id], (errD, rowsD) => {
+        const nombreMod = NOMBRES_MODULO[rowsD[0]?.modulo] || rowsD[0]?.modulo;
+        const detalle = (rowsD && rowsD[0]) ? `"${rowsD[0].username}" en módulo "${nombreMod}"` : `ID ${req.params.id}`;
+        db.query('DELETE FROM permisos_usuario WHERE id = ?', [req.params.id], (err) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            registrarBitacora(req.usuario.id, 'ELIMINAR_PERMISO_USUARIO', `Quitó permiso de ${detalle}`, req);
+            res.json({ success: true, message: 'Permiso eliminado. El usuario queda bajo su rol.' });
+        });
     });
 });
 

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
+const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const PDFDocument = require('pdfkit');
 
 // --- Consultas a bitacora_auditoria con detalle tecnico opcional -----------
@@ -18,15 +18,19 @@ const PDFDocument = require('pdfkit');
 let columnasTecnicasDisponibles = null; // null = sin probar, true/false = ya se sabe
 
 const SELECT_BASE = `
-    SELECT b.id, b.accion, b.detalle, b.fecha, IFNULL(u.username, 'SISTEMA') as usuario
+    SELECT b.id, b.accion, b.detalle, b.fecha,
+           IFNULL(u.username, 'SISTEMA') AS usuario,
+           b.ip_address, b.metodo_http, b.ruta
     FROM bitacora_auditoria b
     LEFT JOIN usuarios u ON b.id_usuario = u.id
 `;
 
 const SELECT_CON_TECNICO = `
-    SELECT b.id, b.accion, b.detalle, b.fecha,
+    SELECT b.id, b.accion, b.detalle,
+           COALESCE(b.fecha_ms, b.fecha) AS fecha,
            b.ip_address, b.metodo_http, b.ruta,
-           IFNULL(u.username, 'SISTEMA') as usuario
+           b.modulo, b.nombre_completo, b.rol_usuario,
+           IFNULL(u.username, 'SISTEMA') AS usuario
     FROM bitacora_auditoria b
     LEFT JOIN usuarios u ON b.id_usuario = u.id
 `;
@@ -47,14 +51,30 @@ function consultarBitacora(whereYOrden, params, callback) {
     });
 }
 
-router.get('/', verificarToken, autorizar('ADMIN'), (req, res) => {
-    consultarBitacora(' ORDER BY b.fecha DESC', [], (err, results) => {
+router.get('/', verificarToken, autorizarModulo('auditoria', ['ADMIN'], 'puede_ver'), (req, res) => {
+    const { usuario, modulo, accion, fechaInicio, fechaFin, limit = 500 } = req.query;
+
+    let where = ' WHERE 1=1';
+    const params = [];
+
+    if (usuario) {
+        where += ' AND (u.username LIKE ? OR b.nombre_completo LIKE ?)';
+        params.push(`%${usuario}%`, `%${usuario}%`);
+    }
+    if (modulo)  { where += ' AND b.modulo = ?';  params.push(modulo); }
+    if (accion)  { where += ' AND b.accion LIKE ?'; params.push(`%${accion}%`); }
+    if (fechaInicio) { where += ' AND b.fecha >= ?'; params.push(`${fechaInicio} 00:00:00`); }
+    if (fechaFin)    { where += ' AND b.fecha <= ?'; params.push(`${fechaFin} 23:59:59`); }
+
+    const orden = ` ORDER BY b.fecha DESC LIMIT ${parseInt(limit) || 500}`;
+
+    consultarBitacora(where + orden, params, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error al obtener la bitácora.' });
         res.json({ success: true, data: results });
     });
 });
 
-router.get('/reporte/pdf', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.get('/reporte/pdf', verificarToken, autorizarModulo('auditoria', ['ADMIN'], 'puede_ver'), (req, res) => {
     const { fechaInicio, fechaFin } = req.query;
 
     let whereYOrden = ' WHERE 1=1';
@@ -112,7 +132,7 @@ router.get('/reporte/pdf', verificarToken, autorizar('ADMIN'), (req, res) => {
 // Bitacora TECNICA de accesos: literalmente cada peticion al API (incluidas lecturas),
 // capturada automaticamente por el middleware logAccesos.js sin depender de logs manuales.
 // Solo ADMIN puede consultarla: es informacion muy detallada (IP, ruta, duracion, etc).
-router.get('/accesos', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.get('/accesos', verificarToken, autorizarModulo('auditoria', ['ADMIN'], 'puede_ver'), (req, res) => {
     if (req.usuario.rol !== 'ADMIN') {
         return res.status(403).json({ success: false, message: 'No tienes permiso para ver la bitacora tecnica de accesos.' });
     }

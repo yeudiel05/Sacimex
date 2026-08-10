@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
+const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -20,7 +20,7 @@ const upload = multer({ storage: storage });
 // ==========================================
 // OBTENER TODOS LOS clientes
 // ==========================================
-router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.get('/', verificarToken, autorizarModulo('clientes', ['ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR'], 'puede_ver'), (req, res) => {
     const query = `
     SELECT p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, p.direccion AS ubicacion, 
            p.telefono, p.email_contacto AS email, c.limite_credito AS credito, c.estatus, 
@@ -37,7 +37,7 @@ router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'GERENTE', 'DIREC
 // ==========================================
 // CREAR CLIENTE
 // ==========================================
-router.post('/', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
+router.post('/', verificarToken, autorizarModulo('clientes', ['ADMIN', 'CONTADOR'], 'puede_crear'), (req, res) => {
     const { tipo_persona, nombre, rfc, direccion, telefono, email, credito, tipo_garantia, nombre_aval } = req.body;
     if (!telefono || telefono.length !== 10) return res.status(400).json({ success: false, message: 'Teléfono inválido' });
 
@@ -65,7 +65,7 @@ router.post('/', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
 // ==========================================
 // EDITAR CLIENTE
 // ==========================================
-router.put('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR'), (req, res) => {
+router.put('/:id', verificarToken, autorizarModulo('clientes', ['ADMIN', 'CONTADOR'], 'puede_editar'), (req, res) => {
     const { id } = req.params;
     const { tipo_persona, nombre, rfc, direccion, telefono, email, credito, tipo_garantia, nombre_aval } = req.body;
     db.beginTransaction(err => {
@@ -111,7 +111,7 @@ router.put('/:id_persona/estatus', verificarToken, (req, res) => {
 // ==========================================
 // ELIMINAR CLIENTE (BORRADO LÓGICO)
 // ==========================================
-router.delete('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.delete('/:id', verificarToken, autorizarModulo('clientes', ['ADMIN'], 'puede_eliminar'), (req, res) => {
     const { id } = req.params;
 
     // CORRECCIÓN: Buscamos el nombre para la bitácora

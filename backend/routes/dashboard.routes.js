@@ -4,7 +4,7 @@ const db = require('../db');
 const { verificarToken } = require('../middlewares/auth');
 const { autorizar } = require('../middlewares/autorizar');
 
-router.get('/stats', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), async (req, res) => {
+router.get('/stats', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'GERENTE', 'DIRECTOR'), async (req, res) => {
     try {
         // --- FUNCIÓN HELPER PARA USAR ASYNC/AWAIT CON MYSQL ---
         const dbQuery = (query, params = []) => {

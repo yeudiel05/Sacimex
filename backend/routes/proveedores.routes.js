@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
+const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -187,7 +187,7 @@ function calcularAmortizacionBackend(contratoObj) {
 // ==========================================
 // REPORTES MAESTROS DE EGRESOS Y GASTOS (CON FIFO Y FILTROS DE LIMPIEZA)
 // ==========================================
-router.get('/reportes/lista-gastos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/reportes/lista-gastos', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
@@ -329,7 +329,7 @@ router.get('/reportes/lista-gastos', verificarToken, autorizar('ADMIN', 'CONTADO
     });
 });
 
-router.get('/reportes/pagos-del-mes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/reportes/pagos-del-mes', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const mesFiltro = parseInt(req.query.mes) || new Date().getMonth() + 1;
     const anioFiltro = parseInt(req.query.anio) || new Date().getFullYear();
 
@@ -428,7 +428,7 @@ router.get('/reportes/pagos-del-mes', verificarToken, autorizar('ADMIN', 'CONTAD
     });
 });
 
-router.get('/reportes/pagos-por-vencer', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/reportes/pagos-por-vencer', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const query = `
         SELECT 
             pp.id AS id_pago, p.nombre_razon_social AS proveedor, pp.concepto, pp.monto_pago, pp.estatus,
@@ -447,7 +447,7 @@ router.get('/reportes/pagos-por-vencer', verificarToken, autorizar('ADMIN', 'CON
     });
 });
 
-router.post('/reportes/postergar-pago', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), (req, res) => {
+router.post('/reportes/postergar-pago', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN'], 'puede_crear'), (req, res) => {
     const { id, tipo, nueva_fecha } = req.body;
 
     if (!id || !tipo || !nueva_fecha) return res.status(400).json({ success: false, message: 'Faltan datos requeridos' });
@@ -507,7 +507,7 @@ router.post('/reportes/postergar-pago', verificarToken, autorizar('ADMIN', 'CONT
 // ==========================================
 // PAGO RÁPIDO DE FONDEADOR DESDE REPORTE
 // ==========================================
-router.post('/pagos-fondeador', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), upload.single('comprobante'), (req, res) => {
+router.post('/pagos-fondeador', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN'], 'puede_crear'), upload.single('comprobante'), (req, res) => {
     const { id_contrato, monto } = req.body;
     let url = req.file ? `uploads/${req.file.filename}` : null;
     
@@ -526,7 +526,7 @@ router.post('/pagos-fondeador', verificarToken, autorizar('ADMIN', 'CONTADOR', '
 // ==========================================
 // CRUD NORMAL DE proveedores (CORREGIDO)
 // ==========================================
-router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const query = `
         SELECT 
             p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 
@@ -547,7 +547,7 @@ router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESOR
     });
 });
 
-router.post('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), (req, res) => {
+router.post('/', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN'], 'puede_crear'), (req, res) => {
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     
     // Unificamos en una sola variable para guardar
@@ -575,7 +575,7 @@ router.post('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), (req
     });
 });
 
-router.put('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.put('/:id', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const { id } = req.params;
     const { tipo_persona, nombre, rfc, direccion, telefono, email, categoria, numero_cuenta, clabe_bancaria, banco, dias_credito } = req.body;
     
@@ -602,7 +602,7 @@ router.put('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TE
     });
 });
 
-router.put('/:id/estatus', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.put('/:id/estatus', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false });
         const nombreProveedor = results[0].nombre_razon_social;
@@ -614,7 +614,7 @@ router.put('/:id/estatus', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMAC
     });
 });
 
-router.delete('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
+router.delete('/:id', verificarToken, autorizarModulo('proveedores', ['ADMIN'], 'puede_eliminar'), (req, res) => {
     db.query('SELECT nombre_razon_social FROM personas WHERE id = ?', [req.params.id], (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ success: false });
         const nombreProveedor = results[0].nombre_razon_social;
@@ -629,7 +629,7 @@ router.delete('/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
 // ==========================================
 // HISTORIAL UNIFICADO PARA EL EXPEDIENTE DEL PROVEEDOR
 // ==========================================
-router.get('/:id/pagos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/:id/pagos', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const query = `
         SELECT 
             id, concepto, monto_pago, num_factura_ref, fecha_solicitud, estatus, url_comprobante_pago, 'PAGO DIRECTO' AS origen_movimiento
@@ -650,7 +650,7 @@ router.get('/:id/pagos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN
     });
 });
 
-router.post('/pagos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), upload.single('comprobante'), (req, res) => {
+router.post('/pagos', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN'], 'puede_crear'), upload.single('comprobante'), (req, res) => {
     const { id_proveedor, concepto, monto_pago, num_factura_ref } = req.body;
     let url = req.file ? `uploads/${req.file.filename}` : null;
     const estatus = req.usuario.rol === 'ADMIN' ? 'PAGADO' : 'PENDIENTE_VALIDACION';
@@ -671,7 +671,7 @@ router.post('/pagos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'),
     });
 });
 
-router.put('/pagos/:id_pago/autorizacion', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.put('/pagos/:id_pago/autorizacion', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const { id_pago } = req.params;
     const { accion } = req.body; 
     const id_usuario = req.usuario.id;
@@ -717,7 +717,7 @@ router.put('/pagos/:id_pago/autorizacion', verificarToken, autorizar('ADMIN', 'C
 // ==========================================
 // AUTORIZACIONES (WORKFLOW ANTIGUO) Y PDF
 // ==========================================
-router.get('/autorizaciones/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/autorizaciones/pendientes', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false, message: 'No autorizado' });
     const query = `
         SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.numero_cuenta AS clabe_bancaria, u.username as solicitante
@@ -734,7 +734,7 @@ router.get('/autorizaciones/pendientes', verificarToken, autorizar('ADMIN', 'CON
     });
 });
 
-router.put('/autorizaciones/:id/aprobar', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.put('/autorizaciones/:id/aprobar', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
     db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
         const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
@@ -746,7 +746,7 @@ router.put('/autorizaciones/:id/aprobar', verificarToken, autorizar('ADMIN', 'CO
     });
 });
 
-router.put('/autorizaciones/:id/rechazar', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.put('/autorizaciones/:id/rechazar', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
     db.query('SELECT p.nombre_razon_social FROM pagos_a_proveedores pp JOIN personas p ON pp.id_proveedor = p.id WHERE pp.id = ?', [req.params.id], (err, results) => {
         const proveedor = (results && results.length > 0) ? results[0].nombre_razon_social : 'Proveedor Desconocido';
@@ -758,7 +758,7 @@ router.put('/autorizaciones/:id/rechazar', verificarToken, autorizar('ADMIN', 'C
     });
 });
 
-router.get('/autorizaciones/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'), (req, res) => {
+router.get('/autorizaciones/:id/pdf', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
     const query = `
         SELECT pp.*, p.nombre_razon_social as proveedor, p.rfc, pr.banco, pr.numero_cuenta, pr.numero_cuenta AS clabe_bancaria, 
                u.username as solicitante, u.rol as rol_solicitante
@@ -850,7 +850,7 @@ router.get('/autorizaciones/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTAD
 // ==========================================
 // IMPORTAR proveedores DESDE EXCEL (ESCÁNER MULTI-PESTAÑA)
 // ==========================================
-router.post('/importar', verificarToken, autorizar('ADMIN', 'CONTADOR', 'ALMACEN'), uploadExcel.single('archivo_excel'), async (req, res) => {
+router.post('/importar', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN'], 'puede_crear'), uploadExcel.single('archivo_excel'), async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     try {
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });

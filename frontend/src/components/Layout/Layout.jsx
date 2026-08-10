@@ -18,7 +18,6 @@ function Layout() {
   const searchInputRef = useRef(null);
   const searchContainerRef = useRef(null);
 
-  // LIMPIEZA EXTREMA DEL ROL Y USUARIO
   const rawRole = localStorage.getItem('rol') || 'AUXILIAR';
   const userRole = rawRole.trim().replace(/\r?\n|\r/g, '').toUpperCase();
   
@@ -28,39 +27,61 @@ function Layout() {
   const rawDepto = localStorage.getItem('departamento') || '';
   const userDepto = rawDepto.trim().replace(/\r?\n|\r/g, '').toUpperCase();
 
-  // Lista blanca flexible
-  const usuariosClave = ['icruz', 'treyes', 'ecruz', 'kserrano'];
-  const permisoUsuariosEspeciales = usuariosClave.some(u => currentUsername.includes(u));
+  // Permisos granulares del usuario (cargados en el login)
+  const permisosGranulares = (() => {
+    try { return JSON.parse(localStorage.getItem('permisos') || '{}'); } catch { return {}; }
+  })();
 
-  // ================= DEPURACIÓN =================
-  useEffect(() => {
-    console.log("--- MENÚ (Layout.jsx) ---");
-    console.log("Rol guardado:", userRole);
-    console.log("Depto guardado:", userDepto);
-    console.log("Username guardado:", currentUsername);
-    console.log("¿Debe ver módulo Clientes?:", (['ADMIN', 'CONTADOR'].includes(userRole) || ['DIRECCION', 'GERENCIA GENERAL'].includes(userDepto) || permisoUsuariosEspeciales));
-  }, [userRole, userDepto, currentUsername, permisoUsuariosEspeciales]);
-  // ==============================================
+  // Decide si un módulo debe mostrarse en el menú
+  const puedeVerModulo = (modulo, rolesFallback = [], deptosFallback = []) => {
+    if (userRole === 'ADMIN') return true;
+    // Si tiene permiso granular explícito, ese manda
+    if (modulo in permisosGranulares) {
+      const p = permisosGranulares[modulo];
+      // Nuevo formato: { ver, crear, editar, eliminar } o legacy: true/false
+      return typeof p === 'object' ? !!p.ver : !!p;
+    }
+    // Sin permiso granular → evalúa rol/depto
+    if (rolesFallback.includes(userRole)) return true;
+    if (deptosFallback.length > 0 && deptosFallback.includes(userDepto)) return true;
+    return false;
+  };
 
   const fetchNotificaciones = async () => {
     if (userRole !== 'ADMIN' && userRole !== 'D.H.O') return;
     const token = localStorage.getItem('token');
     if (!token) return;
-
     try {
-      const res = await fetch('/api/notificaciones', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch('/api/notificaciones', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (data.success) setNotificaciones(data.data);
     } catch (error) {
-      console.error("Error al cargar notificaciones:", error);
+      console.error('Error al cargar notificaciones:', error);
     }
   };
 
   useEffect(() => {
     fetchNotificaciones();
+    refrescarPermisos();
   }, [location.pathname]);
+
+  const refrescarPermisos = async () => {
+    // ADMIN no necesita permisos granulares
+    if (userRole === 'ADMIN') return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/configuracion/mis-permisos', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success) {
+        // Actualizar permisos en localStorage sin cerrar sesión
+        localStorage.setItem('permisos', JSON.stringify(data.permisos));
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -79,25 +100,21 @@ function Layout() {
       if (notifRef.current && !notifRef.current.contains(event.target)) setShowNotifMenu(false);
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) setIsSearchFocused(false);
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('token');
-      // Le avisamos al backend que registre la salida en la bitácora
       if (token) {
         await fetch('/api/logout', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
         });
       }
     } catch (error) {
-      console.error("Error al registrar la salida:", error);
+      console.error('Error al registrar la salida:', error);
     } finally {
       localStorage.clear();
       navigate('/');
@@ -119,80 +136,79 @@ function Layout() {
     {
       path: '/dashboard',
       label: 'Dashboard',
-      mostrar: rolesGenerales.includes(userRole), 
+      mostrar: puedeVerModulo('dashboard', rolesGenerales),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
     },
     {
       path: '/usuarios',
       label: 'Usuarios y Roles',
-      mostrar: ['ADMIN'].includes(userRole),
+      mostrar: puedeVerModulo('usuarios', ['ADMIN']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
     },
     {
       path: '/clientes',
       label: 'Clientes',
-      mostrar: ['ADMIN', 'CONTADOR'].includes(userRole) || ['DIRECCION', 'GERENCIA GENERAL'].includes(userDepto) || permisoUsuariosEspeciales,
+      mostrar: puedeVerModulo('clientes', ['ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR'], ['DIRECCION', 'GERENCIA GENERAL']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
     },
     {
       path: '/inversores',
       label: 'Fondeadores',
-      // ¡Aquí está el cambio! Se agregó la validación por departamento:
-      mostrar: ['ADMIN', 'CONTADOR'].includes(userRole) || ['CONTABILIDAD', 'DIRECCION'].includes(userDepto),
+      mostrar: puedeVerModulo('inversores', ['ADMIN', 'CONTADOR'], ['CONTABILIDAD', 'DIRECCION']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
     },
     {
       path: '/proveedores',
       label: 'Proveedores',
-      mostrar: ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'].includes(userRole),
-      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+      mostrar: puedeVerModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']),
+      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
     },
     {
       path: '/solicitudes/nueva',
       label: 'Solicitudes',
-      mostrar: rolesGenerales.includes(userRole),
+      mostrar: puedeVerModulo('solicitudes', rolesGenerales),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
     },
     {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
-      mostrar: rolesGenerales.includes(userRole),
+      mostrar: puedeVerModulo('viaticos', rolesGenerales),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
     },
     {
       path: '/revision-viaticos',
       label: 'Bandeja D.H.O.',
-      mostrar: ['D.H.O', 'ADMIN'].includes(userRole),
+      mostrar: puedeVerModulo('bandeja_dho', ['D.H.O', 'ADMIN']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
     },
     {
       path: '/autorizaciones',
       label: 'Autorizar Pagos',
-      mostrar: ['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'].includes(userRole) || deptosVistoBueno.includes(userDepto),
+      mostrar: puedeVerModulo('autorizaciones', ['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'], deptosVistoBueno),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
     },
     {
       path: '/configuracion',
       label: 'Configuraciones',
-      mostrar: ['ADMIN'].includes(userRole),
+      mostrar: puedeVerModulo('configuracion', ['ADMIN']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
     },
     {
       path: '/configuracion/matriz-autorizacion',
       label: 'Matriz de Autorización',
-      mostrar: ['ADMIN'].includes(userRole),
+      mostrar: puedeVerModulo('matriz', ['ADMIN']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
     },
     {
       path: '/reportes',
       label: 'Reportes y Export.',
-      mostrar: ['ADMIN', 'CONTADOR'].includes(userRole),
+      mostrar: puedeVerModulo('reportes', ['ADMIN', 'CONTADOR']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
     },
     {
       path: '/auditoria',
       label: 'Auditoría (Log)',
-      mostrar: ['ADMIN'].includes(userRole),
+      mostrar: puedeVerModulo('auditoria', ['ADMIN']),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
     }
   ];
@@ -222,7 +238,7 @@ function Layout() {
           <p className="nav-title">Navegación Principal</p>
           <ul>
             {menusPermitidos.map((item) => (
-              <li key={item.path} className={location.pathname === item.path ? 'active' : ''} onClick={() => navigate(item.path)} title={isSidebarCollapsed ? item.label : ''} >
+              <li key={item.path} className={location.pathname === item.path ? 'active' : ''} onClick={() => navigate(item.path)} title={isSidebarCollapsed ? item.label : ''}>
                 {item.icon}
                 <span className="nav-label">{item.label}</span>
               </li>
@@ -289,7 +305,6 @@ function Layout() {
                       <p style={{ margin: 0, fontWeight: '800', color: '#0f172a' }}>Notificaciones</p>
                       <span style={{ fontSize: '11px', background: '#1e293b', color: 'white', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' }}>{notificaciones.length} Pendientes</span>
                     </div>
-
                     <div className="notif-body" style={{ maxHeight: '350px', overflowY: 'auto' }}>
                       {notificaciones.length > 0 ? (
                         notificaciones.map((notif) => (
@@ -311,7 +326,6 @@ function Layout() {
 
               <div className="header-profile" ref={menuRef} onClick={() => setShowProfileMenu(!showProfileMenu)} style={{ position: 'relative', cursor: 'pointer' }}>
                 <img src={`https://ui-avatars.com/api/?name=${userRole}&background=10d440&color=fff&rounded=true&bold=true`} alt="Avatar" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
-
                 {showProfileMenu && (
                   <div className="dropdown-menu fade-in-up-fast" style={{ position: 'absolute', top: '50px', right: '0', background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', width: '220px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100 }}>
                     <div className="dropdown-header" style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>

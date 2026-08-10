@@ -36,6 +36,15 @@ function Usuarios() {
   const [formError, setFormError] = useState('');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
+  // DRAWER DE PERMISOS
+  const [drawerUser, setDrawerUser]         = useState(null);
+  const [drawerPermisosBD, setDrawerPermisosBD]   = useState({});
+  const [drawerPermisosEdit, setDrawerPermisosEdit] = useState({});
+  const [drawerCargando, setDrawerCargando] = useState(false);
+  const [drawerGuardando, setDrawerGuardando] = useState(false);
+  const [drawerExito, setDrawerExito]       = useState(false);
+  const [drawerError, setDrawerError]       = useState('');
+
   // ESTADO PARA LA FIRMA
   const [archivoFirma, setArchivoFirma] = useState(null);
 
@@ -56,6 +65,105 @@ function Usuarios() {
   };
 
   const rolUsuarioActual = localStorage.getItem('rol');
+
+  // ─── Permisos por rol (fallback) ─────────────────────────────────────────
+  const PERMISOS_POR_ROL = {
+    ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+    CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
+    AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
+    'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
+    GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
+    DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
+    AUXILIAR:      [],
+    ALMACEN:       ['dashboard','proveedores'],
+  };
+
+  const MODULOS_CATALOGO = [
+    { key: 'dashboard',     label: 'Dashboard',               desc: 'Panel principal con estadísticas' },
+    { key: 'clientes',      label: 'Clientes',                desc: 'Directorio y gestión de clientes' },
+    { key: 'inversores',    label: 'Fondeadores',             desc: 'Inversores, contratos y amortizaciones' },
+    { key: 'proveedores',   label: 'Proveedores',             desc: 'Directorio de proveedores' },
+    { key: 'solicitudes',   label: 'Solicitudes (Nueva)',     desc: 'Crear nueva solicitud de recursos' },
+    { key: 'historial',     label: 'Solicitudes (Historial)', desc: 'Historial y seguimiento de solicitudes' },
+    { key: 'autorizaciones',label: 'Autorizar Pagos',         desc: 'Firmar y autorizar solicitudes de pago' },
+    { key: 'viaticos',      label: 'Solicitud de Viáticos',  desc: 'Crear solicitudes de viáticos' },
+    { key: 'bandeja_dho',   label: 'Bandeja D.H.O.',         desc: 'Revisión y autorización de viáticos' },
+    { key: 'reportes',      label: 'Reportes y Export.',      desc: 'Reportes y exportaciones en Excel/PDF' },
+    { key: 'auditoria',     label: 'Auditoría (Log)',         desc: 'Bitácora completa de acciones' },
+    { key: 'usuarios',      label: 'Usuarios y Roles',        desc: 'Alta, edición y baja de usuarios' },
+    { key: 'configuracion', label: 'Configuraciones',         desc: 'Catálogos y parámetros del sistema' },
+    { key: 'matriz',        label: 'Matriz de Autorización',  desc: 'Reglas de quién firma cada nivel' },
+  ];
+
+  const COLORES_ROL_MAP = {
+    ADMIN:'#0f172a', CONTADOR:'#4338ca', REVISOR:'#0891b2',
+    AUTORIZADOR_1:'#7c3aed', AUTORIZADOR_2:'#be185d',
+    TESORERIA:'#b45309', 'D.H.O':'#15803d', AUXILIAR:'#64748b',
+    GERENTE:'#0f766e', DIRECTOR:'#dc2626', ALMACEN:'#92400e',
+  };
+
+  const abrirDrawerPermisos = async (user) => {
+    setDrawerUser(user);
+    setDrawerExito(false); setDrawerError('');
+    setDrawerCargando(true);
+    const headers = getAuthHeaders(); if (!headers) return;
+    try {
+      const res  = await fetch(`/api/configuracion/permisos/${user.id_usuario}`, { headers });
+      const data = await res.json();
+      const mapa = {};
+      if (data.success) {
+        data.data.forEach(p => {
+          mapa[p.modulo] = { id: p.id, puede_ver: !!p.puede_ver, puede_crear: !!p.puede_crear, puede_editar: !!p.puede_editar, puede_eliminar: !!p.puede_eliminar };
+        });
+      }
+      setDrawerPermisosBD(mapa);
+      setDrawerPermisosEdit(JSON.parse(JSON.stringify(mapa)));
+    } finally {
+      setDrawerCargando(false);
+    }
+  };
+
+  const toggleDrawerPermiso = (modulo, campo) => {
+    setDrawerExito(false); setDrawerError('');
+    setDrawerPermisosEdit(prev => {
+      const actual = prev[modulo] || { puede_ver:false, puede_crear:false, puede_editar:false, puede_eliminar:false };
+      const nuevo  = { ...actual, [campo]: !actual[campo] };
+      if (campo === 'puede_ver' && !nuevo.puede_ver) { nuevo.puede_crear=false; nuevo.puede_editar=false; nuevo.puede_eliminar=false; }
+      if (['puede_crear','puede_editar','puede_eliminar'].includes(campo) && nuevo[campo]) nuevo.puede_ver = true;
+      return { ...prev, [modulo]: nuevo };
+    });
+  };
+
+  const quitarDrawerModulo = async (modulo) => {
+    const p = drawerPermisosEdit[modulo];
+    if (p?.id) {
+      const headers = getAuthHeaders(); if (!headers) return;
+      await fetch(`/api/configuracion/permisos/${p.id}`, { method:'DELETE', headers });
+      setDrawerPermisosBD(prev => { const n={...prev}; delete n[modulo]; return n; });
+    }
+    setDrawerPermisosEdit(prev => { const n={...prev}; delete n[modulo]; return n; });
+  };
+
+  const guardarDrawerPermisos = async () => {
+    if (!drawerUser) return;
+    setDrawerGuardando(true); setDrawerExito(false); setDrawerError('');
+    const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+    try {
+      for (const [modulo, p] of Object.entries(drawerPermisosEdit)) {
+        if (!p.puede_ver && !p.puede_crear && !p.puede_editar && !p.puede_eliminar) continue;
+        await fetch('/api/configuracion/permisos', {
+          method:'POST', headers,
+          body: JSON.stringify({ id_usuario: drawerUser.id_usuario, modulo, puede_ver: p.puede_ver?1:0, puede_crear: p.puede_crear?1:0, puede_editar: p.puede_editar?1:0, puede_eliminar: p.puede_eliminar?1:0 })
+        });
+      }
+      await abrirDrawerPermisos(drawerUser);
+      setDrawerExito(true);
+    } catch { setDrawerError('Error al guardar.'); }
+    finally { setDrawerGuardando(false); }
+  };
 
   const fetchUsuarios = async () => {
     const headers = getAuthHeaders(); if (!headers) return;
@@ -498,6 +606,10 @@ function Usuarios() {
                                         <button className="btn-icon-edit" onClick={() => openEditModal(user)} title="Editar Expediente">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         </button>
+
+                                        <button className="btn-icon-edit" onClick={() => abrirDrawerPermisos(user)} title="Gestionar Permisos" style={{color: '#7c3aed'}}>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:'16px'}}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                        </button>
                                         
                                         <button className="btn-icon-edit btn-icon-delete" onClick={() => triggerEliminar(user.id_persona, nombreMostrar)} title="Eliminar Colaborador">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -803,6 +915,173 @@ function Usuarios() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- DRAWER DE PERMISOS --- */}
+      {drawerUser && (
+        <>
+          <div
+            onClick={() => setDrawerUser(null)}
+            style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.4)', backdropFilter:'blur(4px)', zIndex:3500 }}
+          />
+          <div style={{
+            position:'fixed', top:0, right:0, bottom:0, width:'520px', maxWidth:'95vw',
+            background:'white', zIndex:3600, display:'flex', flexDirection:'column',
+            boxShadow:'-20px 0 60px rgba(15,23,42,0.15)',
+            animation:'slideInRight 0.3s cubic-bezier(0.16,1,0.3,1) forwards'
+          }}>
+            {/* Header del drawer */}
+            <div style={{ padding:'20px 24px', borderBottom:'1px solid #e2e8f0', background:'#f8fafc', flexShrink:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <div style={{ width:40, height:40, borderRadius:'50%', background:(COLORES_ROL_MAP[drawerUser.rol]||'#64748b')+'18', color:COLORES_ROL_MAP[drawerUser.rol]||'#64748b', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:16 }}>
+                    {(drawerUser.username||'?')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:15, color:'#0f172a' }}>{drawerUser.nombre_completo || drawerUser.username}</div>
+                    <div style={{ fontSize:12, color:'#64748b' }}>
+                      <span style={{ background:(COLORES_ROL_MAP[drawerUser.rol]||'#64748b')+'18', color:COLORES_ROL_MAP[drawerUser.rol]||'#64748b', padding:'2px 8px', borderRadius:20, fontWeight:700, fontSize:10 }}>{drawerUser.rol}</span>
+                      {' · '}{Object.keys(drawerPermisosBD).length} permiso{Object.keys(drawerPermisosBD).length !== 1 ? 's' : ''} granular{Object.keys(drawerPermisosBD).length !== 1 ? 'es' : ''}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setDrawerUser(null)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:22, color:'#64748b', lineHeight:1, padding:'4px 8px', borderRadius:8 }}>×</button>
+              </div>
+              <div style={{ marginTop:12, display:'flex', gap:8, alignItems:'center' }}>
+                <span style={{ background:'#dcfce7', color:'#15803d', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:800, border:'1px solid #bbf7d0', display:'flex', alignItems:'center', gap:4 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:11}}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Granular = prioridad
+                </span>
+                <span style={{ background:'#e0e7ff', color:'#4338ca', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:800, border:'1px solid #c7d2fe', display:'flex', alignItems:'center', gap:4 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:11}}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Por rol = heredado
+                </span>
+              </div>
+            </div>
+
+            {/* Contenido del drawer */}
+            <div style={{ flex:1, overflowY:'auto', padding:'0' }}>
+              {drawerCargando ? (
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'60px 24px', gap:12 }}>
+                  <div style={{ width:32, height:32, borderRadius:'50%', border:'3px solid #e2e8f0', borderTopColor:'#10d440', animation:'spin 0.8s linear infinite' }} />
+                  <span style={{ color:'#64748b', fontSize:14 }}>Cargando permisos...</span>
+                </div>
+              ) : (() => {
+                const rolMods = PERMISOS_POR_ROL[drawerUser.rol] || [];
+                const secciones = [
+                  { tipo:'bd',  label:'Permisos granulares', color:'#15803d', bg:'#dcfce7', border:'#bbf7d0', mods: MODULOS_CATALOGO.filter(m => drawerPermisosEdit[m.key]) },
+                  { tipo:'rol', label:`Acceso por rol — ${drawerUser.rol}`, color:'#4338ca', bg:'#e0e7ff', border:'#c7d2fe', mods: MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && rolMods.includes(m.key)) },
+                  { tipo:'sin', label:'Sin acceso — puedes agregar permisos', color:'#64748b', bg:'#f1f5f9', border:'#e2e8f0', mods: MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && !rolMods.includes(m.key)) },
+                ];
+                const ACCIONES_D = [
+                  { key:'puede_ver', label:'Ver', color:'#4338ca' },
+                  { key:'puede_crear', label:'Crear', color:'#10d440' },
+                  { key:'puede_editar', label:'Editar', color:'#f59e0b' },
+                  { key:'puede_eliminar', label:'Eliminar', color:'#ef4444' },
+                ];
+                return secciones.map(sec => sec.mods.length === 0 ? null : (
+                  <div key={sec.tipo}>
+                    <div style={{ padding:'10px 20px 6px', fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:'0.8px', color:sec.color, background:'#fafafa', borderBottom:'1px solid #f1f5f9' }}>
+                      {sec.label}
+                    </div>
+                    {sec.mods.map(mod => {
+                      const p = drawerPermisosEdit[mod.key];
+                      return (
+                        <div key={mod.key} style={{ padding:'12px 20px', borderBottom:'1px solid #f1f5f9', background: sec.tipo==='bd' ? '#f0fdf4' : sec.tipo==='rol' ? '#fafafe' : 'white', transition:'background 0.15s' }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+                              <div style={{ width:32, height:32, borderRadius:8, background: sec.tipo==='bd' ? '#dcfce7' : sec.tipo==='rol' ? '#e0e7ff' : '#f1f5f9', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke={sec.tipo==='bd' ? '#15803d' : sec.tipo==='rol' ? '#4338ca' : '#94a3b8'} strokeWidth="2" style={{width:14}}>
+                                  {mod.key==='dashboard' && <><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>}
+                                  {mod.key==='clientes' && <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>}
+                                  {mod.key==='inversores' && <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>}
+                                  {mod.key==='proveedores' && <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>}
+                                  {mod.key==='solicitudes' && <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>}
+                                  {mod.key==='viaticos' && <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.42 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.95-.95a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>}
+                                  {mod.key==='reportes' && <><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></>}
+                                  {mod.key==='auditoria' && <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>}
+                                  {mod.key==='usuarios' && <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>}
+                                  {mod.key==='configuracion' && <><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></>}
+                                  {mod.key==='historial' && <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></>}
+                                  {mod.key==='autorizaciones' && <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></>}
+                                  {mod.key==='bandeja_dho' && <><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></>}
+                                  {mod.key==='matriz' && <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>}
+                                </svg>
+                              </div>
+                              <div>
+                                <div style={{ fontSize:13, fontWeight:700, color:'#0f172a' }}>{mod.label}</div>
+                                <div style={{ fontSize:11, color:'#94a3b8', marginTop:1 }}>{mod.desc}</div>
+                              </div>
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                              {ACCIONES_D.map(acc => {
+                                const activo = sec.tipo==='rol' ? acc.key==='puede_ver' : !!(p?.[acc.key]);
+                                return (
+                                  <button
+                                    key={acc.key}
+                                    disabled={sec.tipo==='rol'}
+                                    onClick={() => sec.tipo!=='rol' && toggleDrawerPermiso(mod.key, acc.key)}
+                                    style={{
+                                      padding:'4px 9px', borderRadius:20, fontSize:11, fontWeight:700,
+                                      border: activo ? `1px solid ${acc.color}40` : '1px solid #e2e8f0',
+                                      background: activo ? acc.color+'18' : '#f8fafc',
+                                      color: activo ? acc.color : '#94a3b8',
+                                      cursor: sec.tipo==='rol' ? 'default' : 'pointer',
+                                      transition:'all 0.15s',
+                                      display:'flex', alignItems:'center', gap:3, opacity: sec.tipo==='rol' ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {activo && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width:9}}><polyline points="20 6 9 17 4 12"/></svg>}
+                                    {acc.label}
+                                  </button>
+                                );
+                              })}
+                              {sec.tipo==='bd' ? (
+                                <button onClick={() => quitarDrawerModulo(mod.key)} title="Quitar permiso granular" style={{ width:28, height:28, border:'none', background:'none', cursor:'pointer', color:'#94a3b8', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s' }}
+                                  onMouseEnter={e => { e.currentTarget.style.background='#fef2f2'; e.currentTarget.style.color='#ef4444'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background='none'; e.currentTarget.style.color='#94a3b8'; }}
+                                >
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                              ) : (
+                                <button onClick={() => toggleDrawerPermiso(mod.key, 'puede_ver')} style={{ padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:700, border:'1px dashed #cbd5e1', background:'transparent', color:'#64748b', cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
+                                  onMouseEnter={e => { e.currentTarget.style.borderColor='#10d440'; e.currentTarget.style.color='#10d440'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.borderColor='#cbd5e1'; e.currentTarget.style.color='#64748b'; }}
+                                >
+                                  {sec.tipo==='rol' ? 'Personalizar' : '+ Agregar'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Footer del drawer */}
+            <div style={{ padding:'16px 20px', borderTop:'1px solid #e2e8f0', background:'#f8fafc', flexShrink:0 }}>
+              {drawerExito && (
+                <div style={{ marginBottom:10, padding:'8px 14px', borderRadius:8, background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:600, border:'1px solid #bbf7d0', display:'flex', alignItems:'center', gap:6 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{width:14}}><polyline points="20 6 9 17 4 12"/></svg>
+                  Guardado. Los cambios aplican en el próximo inicio de sesión.
+                </div>
+              )}
+              {drawerError && (
+                <div style={{ marginBottom:10, padding:'8px 14px', borderRadius:8, background:'#fef2f2', color:'#ef4444', fontSize:12, fontWeight:600, border:'1px solid #fecaca' }}>{drawerError}</div>
+              )}
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:10 }}>
+                <button onClick={() => setDrawerUser(null)} style={{ padding:'10px 20px', borderRadius:8, border:'1px solid #e2e8f0', background:'white', color:'#64748b', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+                  Cerrar
+                </button>
+                <button onClick={guardarDrawerPermisos} disabled={drawerGuardando} style={{ padding:'10px 20px', borderRadius:8, border:'none', background:'#10d440', color:'white', fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:6, opacity: drawerGuardando ? 0.7 : 1 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:15}}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  {drawerGuardando ? 'Guardando...' : 'Guardar Permisos'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* --- CONFIRM MODAL --- */}

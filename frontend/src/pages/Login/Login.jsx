@@ -62,6 +62,7 @@ function Login() {
         localStorage.setItem('rol', data.rol);
         localStorage.setItem('username', data.username || formData.usuario);
         localStorage.setItem('departamento', data.departamento || '');
+        localStorage.setItem('permisos', JSON.stringify(data.permisos || {}));
 
         if (rememberMe) {
           localStorage.setItem('rememberedUser', formData.usuario);
@@ -70,10 +71,14 @@ function Login() {
         }
 
         // --- GATILLO SILENCIOSO PARA ALERTAS GLOBALES ---
-        // Se ejecuta en segundo plano sin interrumpir el login del usuario
-        fetch('/api/inversores/trigger-alertas-login', { 
-            method: 'POST' 
-        }).catch(err => console.log('Silenced Alertas Error:', err));
+        // Solo roles con acceso a inversores; se ejecuta en segundo plano
+        const rolesConAlertas = ['ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR'];
+        if (rolesConAlertas.includes(data.rol)) {
+          fetch('/api/inversores/trigger-alertas-login', { 
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${data.token}` }
+          }).catch(() => {});
+        }
         // ------------------------------------------------
 
         setTimeout(() => {
