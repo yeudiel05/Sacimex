@@ -40,16 +40,38 @@ const enviarCorreo = async (destinatario, asunto, mensajeHTML) => {
 
 const getEmailByRol = (rolBuscado) => {
     return new Promise((resolve) => {
-        const query = `
-            SELECT p.email_contacto 
-            FROM usuarios u 
-            LEFT JOIN empleados e ON u.id_empleado = e.id_persona 
-            LEFT JOIN personas p ON e.id_persona = p.id 
-            WHERE u.rol = ? AND u.estatus_activo = 1 LIMIT 1
+        // Buscar directamente en la matriz_autorizacion quién debe firmar ese rol
+        // y obtener su correo. Cubre tanto id_usuario específico como id_rol general.
+        const queryMatriz = `
+            SELECT p.email_contacto
+            FROM matriz_autorizacion m
+            LEFT JOIN catalogo_roles r ON m.id_rol = r.id
+            LEFT JOIN usuarios u ON (
+                m.id_usuario = u.id OR
+                (m.id_usuario IS NULL AND u.rol = r.nombre_rol)
+            )
+            LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+            LEFT JOIN personas p ON e.id_persona = p.id
+            WHERE r.nombre_rol = ? AND m.estatus_activo = 1 AND u.estatus_activo = 1
+            LIMIT 1
         `;
-        db.query(query, [rolBuscado], (err, results) => {
-            if (!err && results.length > 0) resolve(results[0].email_contacto);
-            else resolve(null);
+        db.query(queryMatriz, [rolBuscado], (err, results) => {
+            if (!err && results.length > 0 && results[0].email_contacto) {
+                resolve(results[0].email_contacto);
+            } else {
+                // Fallback: buscar por rol directamente en usuarios
+                const queryFallback = `
+                    SELECT p.email_contacto 
+                    FROM usuarios u 
+                    LEFT JOIN empleados e ON u.id_empleado = e.id_persona 
+                    LEFT JOIN personas p ON e.id_persona = p.id 
+                    WHERE u.rol = ? AND u.estatus_activo = 1 LIMIT 1
+                `;
+                db.query(queryFallback, [rolBuscado], (err2, results2) => {
+                    if (!err2 && results2.length > 0) resolve(results2[0].email_contacto);
+                    else resolve(null);
+                });
+            }
         });
     });
 };
@@ -153,7 +175,7 @@ function formatMoney(n) {
 // RUTAS PRINCIPALES DE SOLICITUDES
 // =====================================================================
 
-router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const miRol = req.usuario.rol;
     const miId  = req.usuario.id;
     const miIdDepartamento = req.usuario.id_departamento;
@@ -192,7 +214,7 @@ router.get('/', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTOR
     });
 });
 
-router.get('/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.get('/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const miRol = req.usuario.rol;
     const miId = req.usuario.id;
 
@@ -259,7 +281,7 @@ router.get('/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISO
     });
 });
 
-router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const { id } = req.params;
 
     const querySolicitud = `
@@ -331,7 +353,7 @@ router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AU
     });
 });
 
-router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), upload.single('cotizacion'), (req, res) => {
+router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), upload.single('cotizacion'), (req, res) => {
     try {
         const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago, unidad_negocio } = req.body;
         
@@ -439,7 +461,7 @@ router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 
 // ================================================================
 // AUTORIZAR - Usa folio
 // ================================================================
-router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const { id } = req.params;
     const { comentario } = req.body;
     const miUsuarioId = req.usuario.id;
@@ -467,7 +489,7 @@ router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'RE
             if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
             if (!resultado.puede) return res.status(403).json({ success: false, message: `No tienes permisos en el nivel actual` });
 
-            const etapaFirma = resultado.etiqueta;
+            const etapaFirma = (resultado.etiqueta || '').toUpperCase();
             const nuevoNivel = sol.nivel_actual + 1;
             let nuevoEstatus;
 
@@ -512,9 +534,35 @@ router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'RE
                                 const emailSiguiente = await getEmailByRol(rolNotificar);
                                 if (emailSiguiente) {
                                     const isTeso = rolNotificar === 'TESORERIA';
-                                    const titulo = isTeso ? 'Solicitud Lista para Pago' : 'Autorizacion Requerida';
-                                    const cuerpo = isTeso ? 'Una solicitud completo su autorizacion y esta lista para pago.' : 'Una solicitud avanzo y requiere tu firma.';
-                                    enviarCorreo(emailSiguiente, `${titulo} - Folio ${sol.folio}`, `<h3>${titulo}</h3><p>${cuerpo}</p>`);
+                                    const titulo = isTeso ? '✅ Solicitud Lista para Pago' : '📋 Autorización Requerida';
+                                    const accion = isTeso ? 'procesar el pago' : 'revisar y firmar';
+                                    const montoFmt = parseFloat(sol.monto || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+                                    const firmante = req.usuario.username || 'un usuario';
+                                    const htmlCorreo = `
+                                        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+                                            <div style="background:#10d440;padding:24px;text-align:center;">
+                                                <h1 style="color:white;margin:0;font-size:20px;">Sistema de Recursos Sacimex</h1>
+                                            </div>
+                                            <div style="padding:28px;">
+                                                <h2 style="color:#0f172a;margin-bottom:8px;">${titulo}</h2>
+                                                <p style="color:#64748b;">Una solicitud requiere tu atención para <strong>${accion}</strong>.</p>
+                                                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:20px 0;">
+                                                    <table style="width:100%;border-collapse:collapse;">
+                                                        <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Folio:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${sol.folio}</td></tr>
+                                                        <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Monto:</td><td style="padding:6px 0;font-weight:700;color:#10d440;">${montoFmt}</td></tr>
+                                                        <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Firmó:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${firmante}</td></tr>
+                                                        <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Etapa:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${etapaFirma}</td></tr>
+                                                    </table>
+                                                </div>
+                                                <p style="color:#64748b;font-size:13px;">Ingresa al sistema para ${accion}.</p>
+                                                <a href="https://sacimex.rtvsys.com.mx" style="display:inline-block;background:#10d440;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ir al Sistema</a>
+                                            </div>
+                                            <div style="background:#f8fafc;padding:16px;text-align:center;font-size:11px;color:#94a3b8;">
+                                                Sistema de Recursos — Opciones Sacimex SA de CV SOFOM ENR
+                                            </div>
+                                        </div>
+                                    `;
+                                    enviarCorreo(emailSiguiente, `${titulo} - Folio ${sol.folio}`, htmlCorreo);
                                 }
                             });
                         });
@@ -528,7 +576,7 @@ router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'RE
 // ================================================================
 // RECHAZAR - Usa folio
 // ================================================================
-router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const { id } = req.params;
     const { motivo } = req.body;
     const miRol = req.usuario.rol;
@@ -559,7 +607,7 @@ router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REV
                 if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
                 if (!resultado.puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
 
-                const etapaFirma = resultado.etiqueta;
+                const etapaFirma = (resultado.etiqueta || '').toUpperCase();
 
                 db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
                 [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
@@ -575,7 +623,7 @@ router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REV
     });
 });
 
-router.post('/comprobante/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), upload.single('comprobante'), (req, res) => {
+router.post('/comprobante/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), upload.single('comprobante'), (req, res) => {
     const { id } = req.params;
     const miUsuarioId = req.usuario.id;
 
@@ -620,7 +668,7 @@ router.post('/comprobante/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', '
 // =====================================================================
 // GENERADOR PDF
 // =====================================================================
-router.get('/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR'), (req, res) => {
+router.get('/:id/pdf', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const { id } = req.params;
     const miUsuarioId = req.usuario.id;
 
@@ -761,15 +809,17 @@ function generarPDFSolicitud(res, sol, firmas) {
     drawCell(LEFT + 430, y, W - 430, 15, fechaLimiteText, C_AMARILLO, C_AZUL, 'center', true, 8, 4);
 
     y += 15;
+    const esChequeTmp = (sol.forma_pago || '').toUpperCase() === 'CHEQUE';
     drawCell(LEFT, y, 120, 13, 'TIPO DE SOLICITUD', null, '#000000', 'left', true, 7, 4);
-    drawCell(LEFT + 120, y, 130, 13, 'REFERENCIA', null, '#000000', 'left', true, 7, 4);
+    drawCell(LEFT + 120, y, 130, 13, esChequeTmp ? 'No. DE CHEQUE' : 'REFERENCIA', null, '#000000', 'left', true, 7, 4);
     drawCell(LEFT + 250, y, 180, 13, 'CUENTA / CLABE / CIE', null, '#000000', 'left', true, 7, 4);
     drawCell(LEFT + 430, y, W - 430, 13, 'BANCO:', null, '#000000', 'left', true, 7, 4);
 
     y += 13;
     drawCell(LEFT, y, 120, 15, (sol.forma_pago || 'TRANSFERENCIA').toUpperCase(), C_AMARILLO, C_AZUL, 'left', true, 8, 4);
-    drawCell(LEFT + 120, y, 130, 15, '', null, C_AZUL, 'left', true, 8, 4);
-    drawCell(LEFT + 250, y, 180, 15, sol.proveedor_clabe || sol.proveedor_cuenta || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    // Campo amarillo vacío para No. Cheque o Referencia
+    drawCell(LEFT + 120, y, 130, 15, '', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 250, y, 180, 15, `CUENTA   ${sol.proveedor_cuenta || sol.proveedor_clabe || '---'}`, C_AMARILLO, C_AZUL, 'left', true, 8, 4);
     drawCell(LEFT + 430, y, W - 430, 15, sol.proveedor_banco || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
 
     y += 15;
@@ -802,16 +852,55 @@ function generarPDFSolicitud(res, sol, firmas) {
     const isCheque = (sol.forma_pago || '').toUpperCase() === 'CHEQUE';
     
     if (isCheque) {
-        doc.rect(LEFT, y, 180, 16).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
-        doc.fillColor('#FFF').font('Helvetica-Bold').text('POLIZA DE CHEQUE', LEFT, y + 4, {width: 180, align: 'center'});
-        doc.fillColor('#000').font('Helvetica').text(`Unidad de negocio: ${sol.unidad_negocio || ''}`, LEFT + 190, y + 4);
-        doc.text(fechaText, LEFT + 450, y + 4);
+        // ── HEADER PÓLIZA CHEQUE ──
+        doc.rect(LEFT, y, 160, 16).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+        doc.fillColor('#FFF').font('Helvetica-Bold').fontSize(9).text('PÓLIZA DE CHEQUE', LEFT, y + 4, {width: 160, align: 'center'});
+        doc.fillColor('#000').font('Helvetica').fontSize(8).text(`Unidad de negocio: ${sol.unidad_negocio || ''}`, LEFT + 170, y + 4);
+        doc.text(fechaText, LEFT + 430, y + 4);
 
         y += 16;
-        doc.rect(LEFT, y, W, 80).stroke(C_VERDE_CAJA);
+        // ── CUERPO PÓLIZA ──
+        doc.rect(LEFT, y, W, 90).stroke(C_VERDE_CAJA);
+
+        // Nombre proveedor (izquierda) + No. cheque (derecha)
         doc.font('Helvetica-Bold').fontSize(10).fillColor('#000');
-        doc.text('LA POLIZA CHEQUE ', LEFT + 40, y + 15);
-        doc.font('Helvetica').fontSize(8).text('Datos cuenta: ', LEFT + 40, y + 70);
+        doc.text(sol.proveedor_nombre || '---', LEFT + 10, y + 10, {width: 380});
+        doc.font('Helvetica-Bold').fontSize(12);
+        doc.text(sol.num_cuenta_destino || '', LEFT + 440, y + 10, {width: 110, align: 'right'});
+
+        // Monto en letra (fila 2)
+        doc.font('Helvetica').fontSize(8).fillColor('#000');
+        const montoNum = parseFloat(sol.monto || 0);
+        const montoStr = montoNum.toLocaleString('es-MX', {minimumFractionDigits: 2});
+        doc.text(`$ ${montoStr}`, LEFT + 10, y + 32, {width: 540});
+
+        // Tercera fila vacía (espacio para monto en letra escrito a mano)
+        doc.moveTo(LEFT + 10, y + 50).lineTo(LEFT + W - 10, y + 50).dash(2, {space: 2}).stroke('#aaa').undash();
+
+        // Datos cuenta + Copia del cheque
+        doc.font('Helvetica').fontSize(8).fillColor('#000');
+        doc.text(`Datos cuenta:  ${sol.proveedor_cuenta || sol.num_cuenta_destino || '---'}`, LEFT + 10, y + 62);
+        doc.font('Helvetica-Bold').text('Copia del cheque:', LEFT + 380, y + 62);
+        doc.font('Helvetica').text('0', LEFT + 480, y + 62);
+
+        y += 90;
+
+        // ── CONCEPTO DE PAGO + FIRMA DE RECIBIDO ──
+        doc.rect(LEFT, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+        doc.fillColor('#FFF').font('Helvetica-Bold').fontSize(8).text('CONCEPTO DE PAGO', LEFT, y + 3, {width: 260, align: 'center'});
+        doc.rect(LEFT, y + 14, 260, 50).stroke(C_VERDE_CAJA);
+        doc.fillColor('#000').font('Helvetica-Oblique').fontSize(8);
+        doc.text(sol.descripcion || sol.concepto_desc || '---', LEFT + 5, y + 20, {width: 250, align: 'left'});
+
+        doc.rect(LEFT + 292, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+        doc.fillColor('#FFF').font('Helvetica-Bold').fontSize(8).text('NOMBRE Y FIRMA DE RECIBIDO', LEFT + 292, y + 3, {width: 260, align: 'center'});
+        doc.rect(LEFT + 292, y + 14, 260, 50).stroke(C_VERDE_CAJA);
+
+        y += 64;
+        // Separador antes de firmas
+        doc.moveTo(LEFT, y + 10).lineTo(LEFT + W, y + 10).dash(3, {space: 3}).stroke('#ccc').undash();
+        y += 10;
+
     } else {
         doc.rect(LEFT, y, 220, 16).fillAndStroke(C_AZUL, C_AZUL);
         doc.fillColor('#FFF').font('Helvetica-Bold').text('DATOS BANCARIOS (TRANSFERENCIA)', LEFT, y + 4, {width: 220, align: 'center'});
@@ -836,18 +925,19 @@ function generarPDFSolicitud(res, sol, firmas) {
         doc.font('Helvetica').text(sol.proveedor_correo || '---', LEFT + 350, y + 55);
     }
 
-    y += 90;
-    doc.rect(LEFT, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
-    doc.fillColor('#FFF').font('Helvetica-Bold').text('CONCEPTO DE PAGO', LEFT, y + 3, {width: 260, align: 'center'});
-    doc.rect(LEFT, y+14, 260, 40).stroke(C_VERDE_CAJA);
-    doc.fillColor('#000').font('Helvetica-Oblique').text(isCheque ? sol.concepto_id : 'PAGO POR TRANSFERENCIA ELECTRONICA', LEFT, y + 30, {width: 260, align: 'center'});
+    if (!isCheque) {
+        y += 90;
+        doc.rect(LEFT, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+        doc.fillColor('#FFF').font('Helvetica-Bold').text('CONCEPTO DE PAGO', LEFT, y + 3, {width: 260, align: 'center'});
+        doc.rect(LEFT, y+14, 260, 40).stroke(C_VERDE_CAJA);
+        doc.fillColor('#000').font('Helvetica-Oblique').text('PAGO POR TRANSFERENCIA ELECTRONICA', LEFT, y + 30, {width: 260, align: 'center'});
 
-    doc.rect(LEFT + 292, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
-    doc.fillColor('#FFF').font('Helvetica-Bold').text('NOMBRE Y FIRMA DE RECIBIDO', LEFT + 292, y + 3, {width: 260, align: 'center'});
-    doc.rect(LEFT + 292, y+14, 260, 40).stroke(C_VERDE_CAJA);
-    doc.fillColor(C_ROJO).font('Helvetica-Oblique').text(isCheque ? '' : 'FIRMA NO REQUERIDA (TRANSFERENCIA)', LEFT + 292, y + 30, {width: 260, align: 'center'});
-
-    y += 90; 
+        doc.rect(LEFT + 292, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
+        doc.fillColor('#FFF').font('Helvetica-Bold').text('NOMBRE Y FIRMA DE RECIBIDO', LEFT + 292, y + 3, {width: 260, align: 'center'});
+        doc.rect(LEFT + 292, y+14, 260, 40).stroke(C_VERDE_CAJA);
+        doc.fillColor(C_ROJO).font('Helvetica-Oblique').text('FIRMA NO REQUERIDA (TRANSFERENCIA)', LEFT + 292, y + 30, {width: 260, align: 'center'});
+        y += 90;
+    } 
     let fy1 = y + 50; 
     
     const fw = 160; 
@@ -856,9 +946,14 @@ function generarPDFSolicitud(res, sol, firmas) {
     const drawSignatureBlock = (px, py, title, name, role, firmImgPath, extraTitle) => {
         doc.fillColor('#000').font('Helvetica-Bold').fontSize(7).text(title, px, py - 45, { width: fw, align: 'center' });
         if (firmImgPath) {
-            const absPath = path.join(__dirname, '../', firmImgPath);
-            if (fs.existsSync(absPath)) {
-                try { doc.image(absPath, px + (fw/2) - 25, py - 35, { width: 50, height: 25 }); } catch (imgError) {}
+            // Intentar múltiples rutas para compatibilidad local/servidor
+            const rutas = [
+                path.join(__dirname, '../', firmImgPath),
+                path.join(__dirname, '../../', firmImgPath),
+            ];
+            const rutaFinal = rutas.find(p => fs.existsSync(p));
+            if (rutaFinal) {
+                try { doc.image(rutaFinal, px + (fw/2) - 25, py - 35, { width: 50, height: 25 }); } catch (e) {}
             }
         }
         doc.moveTo(px, py).lineTo(px + fw, py).stroke('#000');
@@ -867,7 +962,21 @@ function generarPDFSolicitud(res, sol, firmas) {
         if (extraTitle) doc.fontSize(5).text(extraTitle, px, py + 20, { width: fw, align: 'center' });
     };
 
-    const getFirma = (rolBuscado) => firmas.find(f => f.etapa_firma === rolBuscado && f.accion === 'APROBADO') || {};
+    // getFirma: busca por posición en el array de firmas aprobadas
+    // El orden siempre es: VoBo (0), Revisor (1), Aut1 (2), Aut2 (3), Pago (4)
+    const firmasAprobadas = firmas.filter(f => f.accion === 'APROBADO');
+    const getFirma = (rolBuscado) => {
+        const rol = (rolBuscado || '').toUpperCase().trim();
+        return firmasAprobadas.find(f => {
+            const etapa = (f.etapa_firma || '').toUpperCase().trim();
+            if (rol === 'VISTO BUENO')   return etapa.includes('VISTO') || etapa.includes('VOBO') || etapa === 'VISTO BUENO';
+            if (rol === 'REVISOR')        return etapa.includes('REVIS');
+            if (rol === 'AUTORIZADOR_1') return etapa.includes('AUTORIZADOR') && !etapa.includes('2');
+            if (rol === 'AUTORIZADOR_2') return etapa.includes('AUTORIZADOR') && etapa.includes('2');
+            if (rol === 'PAGADO')        return etapa.includes('PAG') || etapa.includes('TESOR');
+            return etapa === rol;
+        }) || {};
+    };
 
     drawSignatureBlock(LEFT, fy1, 'SOLICITADO POR', sol.solicitante_nombre, sol.solicitante_puesto, sol.solicitante_firma, 'Servicios integrados EXDAN SA DE CV');
     
@@ -885,14 +994,14 @@ function generarPDFSolicitud(res, sol, firmas) {
     let fy2 = fy1 + 100; 
     const reqNiveles = calcularNivelesRequeridos(sol.monto);
     
-    const rev = getFirma('REVISOR');
+    const rev  = getFirma('REVISOR');
+    const aut1 = getFirma('AUTORIZADOR_1');
+    const aut2 = getFirma('AUTORIZADOR_2');
     drawSignatureBlock(LEFT, fy2, 'REVISADO POR', rev.aprobador || 'LIC C.P. MARIAM ITZEL RAMIREZ CARRASCO', rev.aprobador_puesto || 'AsCNT - Asistente Contable', rev.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
 
-    const aut1 = getFirma('AUTORIZADOR_1');
     drawSignatureBlock(LEFT + fw + gap, fy2, 'AUTORIZACION NIVEL 1', aut1.aprobador || 'C.P TRINIDAD LISBETH REYES RUIZ', aut1.aprobador_puesto || 'GA - Gerente de Administracion (2020)', aut1.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
 
     if (reqNiveles >= 3) {
-        const aut2 = getFirma('AUTORIZADOR_2');
         drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACION NIVEL 2', aut2.aprobador || 'MBA.CP ISAAC CRUZ CANO', aut2.aprobador_puesto || 'DIRECTOR GENERAL', aut2.ruta_firma_png, 'Servicios integrados EXDAN SA DE CV');
     } else {
         drawSignatureBlock(LEFT + (fw + gap)*2, fy2, 'AUTORIZACION NIVEL 2', 'N/A', 'N/A', null, '');

@@ -8,7 +8,7 @@ const { autorizar } = require('../middlewares/autorizar');
 // APIS DE CATÁLOGO DE CONCEPTOS DE PAGO
 // ==========================================
 
-router.get('/conceptos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
+router.get('/conceptos', verificarToken, (req, res) => {
     db.query('SELECT * FROM conceptos_pago ORDER BY id ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
@@ -62,7 +62,7 @@ router.delete('/conceptos/:clave', verificarToken, autorizar('ADMIN'), (req, res
 // APIS DE CATÁLOGO DE BANCOS
 // ==========================================
 
-router.get('/bancos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
+router.get('/bancos', verificarToken, (req, res) => {
     db.query('SELECT * FROM catalogo_bancos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });
@@ -108,7 +108,7 @@ router.delete('/bancos/:id', verificarToken, autorizar('ADMIN'), (req, res) => {
 // APIS DE CATÁLOGO DE DEPARTAMENTOS / AREAS
 // ==========================================
 
-router.get('/departamentos', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O'), (req, res) => {
+router.get('/departamentos', verificarToken, (req, res) => {
     db.query('SELECT * FROM catalogo_departamentos ORDER BY nombre ASC', (err, results) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, data: results });

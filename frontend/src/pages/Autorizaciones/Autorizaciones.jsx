@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useNavigate } from 'react-router-dom';
 import './Autorizaciones.css'; 
 
@@ -65,6 +66,7 @@ function Autorizaciones() {
   };
 
   useEffect(() => { fetchSolicitudes(); }, []);
+  useAutoRefresh(fetchSolicitudes, 20000);
   useEffect(() => { setCurrentPage(1); }, [activeTab, busqueda, filtroHistorial]);
 
   const verPDFSeguro = async (id_solicitud) => {

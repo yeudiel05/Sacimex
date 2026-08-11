@@ -741,6 +741,9 @@ function Usuarios() {
                                 <option value="Technological Human Provision SA de CV">Technological Human Provision SA de CV</option>
                                 <option value="Consultoría en Desarrollo Integral Empresarial CODIEM SA de CV">Consultoría en Desarrollo Integral Empresarial CODIEM SA de CV</option>
                                 <option value="MI PRIMERA CHAMBA">MI PRIMERA CHAMBA</option>
+                                {formData.empresa_maestra && !['Opciones Sacimex SA de CV SOFOM ENR','Servicios integrados EXDAN SA DE CV','Integración Activa Especializada Ragar SA de CV','Technological Human Provision SA de CV','Consultoría en Desarrollo Integral Empresarial CODIEM SA de CV','MI PRIMERA CHAMBA'].includes(formData.empresa_maestra) && (
+                                  <option value={formData.empresa_maestra}>{formData.empresa_maestra}</option>
+                                )}
                             </select>
                         </div>
                     </div>
@@ -811,6 +814,9 @@ function Usuarios() {
                                         </option>
                                     );
                                 })}
+                                {formData.jefe_inmediato && !usuarios.some(u => (u.nombre_completo || u.nombre_razon_social || u.nombre) === formData.jefe_inmediato) && (
+                                  <option value={formData.jefe_inmediato}>{formData.jefe_inmediato}</option>
+                                )}
                             </select>
                         </div>
                     </div>
@@ -832,6 +838,9 @@ function Usuarios() {
                                 )) : BANCOS_FALLBACK.map((banco, i) => (
                                     <option key={`fb-ban-${i}`} value={banco}>{banco}</option>
                                 ))}
+                                {formData.banco && !bancosDb.some(b => b.nombre === formData.banco) && !BANCOS_FALLBACK.includes(formData.banco) && (
+                                  <option value={formData.banco}>{formData.banco}</option>
+                                )}
                             </select>
                         </div>
                         <div className="form-group">

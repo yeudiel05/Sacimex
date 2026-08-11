@@ -526,7 +526,7 @@ router.post('/pagos-fondeador', verificarToken, autorizarModulo('proveedores', [
 // ==========================================
 // CRUD NORMAL DE proveedores (CORREGIDO)
 // ==========================================
-router.get('/', verificarToken, autorizarModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA'], 'puede_ver'), (req, res) => {
+router.get('/', verificarToken, (req, res) => {
     const query = `
         SELECT 
             p.id, p.tipo_persona, p.nombre_razon_social AS nombre, p.rfc, 

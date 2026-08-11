@@ -71,4 +71,53 @@ function puedeFirmar({ usuario, nivel, idDepartamentoVoBo = null }, callback) {
   });
 }
 
-module.exports = { puedeFirmar };
+/**
+ * Devuelve el nombre del rol que debe firmar un nivel dado (para saber a
+ * quién notificarle por correo que le toca firmar). Generaliza el
+ * `rolNotificar = nuevoNivel === 1 ? 'AUTORIZADOR_1' : 'AUTORIZADOR_2'`
+ * hardcodeado que había antes.
+ *
+ * @param {number} nivel
+ * @param {number|null} idDepartamento
+ * @param {function} callback - (err, nombreRol|null)
+ */
+function obtenerRolDeNivel(nivel, idDepartamento, callback) {
+  const sql = `
+    SELECT r.nombre_rol
+    FROM matriz_autorizacion m
+    LEFT JOIN catalogo_roles r ON m.id_rol = r.id
+    WHERE m.nivel = ? AND m.estatus_activo = 1
+      AND (m.id_departamento = ? OR m.id_departamento IS NULL)
+    ORDER BY (m.id_departamento IS NULL) ASC
+    LIMIT 1
+  `;
+  db.query(sql, [nivel, idDepartamento], (err, rows) => {
+    if (err) return callback(err);
+    if (rows.length === 0) return callback(null, null);
+    callback(null, rows[0].nombre_rol || null);
+  });
+}
+
+/**
+ * Igual que puedeFirmar pero como Promesa, para usarse con Promise.all
+ * al recorrer listados (un .forEach normal no espera callbacks async).
+ */
+function puedeFirmarAsync(opts) {
+  return new Promise((resolve, reject) => {
+    puedeFirmar(opts, (err, resultado) => err ? reject(err) : resolve(resultado));
+  });
+}
+
+/**
+ * Viáticos es un flujo de un solo nivel (lo autoriza D.H.O), a diferencia de
+ * solicitudes_recursos que tiene varios niveles. Por eso no usa la matriz de
+ * autorización: es solo un chequeo de rol, pero centralizado en un único
+ * lugar para no repetir `rol !== 'ADMIN' && rol !== 'D.H.O' && rol !== 'DHO'`
+ * en cada ruta (y para no arrastrar la variante 'DHO' que no existe en los
+ * datos reales, solo 'D.H.O').
+ */
+function puedeAutorizarViaticos(usuario) {
+  return usuario.rol === 'ADMIN' || usuario.rol === 'D.H.O';
+}
+
+module.exports = { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel, puedeAutorizarViaticos };

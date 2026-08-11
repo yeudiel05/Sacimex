@@ -8,6 +8,22 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Permisos por defecto que se asignan automáticamente al crear un usuario según su rol
+const PERMISOS_DEFECTO_ROL = {
+  ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+  CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
+  AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
+  'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
+  GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
+  DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
+  AUXILIAR:      ['dashboard','solicitudes','historial','viaticos'],
+  ALMACEN:       ['dashboard','proveedores'],
+};
+
+
 // Configuracion de Multer para subir firmas
 const dirFirmas = path.join(__dirname, '../uploads/firmas');
 if (!fs.existsSync(dirFirmas)){
@@ -150,10 +166,36 @@ router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), asy
                                     
                                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Usuarios): ' + err.message }));
 
+                                    // Sincronizar id_departamento al crear
+                                    db.query(
+                                        'UPDATE usuarios u JOIN catalogo_departamentos cd ON cd.nombre = ? SET u.id_departamento = cd.id WHERE u.id_empleado = ?',
+                                        [departamento || '', idPersona],
+                                        (errD) => { if (errD) console.error('Error sync id_departamento al crear:', errD.message); }
+                                    );
+
                                     db.commit(err => {
                                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                                        registrarBitacora(req.usuario.id, 'CREAR_USUARIO', `Se creo el usuario ${username} con rol ${rol}`, req);
-                                        res.json({ success: true, message: 'Usuario y firma creados exitosamente.' });
+                                        registrarBitacora(req.usuario.id, 'CREAR_USUARIO', `Se creó el usuario ${username} con rol ${rol}`, req);
+
+                                        // Insertar permisos por defecto según el rol
+                                        const modulosRol = PERMISOS_DEFECTO_ROL[rol] || [];
+                                        if (modulosRol.length > 0) {
+                                            const idNuevoUsuario = this && this.insertId ? this.insertId : null;
+                                            // Obtener el ID del usuario recién creado
+                                            db.query('SELECT id FROM usuarios WHERE username = ?', [username], (errU, rowsU) => {
+                                                if (!errU && rowsU.length > 0) {
+                                                    const idUsuario = rowsU[0].id;
+                                                    const valoresPermisos = modulosRol.map(mod => [idUsuario, mod, 1, mod !== 'dashboard' ? 1 : 0, 0, 0, req.usuario.id]);
+                                                    db.query(
+                                                        'INSERT IGNORE INTO permisos_usuario (id_usuario, modulo, puede_ver, puede_crear, puede_editar, puede_eliminar, creado_por) VALUES ?',
+                                                        [valoresPermisos],
+                                                        (errP) => { if (errP) console.error('Error al insertar permisos por defecto:', errP.message); }
+                                                    );
+                                                }
+                                            });
+                                        }
+
+                                        res.json({ success: true, message: 'Usuario creado exitosamente.' });
                                     });
                                 });
                         });
@@ -204,6 +246,13 @@ router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('fi
                             db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
                                 [puesto || '', departamento || '', unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
                                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
+
+                                    // Sincronizar id_departamento en usuarios basado en el nombre del departamento
+                                    db.query(
+                                        'UPDATE usuarios u JOIN catalogo_departamentos cd ON cd.nombre = ? SET u.id_departamento = cd.id WHERE u.id = ?',
+                                        [departamento || '', id_usuario],
+                                        (errDept) => { if (errDept) console.error('Error sync id_departamento:', errDept.message); }
+                                    );
                                     
                                     let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';
                                     let paramsUser = [username, rol, puede_solicitar || 0, nivel_autorizacion || 0];

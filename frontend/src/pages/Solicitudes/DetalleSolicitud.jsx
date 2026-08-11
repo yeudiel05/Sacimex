@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useParams, useNavigate } from 'react-router-dom';
 import './DetalleSolicitud.css';
 
@@ -103,6 +104,10 @@ const DetalleSolicitud = () => {
     };
 
     useEffect(() => { fetchDetalle(); }, [id]);
+
+    // Refrescar automáticamente cada 15s para ver cambios de firma en tiempo real
+    // Se pausa cuando hay un modal abierto para no interrumpir al usuario
+    useAutoRefresh(fetchDetalle, 15000, !procesando);
 
     const handleAutorizar = async () => {
         const comentario = window.prompt('Comentario para la autorizacion (opcional):');
@@ -368,7 +373,42 @@ const DetalleSolicitud = () => {
                     {solicitud.estatus === 'AUTORIZADO_FINAL' && !solicitud.comprobante_pago_path && (
                         <div style={{ marginTop:'16px', padding:'12px 16px', backgroundColor:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'8px', fontSize:'12px', color:'#1e40af' }}>
                             <strong>✓ Totalmente autorizado.</strong><br/>
-                            Esperando que Tesoreria pague y suba el comprobante de pago.
+                            Esperando que Tesorería pague y suba el comprobante de pago.
+                        </div>
+                    )}
+
+                    {solicitud.comprobante_pago_path && (
+                        <div style={{ marginTop:'16px', padding:'16px', backgroundColor:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:'8px' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                    <div style={{ fontSize:'13px', fontWeight:'700', color:'#15803d', marginBottom:'4px' }}>
+                                        ✓ Pago registrado por Tesorería
+                                    </div>
+                                    <div style={{ fontSize:'12px', color:'#64748b' }}>
+                                        Comprobante de pago disponible
+                                    </div>
+                                </div>
+                                <a
+                                    href={`/${solicitud.comprobante_pago_path}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        display:'inline-flex', alignItems:'center', gap:'6px',
+                                        padding:'8px 16px', borderRadius:'8px',
+                                        backgroundColor:'#15803d', color:'white',
+                                        fontSize:'13px', fontWeight:'700',
+                                        textDecoration:'none', cursor:'pointer'
+                                    }}
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'15px', height:'15px'}}>
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="12" y1="18" x2="12" y2="12"/>
+                                        <line x1="9" y1="15" x2="15" y2="15"/>
+                                    </svg>
+                                    Ver Comprobante
+                                </a>
+                            </div>
                         </div>
                     )}
 
