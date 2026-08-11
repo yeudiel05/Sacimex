@@ -27,6 +27,8 @@ function RevisionViaticos() {
     }
   };
 
+  useAutoRefresh(fetchSolicitudes, 20000);
+
   useEffect(() => {
     fetchSolicitudes();
     const hoy = new Date();
@@ -47,6 +49,23 @@ function RevisionViaticos() {
       console.error(error);
       alert("Error al intentar abrir el Formato PDF de Comisión.");
     }
+  };
+
+  const autorizarDHO = async (id) => {
+    if (!window.confirm('¿Autorizar esta solicitud de viáticos?')) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`/api/viaticos/${id}/autorizar-dho`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchSolicitudes();
+      } else alert('No se pudo autorizar: ' + data.message);
+    } catch { alert('Error de conexión.'); }
   };
 
   const cambiarEstatus = async (id, nuevoEstatus) => {
@@ -142,14 +161,16 @@ function RevisionViaticos() {
   const toggleDetalle = (id) => setExpandidos(prev => ({ ...prev, [id]: !prev[id] }));
 
   const solicitudesFiltradas = solicitudes.filter(sol => {
-    if (tabActiva === 'PENDIENTES') return sol.estatus === 'PENDIENTE' || sol.estatus === 'PENDIENTE_VOBO';
-    if (tabActiva === 'AUTORIZADOS') return sol.estatus === 'PAGADO' || sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'RECHAZADO' || sol.estatus === 'AUTORIZADO';
+    if (tabActiva === 'PENDIENTES') return sol.estatus === 'AUTORIZADO_JEFE';
+    if (tabActiva === 'AUTORIZADOS') return ['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].includes(sol.estatus);
     return true;
   });
 
   const getBadgeStyle = (estatus) => {
     switch(estatus) {
       case 'PENDIENTE': return { bg: '#fef3c7', text: '#f59e0b' };
+      case 'AUTORIZADO_JEFE': return { bg: '#dbeafe', text: '#2563eb' };
+      case 'AUTORIZADO_DHO': return { bg: '#dcfce7', text: '#15803d' };
       case 'PAGADO':    return { bg: '#eff6ff', text: '#3b82f6' };
       case 'RECIBIDO':  return { bg: '#ccfbf1', text: '#0d9488' };
       case 'COMPROBADO':return { bg: '#dcfce7', text: '#16a34a' };
@@ -233,7 +254,7 @@ function RevisionViaticos() {
                       {tabActiva === 'PENDIENTES' && (
                         <>
                           <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
-                          <button onClick={() => cambiarEstatus(sol.id, 'PAGADO')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Autorizar y Marcar Pagado</button>
+                          <button onClick={() => autorizarDHO(sol.id)} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✓ Autorizar D.H.O.</button>
                         </>
                       )}
 

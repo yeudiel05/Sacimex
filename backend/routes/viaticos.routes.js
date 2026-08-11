@@ -31,23 +31,58 @@ router.get('/perfil', verificarToken, (req, res) => {
 router.post('/', verificarToken, (req, res) => {
     const id_usuario = req.usuario.id;
     const { 
-        puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo, fecha_salida, fecha_regreso, dias_comision, 
-        medio_transporte, monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado 
+        puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo,
+        fecha_salida, fecha_regreso, dias_comision, medio_transporte,
+        monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado,
+        desglose_dias // array: [{fecha, categoria, subcategoria, monto}]
     } = req.body;
     const num = (valor) => parseFloat(valor) || 0;
 
-    const query = `INSERT INTO solicitudes_viaticos (id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo, fecha_salida, fecha_regreso, dias_comision, medio_transporte, monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const query = `INSERT INTO solicitudes_viaticos 
+        (id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo, 
+         fecha_salida, fecha_regreso, dias_comision, medio_transporte, 
+         monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
     const values = [
-        id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo, 
-        fecha_salida, fecha_regreso, parseInt(dias_comision) || 0, medio_transporte, 
+        id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo,
+        fecha_salida, fecha_regreso, parseInt(dias_comision) || 0, medio_transporte,
         num(monto_alimentos), num(monto_hospedaje), num(monto_pasajes), num(monto_taxis), num(monto_gasolina), num(monto_otros), num(total_solicitado)
     ];
 
-    db.query(query, values, (err) => {
-        if (err) return res.status(500).json({ success: false });
-        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicito viaticos por $${num(total_solicitado).toFixed(2)} para ${destino}`, req);
-        res.json({ success: true, message: 'Solicitud enviada correctamente' });
+    db.query(query, values, (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        const id_solicitud = result.insertId;
+
+        // Guardar desglose por días si viene en el body
+        if (desglose_dias && Array.isArray(desglose_dias) && desglose_dias.length > 0) {
+            const filas = desglose_dias
+                .filter(d => d.monto && parseFloat(d.monto) > 0)
+                .map(d => [id_solicitud, d.fecha, d.categoria, d.subcategoria || null, parseFloat(d.monto) || 0]);
+            if (filas.length > 0) {
+                db.query(
+                    'INSERT INTO viaticos_desglose_dias (id_solicitud, fecha, categoria, subcategoria, monto) VALUES ?',
+                    [filas],
+                    (errD) => { if (errD) console.error('Error guardando desglose:', errD.message); }
+                );
+            }
+        }
+
+        registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicitó viáticos por $${num(total_solicitado).toFixed(2)} para ${destino}`, req);
+        res.json({ success: true, message: 'Solicitud enviada correctamente', id: id_solicitud });
     });
+});
+
+router.get('/:id/desglose', verificarToken, (req, res) => {
+    db.query(
+        'SELECT * FROM viaticos_desglose_dias WHERE id_solicitud = ? ORDER BY fecha ASC, categoria ASC',
+        [req.params.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
 });
 
 router.get('/mis-solicitudes', verificarToken, (req, res) => {
@@ -55,6 +90,28 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
         if (err) return res.status(500).json({ success: false });
         res.json({ success: true, data: results });
     });
+});
+
+// GET /todas — para DHO: ve todas las pendientes de su autorización
+// GET /pendientes-jefe — para cualquier usuario: ve las de sus subordinados
+router.get('/pendientes-jefe', verificarToken, (req, res) => {
+    // El jefe ve solicitudes PENDIENTES donde él es el jefe_inmediato según el sistema
+    db.query(
+        `SELECT sv.*, p.nombre_razon_social AS nombre_solicitante, e.puesto AS puesto_solicitante
+         FROM solicitudes_viaticos sv
+         JOIN usuarios u ON sv.id_usuario = u.id
+         JOIN empleados e ON u.id_empleado = e.id_persona
+         JOIN personas p ON e.id_persona = p.id
+         JOIN empleados ej ON ej.id_persona = (SELECT id_empleado FROM usuarios WHERE id = ?)
+         WHERE sv.estatus = 'PENDIENTE'
+         AND UPPER(TRIM(e.jefe_inmediato)) = UPPER(TRIM((SELECT nombre_razon_social FROM personas WHERE id = ej.id_persona)))
+         ORDER BY sv.fecha_solicitud ASC`,
+        [req.usuario.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
 });
 
 router.get('/todas', verificarToken, (req, res) => {
@@ -65,23 +122,90 @@ router.get('/todas', verificarToken, (req, res) => {
     });
 });
 
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    if (!puedeAutorizarViaticos(req.usuario)) {
-        return res.status(403).json({ success: false, message: 'Permisos insuficientes para autorizar.' });
-    }
-    const { estatus } = req.body;
+// PUT /:id/autorizar-jefe — Paso 1: el jefe inmediato autoriza
+router.put('/:id/autorizar-jefe', verificarToken, (req, res) => {
+    const { comentario } = req.body;
+    const id = req.params.id;
+
+    // Verificar que la solicitud pertenece a un subordinado del usuario
     db.query(
-        'UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?', 
-        [estatus, req.usuario.id, req.params.id], 
+        `SELECT sv.id, sv.estatus, p.nombre_razon_social AS nombre_solicitante
+         FROM solicitudes_viaticos sv
+         JOIN usuarios u ON sv.id_usuario = u.id
+         JOIN empleados e ON u.id_empleado = e.id_persona
+         JOIN personas p ON e.id_persona = p.id
+         WHERE sv.id = ? AND sv.estatus = 'PENDIENTE'`,
+        [id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada o ya fue procesada.' });
+
+            db.query(
+                `UPDATE solicitudes_viaticos 
+                 SET estatus = 'AUTORIZADO_JEFE', id_autorizador_jefe = ?, fecha_auth_jefe = NOW(), comentario_jefe = ?
+                 WHERE id = ?`,
+                [req.usuario.id, comentario || null, id],
+                (errU) => {
+                    if (errU) return res.status(500).json({ success: false, message: errU.message });
+                    registrarBitacora(req.usuario.id, 'VIATICO_AUTORIZADO', `Autorizó como jefe inmediato el viático #${id}`, req);
+                    res.json({ success: true, message: 'Viático autorizado por jefe inmediato. Pendiente de aprobación D.H.O.' });
+                }
+            );
+        }
+    );
+});
+
+// PUT /:id/autorizar-dho — Paso 2: D.H.O. da el visto bueno final
+router.put('/:id/autorizar-dho', verificarToken, (req, res) => {
+    if (!puedeAutorizarViaticos(req.usuario)) {
+        return res.status(403).json({ success: false, message: 'Solo D.H.O. puede otorgar la autorización final.' });
+    }
+    const { comentario } = req.body;
+    const id = req.params.id;
+
+    db.query(
+        `SELECT id, estatus FROM solicitudes_viaticos WHERE id = ? AND estatus = 'AUTORIZADO_JEFE'`,
+        [id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada o no ha sido autorizada por el jefe.' });
+
+            db.query(
+                `UPDATE solicitudes_viaticos 
+                 SET estatus = 'AUTORIZADO_DHO', id_autorizador = ?, id_autorizador_dho = ?, fecha_auth_dho = NOW(), comentario_dho = ?
+                 WHERE id = ?`,
+                [req.usuario.id, req.usuario.id, comentario || null, id],
+                (errU) => {
+                    if (errU) return res.status(500).json({ success: false, message: errU.message });
+                    registrarBitacora(req.usuario.id, 'VIATICO_AUTORIZADO', `D.H.O. otorgó autorización final al viático #${id}`, req);
+                    res.json({ success: true, message: 'Viático autorizado por D.H.O. Listo para pago por Tesorería.' });
+                }
+            );
+        }
+    );
+});
+
+// PUT /:id/estatus — Paso 3: Tesorería marca como PAGADO (backward compat)
+router.put('/:id/estatus', verificarToken, (req, res) => {
+    const { estatus } = req.body;
+    const id = req.params.id;
+
+    // Solo ADMIN y TESORERIA pueden marcar como PAGADO
+    if (estatus === 'PAGADO' && req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'TESORERIA') {
+        return res.status(403).json({ success: false, message: 'Solo Tesorería puede marcar como pagado.' });
+    }
+    // Solo DHO y ADMIN pueden cambiar otros estatus
+    if (estatus !== 'PAGADO' && !puedeAutorizarViaticos(req.usuario)) {
+        return res.status(403).json({ success: false, message: 'Permisos insuficientes.' });
+    }
+
+    db.query(
+        'UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?',
+        [estatus, req.usuario.id, id],
         (err, result) => {
-            if (err) {
-                console.error("Error SQL al autorizar viatico:", err);
-                return res.status(500).json({ success: false, message: 'Error BD: ' + err.sqlMessage });
-            }
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ success: false, message: 'No se encontro la solicitud en la Base de Datos.' });
-            }
-            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marco viatico #${req.params.id} como ${estatus}`, req);
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'No encontrado.' });
+            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marcó viático #${id} como ${estatus}`, req);
             res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
         }
     );
@@ -501,23 +625,30 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
     const query = `
-        SELECT sv.*, 
-               p.nombre_razon_social AS solicitante_nombre,
-               e.puesto AS solicitante_puesto,
-               e.unidad_negocio AS solicitante_unidad,
-               e.empresa_maestra AS solicitante_empresa,
-               u.ruta_firma_png AS solicitante_firma,
-               p_aut.nombre_razon_social AS autorizador_nombre,
-               e_aut.puesto AS autorizador_puesto,
-               e_aut.empresa_maestra AS autorizador_empresa,
-               u_aut.ruta_firma_png AS autorizador_firma
+        SELECT sv.*,
+               p.nombre_razon_social  AS solicitante_nombre,
+               e.puesto               AS solicitante_puesto,
+               e.unidad_negocio       AS solicitante_unidad,
+               e.empresa_maestra      AS solicitante_empresa,
+               u.ruta_firma_png       AS solicitante_firma,
+               p_jefe.nombre_razon_social AS jefe_nombre,
+               e_jefe.puesto              AS jefe_puesto,
+               e_jefe.empresa_maestra     AS jefe_empresa,
+               u_jefe.ruta_firma_png      AS jefe_firma,
+               p_dho.nombre_razon_social  AS dho_nombre,
+               e_dho.puesto               AS dho_puesto,
+               e_dho.empresa_maestra      AS dho_empresa,
+               u_dho.ruta_firma_png       AS dho_firma
         FROM solicitudes_viaticos sv
-        LEFT JOIN usuarios u ON sv.id_usuario = u.id
-        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
-        LEFT JOIN personas p ON e.id_persona = p.id
-        LEFT JOIN usuarios u_aut ON sv.id_autorizador = u_aut.id
-        LEFT JOIN empleados e_aut ON u_aut.id_empleado = e_aut.id_persona
-        LEFT JOIN personas p_aut ON e_aut.id_persona = p_aut.id
+        LEFT JOIN usuarios u      ON sv.id_usuario = u.id
+        LEFT JOIN empleados e     ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p      ON e.id_persona = p.id
+        LEFT JOIN usuarios u_jefe    ON sv.id_autorizador_jefe = u_jefe.id
+        LEFT JOIN empleados e_jefe   ON u_jefe.id_empleado = e_jefe.id_persona
+        LEFT JOIN personas p_jefe    ON e_jefe.id_persona = p_jefe.id
+        LEFT JOIN usuarios u_dho     ON sv.id_autorizador_dho = u_dho.id
+        LEFT JOIN empleados e_dho    ON u_dho.id_empleado = e_dho.id_persona
+        LEFT JOIN personas p_dho     ON e_dho.id_persona = p_dho.id
         WHERE sv.id = ?
     `;
 
@@ -525,221 +656,291 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
         if (err || results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
         
         const sol = results[0];
-        const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
 
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename=Comision_${sol.id}.pdf`);
-        doc.pipe(res);
-
-        // REGISTRO EN BITACORA - EXPORTAR OFICIO DE COMISION
-        registrarBitacora(req.usuario.id, 'EXPORTAR_OFICIO_COMISION', `Descargo Oficio de Comision del viatico #${sol.id}`, req);
-
-        const COLOR_TEXTO_AZUL = '#0000FF';
-        const COLOR_VERDE_TITULO = '#008000';
-        const BG_VERDE_CLARO = '#eaffea';
-        let y = 30;
-
-        const drawCell = (x, cy, w, h, text, fill, textColor = '#000', font = 'Helvetica', size = 8, align = 'left', noBorder = false) => {
-            if (fill) doc.rect(x, cy, w, h).fill(fill);
-            if (!noBorder) doc.rect(x, cy, w, h).stroke('#000');
-            if (text) {
-                doc.fillColor(textColor).font(font).fontSize(size);
-                const textHeight = doc.heightOfString(text, { width: w });
-                const textY = cy + (h - textHeight) / 2;
-                const isCentered = align === 'center' || align === 'right';
-                doc.text(text, isCentered ? x : x + 5, textY, { width: w - (isCentered ? 0 : 5), align: align });
+        // Segunda consulta para traer los gastos por día y armar el desgloseMap
+        db.query('SELECT * FROM viaticos_desglose_dias WHERE id_solicitud = ?', [req.params.id], (errD, desgloseRows) => {
+            
+            const desgloseMap = {};
+            
+            // Si hay resultados, armamos el mapa
+            if (!errD && desgloseRows) {
+                desgloseRows.forEach(row => {
+                    const fecha = new Date(row.fecha).toISOString().split('T')[0];
+                    if (!desgloseMap[fecha]) desgloseMap[fecha] = {};
+                    
+                    if (row.categoria) desgloseMap[fecha][row.categoria.toLowerCase()] = row.monto;
+                    if (row.subcategoria) desgloseMap[fecha][row.subcategoria.toLowerCase()] = row.monto;
+                });
             }
-        };
 
-        const anio = new Date(sol.fecha_solicitud || Date.now()).getFullYear();
-        doc.font('Helvetica-Bold').fontSize(14).fillColor(COLOR_VERDE_TITULO).text(`OFICIO DE COMISION ${anio}`, 0, y, { align: 'center' });
-        doc.fontSize(10).text(`SAC-TSR-CMS-${anio}`, 0, y, { align: 'right', underline: true });
-        
-        y += 20;
-        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'NOMBRE DEL COLABORADOR', 30, y);
-        y += 10;
-        doc.font('Helvetica-Bold').fillColor('#000').text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, 30, y);
-        y += 10;
-        doc.font('Helvetica-Oblique').fillColor(COLOR_TEXTO_AZUL).text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 30, y);
-        y += 10;
-        doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', 30, y);
+            const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
 
-        const f = new Date(sol.fecha_solicitud || Date.now());
-        const diasSemana = ['dom','lun','mar','mie','jue','vie','sab'];
-        const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-        const fechaStr = `${diasSemana[f.getDay()]} ${f.getDate().toString().padStart(2, '0')} de ${meses[f.getMonth()]} del ${f.getFullYear().toString().substr(-2)}`;
-        
-        doc.font('Helvetica-Bold').fillColor('#000').fontSize(9).text('Fecha', 380, y - 14);
-        drawCell(420, y - 20, 132, 14, fechaStr, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'center', true);
-        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('Fecha (dd/mm/aa)', 420, y - 6, { width: 132, align: 'center' });
-        y += 15;
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename=Comision_${sol.id}.pdf`);
+            doc.pipe(res);
 
-        const tX = 30, tW1 = 70, tW2 = 452, rowH1 = 16;
-        const fSalida = new Date(sol.fecha_salida).toLocaleDateString('es-MX', {timeZone: 'UTC'});
-        const fRegreso = new Date(sol.fecha_regreso).toLocaleDateString('es-MX', {timeZone: 'UTC'});
-        
-        drawCell(tX, y, tW1, rowH1, 'Lugar:', null, '#000', 'Helvetica-Bold', 9, 'left');
-        drawCell(tX+tW1, y, tW2, rowH1, (sol.destino || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
-        y += rowH1;
-        drawCell(tX, y, tW1, rowH1, 'Periodo:', null, '#000', 'Helvetica-Bold', 9, 'left');
-        drawCell(tX+tW1, y, tW2, rowH1, `DEL ${fSalida} AL ${fRegreso}`, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
-        y += rowH1;
-        drawCell(tX, y, tW1, rowH1, 'Objetivo:', null, '#000', 'Helvetica-Bold', 9, 'left');
-        drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
-        y += 20;
+            // REGISTRO EN BITACORA - EXPORTAR OFICIO DE COMISION
+            registrarBitacora(req.usuario.id, 'EXPORTAR_OFICIO_COMISION', `Descargo Oficio de Comision del viatico #${sol.id}`, req);
 
-        const textoDespedida = 'Por lo anterior debera solicitar a la gerencia de finanzas los viaticos en los formatos autorizados. Al finalizar la comision debera requisitar la "Comprobacion universal de gastos" (SAC-GTSR-GST) en un maximo de 3 (TRES) dias posterior a su termino, so pena de cargo a nomina.\nSin mas por el momento le envio un cordial saludo.\n';
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text(textoDespedida, 30, y, { width: 522, align: 'justify' });
-        y += doc.heightOfString(textoDespedida, { width: 522 }) + 20;
+            const COLOR_TEXTO_AZUL = '#0000FF';
+            const COLOR_VERDE_TITULO = '#008000';
+            const BG_VERDE_CLARO = '#eaffea';
+            let y = 30;
 
-        const wSMid = 180, gapMid = 60;
-        const startXMid = (doc.page.width - ((wSMid * 2) + gapMid)) / 2;
-        const xAten = startXMid;
-        const xRev = startXMid + wSMid + gapMid;
+            const drawCell = (x, cy, w, h, text, fill, textColor = '#000', font = 'Helvetica', size = 8, align = 'left', noBorder = false) => {
+                if (fill) doc.rect(x, cy, w, h).fill(fill);
+                if (!noBorder) doc.rect(x, cy, w, h).stroke('#000');
+                if (text) {
+                    doc.fillColor(textColor).font(font).fontSize(size);
+                    const textHeight = doc.heightOfString(text, { width: w });
+                    const textY = cy + (h - textHeight) / 2;
+                    const isCentered = align === 'center' || align === 'right';
+                    doc.text(text, isCentered ? x : x + 5, textY, { width: w - (isCentered ? 0 : 5), align: align });
+                }
+            };
 
-        doc.font('Helvetica').fontSize(9).text('Atentamente', xAten, y, { width: wSMid, align: 'center' });
-        doc.text('Revision de gasto', xRev, y, { width: wSMid, align: 'center' });
-        
-        const imgHeightMid = 30;
-        if (sol.solicitante_firma) {
-            const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
-            if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xAten + 40, y + 15, { width: 100, height: imgHeightMid }); } catch (e) {}
-        }
-        if (sol.autorizador_firma) {
-            const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
-            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xRev + 40, y + 15, { width: 100, height: imgHeightMid }); } catch (e) {}
-        }
+            const anio = new Date(sol.fecha_solicitud || Date.now()).getFullYear();
+            doc.font('Helvetica-Bold').fontSize(14).fillColor(COLOR_VERDE_TITULO).text(`OFICIO DE COMISION ${anio}`, 0, y, { align: 'center' });
+            doc.fontSize(10).text(`SAC-TSR-CMS-${anio}`, 0, y, { align: 'right', underline: true });
+            
+            y += 20;
+            doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'NOMBRE DEL COLABORADOR', 30, y);
+            y += 10;
+            doc.font('Helvetica-Bold').fillColor('#000').text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, 30, y);
+            y += 10;
+            doc.font('Helvetica-Oblique').fillColor(COLOR_TEXTO_AZUL).text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 30, y);
+            y += 10;
+            doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', 30, y);
 
-        y += 50;
-        doc.moveTo(xAten, y).lineTo(xAten + wSMid, y).stroke();
-        doc.moveTo(xRev, y).lineTo(xRev + wSMid, y).stroke();
-        y += 4;
-        
-        doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'FIRMA DEL SOLICITANTE', xAten, y, { width: wSMid, align: 'center' });
-        doc.text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE REVISION', xRev, y, { width: wSMid, align: 'center' });
-        y += 10;
-        doc.font('Helvetica-BoldOblique').fillColor('#000').text(sol.solicitante_puesto || '', xAten, y, { width: wSMid, align: 'center' });
-        doc.text(sol.autorizador_puesto || 'D.H.O / FINANZAS', xRev, y, { width: wSMid, align: 'center' });
-        y += 10;
-        doc.font('Helvetica').text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', xAten, y, { width: wSMid, align: 'center' });
-        doc.text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xRev, y, { width: wSMid, align: 'center' });
-        y += 15;
+            const f = new Date(sol.fecha_solicitud || Date.now());
+            const diasSemana = ['dom','lun','mar','mie','jue','vie','sab'];
+            const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+            const fechaStr = `${diasSemana[f.getDay()]} ${f.getDate().toString().padStart(2, '0')} de ${meses[f.getMonth()]} del ${f.getFullYear().toString().substr(-2)}`;
+            
+            doc.font('Helvetica-Bold').fillColor('#000').fontSize(9).text('Fecha', 380, y - 14);
+            drawCell(420, y - 20, 132, 14, fechaStr, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'center', true);
+            doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('Fecha (dd/mm/aa)', 420, y - 6, { width: 132, align: 'center' });
+            y += 15;
 
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Personas adicionales autorizadas:', 30, y);
-        y += 12;
-        drawCell(30, y, 522, 40, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true); 
-        const accArr = sol.nombres_acompanantes ? sol.nombres_acompanantes.split(',') : [];
-        let curY = y + 5;
-        for(let i=1; i<=4; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 60, curY); curY += 8; }
-        curY = y + 5;
-        for(let i=5; i<=8; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 320, curY); curY += 8; }
-        y += 45; 
-        doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
-        y += 10;
+            const tX = 30, tW1 = 70, tW2 = 452, rowH1 = 16;
+            const fSalida = new Date(sol.fecha_salida).toLocaleDateString('es-MX', {timeZone: 'UTC'});
+            const fRegreso = new Date(sol.fecha_regreso).toLocaleDateString('es-MX', {timeZone: 'UTC'});
+            
+            drawCell(tX, y, tW1, rowH1, 'Lugar:', null, '#000', 'Helvetica-Bold', 9, 'left');
+            drawCell(tX+tW1, y, tW2, rowH1, (sol.destino || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+            y += rowH1;
+            drawCell(tX, y, tW1, rowH1, 'Periodo:', null, '#000', 'Helvetica-Bold', 9, 'left');
+            drawCell(tX+tW1, y, tW2, rowH1, `DEL ${fSalida} AL ${fRegreso}`, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+            y += rowH1;
+            drawCell(tX, y, tW1, rowH1, 'Objetivo:', null, '#000', 'Helvetica-Bold', 9, 'left');
+            drawCell(tX+tW1, y, tW2, rowH1, (sol.motivo || '').toUpperCase(), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 9, 'left');
+            y += 20;
 
-        const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 13; 
-        let gy = y;
+            const textoDespedida = 'Por lo anterior debera solicitar a la gerencia de finanzas los viaticos en los formatos autorizados. Al finalizar la comision debera requisitar la "Comprobacion universal de gastos" (SAC-GTSR-GST) en un maximo de 3 (TRES) dias posterior a su termino, so pena de cargo a nomina.\nSin mas por el momento le envio un cordial saludo.\n';
+            doc.font('Helvetica').fontSize(9).fillColor('#000').text(textoDespedida, 30, y, { width: 522, align: 'justify' });
+            y += doc.heightOfString(textoDespedida, { width: 522 }) + 20;
 
-        drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
-        const dias = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
-        let rx = 30 + colMain;
-        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, dias[i], '#fff', '#000', 'Helvetica-Bold', 8, 'center'); rx += colDay; }
-        drawCell(rx, gy, colTotal, rowH, 'TOTAL', '#fff', '#000', 'Helvetica-Bold', 8, 'center');
-        gy += rowH;
+            // ── FIRMAS SUPERIORES: Solicitante | Jefe Inmediato ──────────────────
+            const cargarFirmaViatic = (rutaRel, x, yPos, w=100, h=30) => {
+                if (!rutaRel) return;
+                const paths = [path.join(__dirname, '../', rutaRel), path.join(__dirname, '../../', rutaRel)];
+                const ruta = paths.find(p => fs.existsSync(p));
+                if (ruta) { try { doc.image(ruta, x, yPos, { width: w, height: h }); } catch(e) {} }
+            };
 
-        drawCell(30, gy, colMain, rowH, 'Hospedaje', null, '#000', 'Helvetica-Bold', 8, 'left');
-        rx = 30 + colMain;
-        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
-        doc.lineWidth(2);
-        drawCell(rx, gy, colTotal, rowH, sol.monto_hospedaje > 0 ? formatMoney(sol.monto_hospedaje) : '', null, '#000', 'Helvetica', 8, 'right');
-        doc.lineWidth(1);
-        gy += rowH;
+            const wF2 = 200, gapF2 = 60;
+            const x2A = (doc.page.width - (wF2*2 + gapF2)) / 2;
+            const x2B = x2A + wF2 + gapF2;
 
-        drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
-        const drawSubRow = (label, amt) => {
-            drawCell(80, gy, colSub, rowH, label, null, '#000', 'Helvetica', 8, 'left');
-            rx = 30 + colMain;
-            for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
-            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, amt > 0 ? formatMoney(amt) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1);
+            doc.font('Helvetica').fontSize(9).fillColor('#000')
+               .text('Atentamente', x2A, y, { width: wF2, align: 'center' })
+               .text('Autoriza (Jefe Inmediato)', x2B, y, { width: wF2, align: 'center' });
+
+            cargarFirmaViatic(sol.solicitante_firma, x2A + 50, y + 12);
+            cargarFirmaViatic(sol.jefe_firma, x2B + 50, y + 12);
+
+            y += 50;
+            doc.moveTo(x2A, y).lineTo(x2A + wF2, y).stroke();
+            doc.moveTo(x2B, y).lineTo(x2B + wF2, y).stroke();
+            y += 4;
+
+            doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL)
+               .text(sol.solicitante_nombre?.toUpperCase() || '---', x2A, y, { width: wF2, align: 'center' })
+               .text(sol.jefe_nombre?.toUpperCase() || sol.jefe_inmediato?.toUpperCase() || 'PENDIENTE', x2B, y, { width: wF2, align: 'center' });
+            y += 10;
+            doc.font('Helvetica-BoldOblique').fillColor('#000')
+               .text(sol.solicitante_puesto || '', x2A, y, { width: wF2, align: 'center' })
+               .text(sol.jefe_puesto || 'Jefe Inmediato', x2B, y, { width: wF2, align: 'center' });
+            y += 10;
+            doc.font('Helvetica')
+               .text(sol.solicitante_empresa || '', x2A, y, { width: wF2, align: 'center' })
+               .text(sol.jefe_empresa || '', x2B, y, { width: wF2, align: 'center' });
+            y += 20;
+
+            doc.font('Helvetica').fontSize(9).fillColor('#000').text('Personas adicionales autorizadas:', 30, y);
+            y += 12;
+            drawCell(30, y, 522, 40, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true); 
+            const accArr = sol.nombres_acompanantes ? sol.nombres_acompanantes.split(',') : [];
+            let curY = y + 5;
+            for(let i=1; i<=4; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 60, curY); curY += 8; }
+            curY = y + 5;
+            for(let i=5; i<=8; i++) { doc.text(`${i}.- ${accArr[i-1] ? accArr[i-1].trim() : ''}`, 320, curY); curY += 8; }
+            y += 45; 
+            doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
+            y += 10;
+
+            const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 13; 
+            let gy = y;
+
+            drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
+            const dias = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+            let rx = 30 + colMain;
+            for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, dias[i], '#fff', '#000', 'Helvetica-Bold', 8, 'center'); rx += colDay; }
+            drawCell(rx, gy, colTotal, rowH, 'TOTAL', '#fff', '#000', 'Helvetica-Bold', 8, 'center');
             gy += rowH;
-        };
-        const esAereo = sol.medio_transporte === 'AEREO';
-        const esBus = sol.medio_transporte === 'AUTOBUS' || sol.medio_transporte === 'Autobus';
-        drawSubRow('Aereo', esAereo ? sol.monto_pasajes : 0);
-        drawSubRow('Terrestre', esBus ? sol.monto_pasajes : 0);
-        drawSubRow('Vehiculo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
 
-        drawCell(30, gy, 50, rowH*3, 'Alimentos', null, '#000', 'Helvetica-Bold', 8, 'center');
-        drawSubRow('Almuerzo', 0);
-        drawSubRow('Comida', sol.monto_alimentos);
-        drawSubRow('Cena', 0);
-
-        drawCell(30, gy, 50, rowH, 'Comunicacion', null, '#000', 'Helvetica-Bold', 7, 'center');
-        drawSubRow('Tarjeta', 0);
-        
-        drawCell(30, gy, colMain, rowH, 'Otros', null, '#000', 'Helvetica-Bold', 8, 'left');
-        rx = 30 + colMain;
-        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
-        doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, sol.monto_otros > 0 ? formatMoney(sol.monto_otros) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
-
-        drawCell(30, gy, colMain, rowH, 'Especifique', null, '#000', 'Helvetica', 8, 'left');
-        rx = 30 + colMain;
-        for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, '', BG_VERDE_CLARO); rx += colDay; }
-        doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
-
-        doc.lineWidth(2);
-        let anchoMerge = colMain + (colDay*7);
-        drawCell(30, gy, anchoMerge, 18, 'TOTAL', null, '#000', 'Helvetica-Bold', 9, 'left');
-        drawCell(30+colMain, gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*2), gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*4), gy, colDay*3, 18, '');
-        drawCell(30+anchoMerge, gy, colTotal, 18, formatMoney(sol.total_solicitado), null, '#000', 'Helvetica-Bold', 9, 'right');
-        doc.lineWidth(1);
-        gy += 20;
-
-        doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o despues de impresion).', 30, gy);
-        doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aqui!', 200, gy);
-        gy += 12;
-        drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
-        gy += 35; 
-
-        const wSBot = 180, gapBot = 60;
-        const startXBot = (doc.page.width - ((wSBot * 2) + gapBot)) / 2;
-        const xOtor = startXBot;
-        const xReci = startXBot + wSBot + gapBot;
-
-        doc.font('Helvetica').fontSize(9).fillColor('#000').text('Otorgo', xOtor, gy, { width: wSBot, align: 'center' });
-        doc.text('Recibio', xReci, gy, { width: wSBot, align: 'center' });
-
-        const imgHeightBot = 30; 
-        if (sol.autorizador_firma) {
-            const pathFirmaAut = path.join(__dirname, '../', sol.autorizador_firma);
-            if (fs.existsSync(pathFirmaAut)) try { doc.image(pathFirmaAut, xOtor + 40, gy + 15, { width: 100, height: imgHeightBot }); } catch (e) {}
-        }
-        if (['RECIBIDO', 'COMPROBADO'].includes(sol.estatus)) {
-            if (sol.solicitante_firma) {
-                const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
-                if (fs.existsSync(pathFirmaSol)) try { doc.image(pathFirmaSol, xReci + 40, gy + 15, { width: 100, height: imgHeightBot }); } catch (e) {}
+            // Generar fechas del viaje para columnas Lun-Dom
+            const fechasSol = [];
+            const dIni = new Date(sol.fecha_salida);
+            const dFin = new Date(sol.fecha_regreso);
+            for (let d = new Date(dIni); d <= dFin; d.setDate(d.getDate() + 1)) {
+                fechasSol.push(new Date(d).toISOString().split('T')[0]);
             }
-        }
+            
+            // Función para obtener monto de una categoría en un día
+            const getMonto = (cat) => fechasSol.reduce((s, f) => s + ((desgloseMap[f] || {})[cat] || 0), 0);
+            const getMontoFecha = (f, cat) => (desgloseMap[f] || {})[cat] || 0;
 
-        const yLineaFirma = gy + 50; 
-        doc.moveTo(xOtor, yLineaFirma).lineTo(xOtor + wSBot, yLineaFirma).stroke();
-        doc.moveTo(xReci, yLineaFirma).lineTo(xReci + wSBot, yLineaFirma).stroke();
+            // Hospedaje
+            drawCell(30, gy, colMain, rowH, 'Hospedaje', null, '#000', 'Helvetica-Bold', 8, 'left');
+            rx = 30 + colMain;
+            for(let i=0; i<7; i++) {
+                const diaLabel = dias[i].toLowerCase();
+                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
+                const val = fechaDia ? getMontoFecha(fechaDia, 'hospedaje') : 0;
+                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right');
+                rx += colDay;
+            }
+            const totalHosp = getMonto('hospedaje') || sol.monto_hospedaje || 0;
+            doc.lineWidth(2);
+            drawCell(rx, gy, colTotal, rowH, totalHosp > 0 ? formatMoney(totalHosp) : '', null, '#000', 'Helvetica', 8, 'right');
+            doc.lineWidth(1);
+            gy += rowH;
 
-        const yTexto = yLineaFirma + 5;
-        const textoRecibio = ['RECIBIDO', 'COMPROBADO'].includes(sol.estatus) ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCION';
+            drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
+            const drawSubRow = (label, catKey, montoFallback = 0) => {
+                drawCell(80, gy, colSub, rowH, label, null, '#000', 'Helvetica', 8, 'left');
+                rx = 30 + colMain;
+                let totalCat = 0;
+                for(let i=0; i<7; i++) {
+                    const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
+                    const val = fechaDia && catKey ? getMontoFecha(fechaDia, catKey) : 0;
+                    totalCat += val;
+                    drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right');
+                    rx += colDay;
+                }
+                const total = totalCat > 0 ? totalCat : montoFallback;
+                doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, total > 0 ? formatMoney(total) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1);
+                gy += rowH;
+            };
 
-        doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL).text(sol.autorizador_nombre?.toUpperCase() || 'PENDIENTE DE AUTORIZAR', xOtor, yTexto, { width: wSBot, align: 'center' });
-        doc.text(textoRecibio, xReci, yTexto, { width: wSBot, align: 'center' });
-        
-        const yPuesto = yTexto + 10;
-        doc.font('Helvetica-BoldOblique').fillColor('#000').text(sol.autorizador_puesto || 'D.H.O / FINANZAS', xOtor, yPuesto, { width: wSBot, align: 'center' });
-        doc.text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, xReci, yPuesto, { width: wSBot, align: 'center' });
-        
-        const yEmpresa = yPuesto + 10;
-        doc.font('Helvetica').text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xOtor, yEmpresa, { width: wSBot, align: 'center' });
-        doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', xReci, yEmpresa, { width: wSBot, align: 'center' });
+            drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
+            drawSubRow('Aereo', 'aereo');
+            drawSubRow('Terrestre', 'terrestre');
+            drawSubRow('Vehiculo', 'vehiculo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
 
-        doc.end();
+            drawCell(30, gy, 50, rowH*3, 'Alimentos', null, '#000', 'Helvetica-Bold', 8, 'center');
+            drawSubRow('Almuerzo', 'almuerzo');
+            drawSubRow('Comida', 'comida', sol.monto_alimentos);
+            drawSubRow('Cena', 'cena');
+
+            drawCell(30, gy, 50, rowH, 'Comunicacion', null, '#000', 'Helvetica-Bold', 7, 'center');
+            drawSubRow('Tarjeta', 'comunicacion');
+            
+            drawCell(30, gy, colMain, rowH, 'Otros', null, '#000', 'Helvetica-Bold', 8, 'left');
+            rx = 30 + colMain;
+            const totalOtros = getMonto('otros') || sol.monto_otros || 0;
+            for(let i=0; i<7; i++) {
+                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
+                const val = fechaDia ? getMontoFecha(fechaDia, 'otros') : 0;
+                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right'); rx += colDay;
+            }
+            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, totalOtros > 0 ? formatMoney(totalOtros) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
+
+            drawCell(30, gy, colMain, rowH, 'Especifique', null, '#000', 'Helvetica', 8, 'left');
+            rx = 30 + colMain;
+            const totalEsp = getMonto('especifique') || 0;
+            for(let i=0; i<7; i++) {
+                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
+                const val = fechaDia ? getMontoFecha(fechaDia, 'especifique') : 0;
+                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right'); rx += colDay;
+            }
+            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, totalEsp > 0 ? formatMoney(totalEsp) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
+
+            doc.lineWidth(2);
+            let anchoMerge = colMain + (colDay*7);
+            drawCell(30, gy, anchoMerge, 18, 'TOTAL', null, '#000', 'Helvetica-Bold', 9, 'left');
+            drawCell(30+colMain, gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*2), gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*4), gy, colDay*3, 18, '');
+            drawCell(30+anchoMerge, gy, colTotal, 18, formatMoney(sol.total_solicitado), null, '#000', 'Helvetica-Bold', 9, 'right');
+            doc.lineWidth(1);
+            gy += 20;
+
+            doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o despues de impresion).', 30, gy);
+            doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aqui!', 200, gy);
+            gy += 12;
+            drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
+            gy += 35; 
+
+            // ── FIRMAS INFERIORES: D.H.O. | Tesorería | Recibió ──────────────
+            const wF3 = 150, gapF3 = 18;
+            const totalW3 = wF3*3 + gapF3*2;
+            const xF3A = (doc.page.width - totalW3) / 2; // DHO
+            const xF3B = xF3A + wF3 + gapF3;              // Tesorería  
+            const xF3C = xF3B + wF3 + gapF3;              // Recibió
+
+            doc.font('Helvetica').fontSize(9).fillColor('#000')
+               .text('Otorgó (D.H.O.)', xF3A, gy, { width: wF3, align: 'center' })
+               .text('Quien Paga (Tesorería)', xF3B, gy, { width: wF3, align: 'center' })
+               .text('Recibió', xF3C, gy, { width: wF3, align: 'center' });
+
+            cargarFirmaViatic(sol.dho_firma, xF3A + 25, gy + 12, 100, 28);
+
+            // Firma de tesorería: si está pagado se muestra la firma del autorizador
+            if (['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
+                cargarFirmaViatic(sol.autorizador_firma, xF3B + 25, gy + 12, 100, 28);
+            }
+
+            // Firma de recepción del empleado
+            if (['RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
+                cargarFirmaViatic(sol.solicitante_firma, xF3C + 25, gy + 12, 100, 28);
+            }
+
+            const yLineaFirma = gy + 50;
+            [xF3A, xF3B, xF3C].forEach(x => doc.moveTo(x, yLineaFirma).lineTo(x + wF3, yLineaFirma).stroke());
+
+            const yTexto = yLineaFirma + 4;
+            const textoRecibio = ['RECIBIDO','COMPROBADO'].includes(sol.estatus)
+                ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
+
+            doc.font('Helvetica').fontSize(7).fillColor(COLOR_TEXTO_AZUL)
+               .text(sol.dho_nombre?.toUpperCase() || 'PENDIENTE D.H.O.', xF3A, yTexto, { width: wF3, align: 'center' })
+               .text(['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus) ? (sol.autorizador_nombre?.toUpperCase() || '---') : 'PENDIENTE TESORERÍA', xF3B, yTexto, { width: wF3, align: 'center' })
+               .text(textoRecibio, xF3C, yTexto, { width: wF3, align: 'center' });
+
+            const yPuesto = yTexto + 9;
+            doc.font('Helvetica-BoldOblique').fillColor('#000').fontSize(7)
+               .text(sol.dho_puesto || 'D.H.O / FINANZAS', xF3A, yPuesto, { width: wF3, align: 'center' })
+               .text(sol.autorizador_puesto || 'Tesorería', xF3B, yPuesto, { width: wF3, align: 'center' })
+               .text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, xF3C, yPuesto, { width: wF3, align: 'center' });
+
+            const yEmpresa = yPuesto + 9;
+            doc.font('Helvetica').fontSize(7)
+               .text(sol.dho_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3A, yEmpresa, { width: wF3, align: 'center' })
+               .text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3B, yEmpresa, { width: wF3, align: 'center' })
+               .text(sol.solicitante_empresa || '', xF3C, yEmpresa, { width: wF3, align: 'center' });
+
+            doc.end();
+        });
     });
 });
 

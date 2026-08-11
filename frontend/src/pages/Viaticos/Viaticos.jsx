@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import './Viaticos.css';
 
 const AREAS = ['NORMATIVA', 'OPERATIVA', 'ADMINISTRATIVA'];
@@ -39,6 +40,10 @@ const partidasVacias = () => Array.from({ length: 8 }, () => ({
 
 function Viaticos() {
   const [tabActiva, setTabActiva] = useState('NUEVA');
+  const [solicitudesPendientesJefe, setSolicitudesPendientesJefe] = useState([]);
+  const [cargandoJefe, setCargandoJefe] = useState(false);
+  const [desgloseGrid, setDesgloseGrid] = useState({}); // { 'fecha_categoria': monto }
+  const [fechasDesglose, setFechasDesglose] = useState([]); // array de fechas del viaje
   const [misSolicitudes, setMisSolicitudes] = useState([]);
   const [cargandoSolicitudes, setCargandoSolicitudes] = useState(false);
   const fileInputRefs = useRef({});
@@ -278,6 +283,15 @@ function Viaticos() {
       const regreso = new Date(formData.fecha_regreso);
       const dias = Math.ceil((regreso.getTime() - salida.getTime()) / (1000 * 3600 * 24)) + 1;
       setFormData(prev => ({ ...prev, dias_comision: dias > 0 ? dias : 0 }));
+      // Generar array de fechas para el desglose
+      const fechas = [];
+      for (let i = 0; i < dias; i++) {
+        const f = new Date(salida);
+        f.setDate(f.getDate() + i);
+        fechas.push(f.toISOString().split('T')[0]);
+      }
+      setFechasDesglose(fechas);
+      setDesgloseGrid({});
     }
   }, [formData.fecha_salida, formData.fecha_regreso]);
 
@@ -313,6 +327,17 @@ function Viaticos() {
     setFormData(prev => ({ ...prev, total_solicitado: total }));
   }, [formData.monto_alimentos, formData.monto_hospedaje, formData.monto_pasajes, formData.monto_taxis, formData.monto_gasolina, formData.monto_otros]);
 
+  const fetchSolicitudesJefe = async () => {
+    setCargandoJefe(true);
+    try {
+      const res = await fetch('/api/viaticos/pendientes-jefe', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setSolicitudesPendientesJefe(data.data);
+    } catch {} finally { setCargandoJefe(false); }
+  };
+
   const fetchMisSolicitudes = async () => {
     setCargandoSolicitudes(true);
     try {
@@ -322,14 +347,26 @@ function Viaticos() {
     } catch (error) { console.error(error); } finally { setCargandoSolicitudes(false); }
   };
 
-  useEffect(() => { if (tabActiva === 'MIS_SOLICITUDES') fetchMisSolicitudes(); }, [tabActiva]);
+  useEffect(() => {
+    if (tabActiva === 'MIS_SOLICITUDES') fetchMisSolicitudes();
+    if (tabActiva === 'JEFE') fetchSolicitudesJefe();
+  }, [tabActiva]);
+  useAutoRefresh(fetchMisSolicitudes, 20000, tabActiva === 'MIS_SOLICITUDES');
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.total_solicitado <= 0) return alert("El monto total debe ser mayor a cero.");
-    const payloadFinal = { ...formData };
+    // Construir desglose_dias desde el grid
+    const desglose_dias = Object.entries(desgloseGrid)
+      .filter(([, monto]) => parseFloat(monto) > 0)
+      .map(([key, monto]) => {
+        const [fecha, ...catParts] = key.split('_');
+        const categoria = catParts.join('_');
+        return { fecha, categoria, monto: parseFloat(monto) };
+      });
+    const payloadFinal = { ...formData, desglose_dias };
     if (payloadFinal.destino === 'Otro') {
       if (!destinoOtro.trim()) return alert("Por favor especifique el destino.");
       payloadFinal.destino = destinoOtro;
@@ -353,6 +390,27 @@ function Viaticos() {
         setDestinoOtro('');
       } else alert("Hubo un error: " + data.message);
     } catch (error) { alert("Error de conexión al servidor."); } finally { setIsSubmitting(false); }
+  };
+
+  const handleAutorizarJefe = async (id, accion) => {
+    const comentario = accion === 'RECHAZAR' ? prompt('Motivo de rechazo:') : '';
+    if (accion === 'RECHAZAR' && !comentario) return;
+    try {
+      const url = accion === 'RECHAZAR' 
+        ? `/api/viaticos/${id}/estatus` 
+        : `/api/viaticos/${id}/autorizar-jefe`;
+      const body = accion === 'RECHAZAR' 
+        ? JSON.stringify({ estatus: 'RECHAZADO', comentario })
+        : JSON.stringify({ comentario });
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body
+      });
+      const data = await res.json();
+      if (data.success) { alert(data.message); fetchSolicitudesJefe(); }
+      else alert(data.message);
+    } catch { alert('Error de conexión.'); }
   };
 
   const handleConfirmarRecepcion = async (idSolicitud) => {
@@ -412,7 +470,10 @@ function Viaticos() {
 
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
         <button onClick={() => setTabActiva('NUEVA')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'NUEVA' ? '#10b981' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'NUEVA' ? '3px solid #10b981' : '3px solid transparent', paddingBottom: '8px' }}>Nueva Solicitud +</button>
-        <button onClick={() => setTabActiva('MIS_SOLICITUDES')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'MIS_SOLICITUDES' ? '#3b82f6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'MIS_SOLICITUDES' ? '3px solid #3b82f6' : '3px solid transparent', paddingBottom: '8px' }}>Historial / Mis Solicitudes</button>
+        <button onClick={() => setTabActiva('MIS_SOLICITUDES')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'MIS_SOLICITUDES' ? '#3b82f6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'MIS_SOLICITUDES' ? '3px solid #3b82f6' : '3px solid transparent', paddingBottom: '8px' }}>Mis Solicitudes</button>
+        <button onClick={() => setTabActiva('JEFE')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'JEFE' ? '#f59e0b' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'JEFE' ? '3px solid #f59e0b' : '3px solid transparent', paddingBottom: '8px' }}>
+          Para Aprobar {solicitudesPendientesJefe.length > 0 && <span style={{background:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'11px',marginLeft:'4px'}}>{solicitudesPendientesJefe.length}</span>}
+        </button>
       </div>
 
       {tabActiva === 'NUEVA' ? (
@@ -556,6 +617,64 @@ function Viaticos() {
                 </div>
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>Manifieste si requiere más recurso para su comisión, como peajes o representación.</span>
               </div>
+
+              {/* TABLA DESGLOSE POR DÍAS */}
+              {fechasDesglose.length > 0 && (
+                <div style={{ marginTop: '16px', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: '#f0fdf4' }}>
+                        <th style={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'left', fontWeight: '700', minWidth: '130px' }}>Concepto</th>
+                        {fechasDesglose.map(f => {
+                          const d = new Date(f + 'T00:00:00');
+                          const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+                          return (
+                            <th key={f} style={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'center', minWidth: '80px', fontWeight: '700' }}>
+                              {dias[d.getDay()]}<br/><span style={{fontWeight:'400',color:'#64748b'}}>{d.getDate()}</span>
+                            </th>
+                          );
+                        })}
+                        <th style={{ padding: '8px', border: '1px solid #e2e8f0', textAlign: 'center', fontWeight: '800', color: '#15803d' }}>TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[['hospedaje','Hospedaje'],['aereo','Aéreo'],['terrestre','Terrestre'],['vehiculo','Vehículo'],['almuerzo','Almuerzo'],['comida','Comida'],['cena','Cena'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
+                        const totalCat = fechasDesglose.reduce((s, f) => s + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0);
+                        return (
+                          <tr key={cat} style={{ background: totalCat > 0 ? '#f0fdf4' : 'white' }}>
+                            <td style={{ padding: '6px 8px', border: '1px solid #e2e8f0', fontWeight: '600' }}>{label}</td>
+                            {fechasDesglose.map(f => (
+                              <td key={f} style={{ padding: '4px', border: '1px solid #e2e8f0' }}>
+                                <input
+                                  type="number" min="0" step="0.01"
+                                  value={desgloseGrid[`${f}_${cat}`] || ''}
+                                  onChange={e => setDesgloseGrid(prev => ({ ...prev, [`${f}_${cat}`]: e.target.value }))}
+                                  style={{ width: '100%', border: 'none', textAlign: 'right', fontSize: '12px', background: 'transparent', outline: 'none' }}
+                                  placeholder="0"
+                                />
+                              </td>
+                            ))}
+                            <td style={{ padding: '6px 8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: '800', color: '#15803d' }}>
+                              {totalCat > 0 ? `$${totalCat.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ background: '#f0fdf4', fontWeight: '800' }}>
+                        <td style={{ padding: '8px', border: '2px solid #10d440' }}>TOTAL</td>
+                        {fechasDesglose.map(f => {
+                          const totalDia = [['hospedaje'],['aereo'],['terrestre'],['vehiculo'],['almuerzo'],['comida'],['cena'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
+                          return <td key={f} style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>{totalDia > 0 ? `$${totalDia.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}</td>;
+                        })}
+                        <td style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>
+                          ${Object.values(desgloseGrid).reduce((s, v) => s + (parseFloat(v) || 0), 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>* El desglose por días queda registrado en el sistema y aparece en el PDF.</p>
+                </div>
+              )}
               <div className="form-field mt-16">
                 <label>Observaciones de sus viáticos</label>
                 <textarea name="observaciones" rows="2" value={formData.observaciones} onChange={handleChange} placeholder="Anotaciones adicionales para tesorería o D.H.O."></textarea>
@@ -581,6 +700,46 @@ function Viaticos() {
             </div>
           </div>
         </form>
+      ) : tabActiva === 'JEFE' ? (
+        <div style={{ display: 'grid', gap: '20px' }}>
+          <div style={{ padding: '16px 20px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '12px', fontSize: '13px', color: '#92400e' }}>
+            <strong>Solicitudes pendientes de tu autorización como Jefe Inmediato.</strong> Solo ves las solicitudes de personas que te tienen como jefe directo.
+          </div>
+          {cargandoJefe ? (
+            <p style={{ color: '#64748b', textAlign: 'center', padding: '40px' }}>Cargando...</p>
+          ) : solicitudesPendientesJefe.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+              <p style={{ fontSize: '16px', fontWeight: '600' }}>Sin solicitudes pendientes</p>
+              <p style={{ fontSize: '13px' }}>Cuando un colaborador tuyo solicite viáticos aparecerán aquí.</p>
+            </div>
+          ) : solicitudesPendientesJefe.map(sol => (
+            <div key={sol.id} className="premium-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>{sol.nombre_solicitante}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>{sol.puesto_solicitante} · {sol.departamento}</div>
+                </div>
+                <span style={{ background: '#fef3c7', color: '#92400e', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700' }}>PENDIENTE TU AUTORIZACIÓN</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
+                <div><span style={{color:'#64748b'}}>Destino:</span> <strong>{sol.destino}</strong></div>
+                <div><span style={{color:'#64748b'}}>Fechas:</span> <strong>{sol.fecha_salida} → {sol.fecha_regreso}</strong></div>
+                <div><span style={{color:'#64748b'}}>Total:</span> <strong style={{color:'#10d440'}}>${parseFloat(sol.total_solicitado).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>
+                <div><span style={{color:'#64748b'}}>Motivo:</span> <strong>{sol.motivo}</strong></div>
+                <div><span style={{color:'#64748b'}}>Días:</span> <strong>{sol.dias_comision}</strong></div>
+                <div><span style={{color:'#64748b'}}>Transporte:</span> <strong>{sol.medio_transporte}</strong></div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button onClick={() => handleAutorizarJefe(sol.id, 'RECHAZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                  Rechazar
+                </button>
+                <button onClick={() => handleAutorizarJefe(sol.id, 'AUTORIZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#10d440', color: 'white', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                  ✓ Autorizar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={{ display: 'grid', gap: '24px' }}>
           {cargandoSolicitudes ? <p>Cargando su historial...</p> : misSolicitudes.length === 0 ? (
