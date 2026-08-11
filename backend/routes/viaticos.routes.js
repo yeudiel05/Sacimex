@@ -2,12 +2,28 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
-const { autorizar } = require('../middlewares/autorizar');
-const { puedeAutorizarViaticos } = require('../utils/motorAutorizacion');
+const { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel } = require('../utils/motorAutorizacion');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
+
+// ── NODEMAILER (reutiliza la misma config que solicitudes) ─────────────────────
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: 465, secure: true,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+});
+const enviarCorreo = async (to, subject, html) => {
+    if (!to) return;
+    try { await transporter.sendMail({ from: `"Sacimex Viáticos" <${process.env.SMTP_USER}>`, to, subject, html }); }
+    catch (e) { console.error('[Viáticos] Error correo:', e.message); }
+};
+
+// ── Niveles fijos de la cadena de viáticos ────────────────────────────────────
+//   0 = Jefe Inmediato   1 = D.H.O.   2 = Tesorería (pago)
+const NIVELES_VIATICOS = 3; // cuántas firmas se necesitan antes de PAGADO
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) { cb(null, path.join(__dirname, '../uploads')); },
@@ -34,20 +50,23 @@ router.post('/', verificarToken, (req, res) => {
         puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo,
         fecha_salida, fecha_regreso, dias_comision, medio_transporte,
         monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado,
-        desglose_dias // array: [{fecha, categoria, subcategoria, monto}]
+        desglose_dias
     } = req.body;
-    const num = (valor) => parseFloat(valor) || 0;
+    const num = (v) => parseFloat(v) || 0;
 
     const query = `INSERT INTO solicitudes_viaticos 
         (id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo, 
          fecha_salida, fecha_regreso, dias_comision, medio_transporte, 
-         monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+         monto_alimentos, monto_hospedaje, monto_pasajes, monto_taxis, monto_gasolina, monto_otros, total_solicitado,
+         nivel_actual, niveles_requeridos, estatus) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'PENDIENTE')`;
 
     const values = [
         id_usuario, puesto, jefe_inmediato, departamento, ubicacion, origen, destino, motivo,
         fecha_salida, fecha_regreso, parseInt(dias_comision) || 0, medio_transporte,
-        num(monto_alimentos), num(monto_hospedaje), num(monto_pasajes), num(monto_taxis), num(monto_gasolina), num(monto_otros), num(total_solicitado)
+        num(monto_alimentos), num(monto_hospedaje), num(monto_pasajes), num(monto_taxis),
+        num(monto_gasolina), num(monto_otros), num(total_solicitado),
+        NIVELES_VIATICOS
     ];
 
     db.query(query, values, (err, result) => {
@@ -55,7 +74,6 @@ router.post('/', verificarToken, (req, res) => {
 
         const id_solicitud = result.insertId;
 
-        // Guardar desglose por días si viene en el body
         if (desglose_dias && Array.isArray(desglose_dias) && desglose_dias.length > 0) {
             const filas = desglose_dias
                 .filter(d => d.monto && parseFloat(d.monto) > 0)
@@ -71,6 +89,10 @@ router.post('/', verificarToken, (req, res) => {
 
         registrarBitacora(id_usuario, 'SOLICITUD_VIATICOS', `Solicitó viáticos por $${num(total_solicitado).toFixed(2)} para ${destino}`, req);
         res.json({ success: true, message: 'Solicitud enviada correctamente', id: id_solicitud });
+
+        // Notificar al nivel 0 (Jefe Inmediato) por correo
+        // Nivel 0 de viáticos no tiene rol fijo, la notificación se omite
+        // porque el jefe se identifica por nombre, no por rol en la BD.
     });
 });
 
@@ -92,123 +114,216 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
     });
 });
 
-// GET /todas — para DHO: ve todas las pendientes de su autorización
-// GET /pendientes-jefe — para cualquier usuario: ve las de sus subordinados
-router.get('/pendientes-jefe', verificarToken, (req, res) => {
-    // El jefe ve solicitudes PENDIENTES donde él es el jefe_inmediato según el sistema
-    db.query(
-        `SELECT sv.*, p.nombre_razon_social AS nombre_solicitante, e.puesto AS puesto_solicitante
-         FROM solicitudes_viaticos sv
-         JOIN usuarios u ON sv.id_usuario = u.id
-         JOIN empleados e ON u.id_empleado = e.id_persona
-         JOIN personas p ON e.id_persona = p.id
-         JOIN empleados ej ON ej.id_persona = (SELECT id_empleado FROM usuarios WHERE id = ?)
-         WHERE sv.estatus = 'PENDIENTE'
-         AND UPPER(TRIM(e.jefe_inmediato)) = UPPER(TRIM((SELECT nombre_razon_social FROM personas WHERE id = ej.id_persona)))
-         ORDER BY sv.fecha_solicitud ASC`,
-        [req.usuario.id],
-        (err, rows) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            res.json({ success: true, data: rows });
-        }
-    );
-});
+// ── GET /pendientes — solicitudes que le toca firmar al usuario actual ────────
+// Reemplaza /pendientes-jefe, /todas y la lógica manual de roles.
+router.get('/pendientes', verificarToken, async (req, res) => {
+    const sql = `
+        SELECT sv.*,
+               u.username AS solicitante_usuario,
+               COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre_completo,
+               e.puesto AS solicitante_puesto
+        FROM solicitudes_viaticos sv
+        JOIN usuarios u ON sv.id_usuario = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p ON e.id_persona = p.id
+        WHERE sv.estatus NOT IN ('PAGADO', 'RECIBIDO', 'COMPROBADO', 'RECHAZADO')
+        ORDER BY sv.fecha_solicitud ASC`;
 
-router.get('/todas', verificarToken, (req, res) => {
-    if (!puedeAutorizarViaticos(req.usuario)) return res.status(403).json({ success: false });
-    db.query('SELECT sv.*, u.username as solicitante_usuario FROM solicitudes_viaticos sv JOIN usuarios u ON sv.id_usuario = u.id ORDER BY sv.fecha_solicitud DESC', (err, results) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, data: results });
+    db.query(sql, async (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        try {
+            const filtradas = [];
+            for (const sol of rows) {
+                // El propio solicitante siempre ve su solicitud
+                if (sol.id_usuario === req.usuario.id) {
+                    sol.me_toca_firmar = false;
+                    filtradas.push(sol);
+                    continue;
+                }
+                const resultado = await puedeFirmarAsync({ usuario: req.usuario, nivel: sol.nivel_actual, tipoFlujo: 'viaticos' });
+                // Nivel 0 = Jefe Inmediato: el motor devuelve esJefeNivel=true
+                // pero aquí validamos que el nombre del usuario coincida con jefe_inmediato
+                if (resultado.esJefeNivel) {
+                    const jefeNombrado = (sol.jefe_inmediato || '').trim().toUpperCase();
+                    const nombreUsuario = (req.usuario.nombre_completo || req.usuario.username || '').trim().toUpperCase();
+                    if (!jefeNombrado || !nombreUsuario || jefeNombrado !== nombreUsuario) {
+                        continue; // No es el jefe correcto de esta solicitud
+                    }
+                    sol.me_toca_firmar = true;
+                    filtradas.push(sol);
+                    continue;
+                }
+                if (resultado.puede) {
+                    sol.me_toca_firmar = true;
+                    filtradas.push(sol);
+                }
+            }
+            res.json({ success: true, data: filtradas });
+        } catch (e) {
+            res.status(500).json({ success: false, message: 'Error validando autorización' });
+        }
     });
 });
 
-// PUT /:id/autorizar-jefe — Paso 1: el jefe inmediato autoriza
-router.put('/:id/autorizar-jefe', verificarToken, (req, res) => {
-    const { comentario } = req.body;
-    const id = req.params.id;
-
-    // Verificar que la solicitud pertenece a un subordinado del usuario
+// ── GET /todas — historial completo (solo ADMIN) ───────────────────────────────
+router.get('/todas', verificarToken, (req, res) => {
+    if (req.usuario.rol !== 'ADMIN') return res.status(403).json({ success: false });
     db.query(
-        `SELECT sv.id, sv.estatus, p.nombre_razon_social AS nombre_solicitante
+        `SELECT sv.*,
+                u.username AS solicitante_usuario,
+                COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre_completo,
+                e.puesto AS solicitante_puesto
          FROM solicitudes_viaticos sv
          JOIN usuarios u ON sv.id_usuario = u.id
-         JOIN empleados e ON u.id_empleado = e.id_persona
-         JOIN personas p ON e.id_persona = p.id
-         WHERE sv.id = ? AND sv.estatus = 'PENDIENTE'`,
-        [id],
-        (err, rows) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada o ya fue procesada.' });
-
-            db.query(
-                `UPDATE solicitudes_viaticos 
-                 SET estatus = 'AUTORIZADO_JEFE', id_autorizador_jefe = ?, fecha_auth_jefe = NOW(), comentario_jefe = ?
-                 WHERE id = ?`,
-                [req.usuario.id, comentario || null, id],
-                (errU) => {
-                    if (errU) return res.status(500).json({ success: false, message: errU.message });
-                    registrarBitacora(req.usuario.id, 'VIATICO_AUTORIZADO', `Autorizó como jefe inmediato el viático #${id}`, req);
-                    res.json({ success: true, message: 'Viático autorizado por jefe inmediato. Pendiente de aprobación D.H.O.' });
-                }
-            );
+         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+         LEFT JOIN personas p ON e.id_persona = p.id
+         ORDER BY sv.fecha_solicitud DESC`,
+        (err, results) => {
+            if (err) return res.status(500).json({ success: false });
+            res.json({ success: true, data: results });
         }
     );
 });
 
-// PUT /:id/autorizar-dho — Paso 2: D.H.O. da el visto bueno final
-router.put('/:id/autorizar-dho', verificarToken, (req, res) => {
-    if (!puedeAutorizarViaticos(req.usuario)) {
-        return res.status(403).json({ success: false, message: 'Solo D.H.O. puede otorgar la autorización final.' });
-    }
+// ── POST /autorizar/:id — firma del nivel actual (Jefe → D.H.O. → Tesorería) ─
+router.post('/autorizar/:id', verificarToken, (req, res) => {
+    const { id } = req.params;
     const { comentario } = req.body;
-    const id = req.params.id;
 
     db.query(
-        `SELECT id, estatus FROM solicitudes_viaticos WHERE id = ? AND estatus = 'AUTORIZADO_JEFE'`,
+        'SELECT id, nivel_actual, niveles_requeridos, estatus, total_solicitado, destino FROM solicitudes_viaticos WHERE id = ?',
         [id],
         (err, rows) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
-            if (rows.length === 0) return res.status(404).json({ success: false, message: 'Solicitud no encontrada o no ha sido autorizada por el jefe.' });
+            if (!rows.length) return res.status(404).json({ success: false, message: 'Solicitud no encontrada.' });
+            const sol = rows[0];
 
-            db.query(
-                `UPDATE solicitudes_viaticos 
-                 SET estatus = 'AUTORIZADO_DHO', id_autorizador = ?, id_autorizador_dho = ?, fecha_auth_dho = NOW(), comentario_dho = ?
-                 WHERE id = ?`,
-                [req.usuario.id, req.usuario.id, comentario || null, id],
-                (errU) => {
-                    if (errU) return res.status(500).json({ success: false, message: errU.message });
-                    registrarBitacora(req.usuario.id, 'VIATICO_AUTORIZADO', `D.H.O. otorgó autorización final al viático #${id}`, req);
-                    res.json({ success: true, message: 'Viático autorizado por D.H.O. Listo para pago por Tesorería.' });
+            if (['PAGADO', 'RECIBIDO', 'COMPROBADO', 'RECHAZADO'].includes(sol.estatus)) {
+                return res.status(400).json({ success: false, message: 'Esta solicitud ya fue procesada.' });
+            }
+
+            puedeFirmar({ usuario: req.usuario, nivel: sol.nivel_actual, tipoFlujo: 'viaticos' }, (errMotor, resultado) => {
+                if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización.' });
+                if (!resultado.puede) return res.status(403).json({ success: false, message: `No tienes permiso para firmar el nivel actual (${sol.nivel_actual}).` });
+
+                const etiqueta = (resultado.etiqueta || `NIVEL ${sol.nivel_actual}`).toUpperCase();
+                const nuevoNivel = sol.nivel_actual + 1;
+
+                // Cuando se cubren todos los niveles → PAGADO (Tesorería es el último nivel)
+                let nuevoEstatus;
+                if (nuevoNivel >= sol.niveles_requeridos) {
+                    nuevoEstatus = 'PAGADO';
+                } else {
+                    nuevoEstatus = `AUTORIZADO_N${sol.nivel_actual}`; // AUTORIZADO_N0, AUTORIZADO_N1 …
                 }
-            );
+
+                db.beginTransaction(errTx => {
+                    if (errTx) return res.status(500).json({ success: false });
+
+                    // Registrar firma en historial compartido con solicitudes de recursos
+                    db.query(
+                        `INSERT INTO historial_firmas_viaticos
+                            (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
+                         VALUES (?, ?, ?, 'FIRMADO', 'APROBADO', ?)`,
+                        [id, req.usuario.id, etiqueta, comentario || 'Aprobado'],
+                        (errF) => {
+                            if (errF) return db.rollback(() => res.status(500).json({ success: false, message: errF.message }));
+
+                            db.query(
+                                'UPDATE solicitudes_viaticos SET estatus = ?, nivel_actual = ? WHERE id = ?',
+                                [nuevoEstatus, nuevoNivel, id],
+                                (errU) => {
+                                    if (errU) return db.rollback(() => res.status(500).json({ success: false, message: errU.message }));
+
+                                    db.commit(async errC => {
+                                        if (errC) return db.rollback(() => res.status(500).json({ success: false }));
+
+                                        registrarBitacora(req.usuario.id, 'VIATICO_AUTORIZADO',
+                                            `Firmó etapa ${etiqueta} del viático #${id} → ${nuevoEstatus}`, req);
+
+                                        const msgMap = {
+                                            AUTORIZADO_N0: 'Autorizado por Jefe Inmediato. Pendiente revisión D.H.O.',
+                                            AUTORIZADO_N1: 'Autorizado por D.H.O. Pendiente pago de Tesorería.',
+                                            PAGADO:        'Pago registrado por Tesorería. El empleado debe confirmar recepción.'
+                                        };
+                                        res.json({ success: true, nuevo_estatus: nuevoEstatus, message: msgMap[nuevoEstatus] || 'Firmado correctamente.' });
+
+                                        // Notificar al siguiente nivel si no es el último
+                                        if (nuevoEstatus !== 'PAGADO') {
+                                            obtenerRolDeNivel(nuevoNivel, req.usuario.id_departamento, async (errRol, rol) => {
+                                                if (errRol || !rol) return;
+                                                db.query(
+                                                    `SELECT p.email_contacto FROM usuarios u
+                                                     LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+                                                     LEFT JOIN personas p ON e.id_persona = p.id
+                                                     WHERE u.rol = ? AND u.estatus_activo = 1 LIMIT 1`,
+                                                    [rol],
+                                                    (errM, mRows) => {
+                                                        if (errM || !mRows[0]?.email_contacto) return;
+                                                        enviarCorreo(mRows[0].email_contacto,
+                                                            `Viático #${id} pendiente de tu autorización`,
+                                                            `<p>El viático #${id} a <strong>${sol.destino}</strong> por <strong>$${parseFloat(sol.total_solicitado).toFixed(2)}</strong> llegó a tu nivel para aprobación. Ingresa al sistema para firmarlo.</p>`
+                                                        );
+                                                    }
+                                                );
+                                            }, 'viaticos');
+                                        } else {
+                                            // Notificar al empleado que ya fue pagado
+                                            db.query(
+                                                `SELECT p.email_contacto FROM solicitudes_viaticos sv
+                                                 JOIN usuarios u ON sv.id_usuario = u.id
+                                                 LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+                                                 LEFT JOIN personas p ON e.id_persona = p.id
+                                                 WHERE sv.id = ? LIMIT 1`,
+                                                [id],
+                                                (errE, eRows) => {
+                                                    if (errE || !eRows[0]?.email_contacto) return;
+                                                    enviarCorreo(eRows[0].email_contacto,
+                                                        `Tu viático #${id} fue pagado — confirma recepción`,
+                                                        `<p>Tu viático a <strong>${sol.destino}</strong> ha sido procesado. Ingresa al sistema y sube tu comprobante bancario para confirmar que recibiste el dinero.</p>`
+                                                    );
+                                                }
+                                            );
+                                        }
+                                    });
+                                }
+                            );
+                        }
+                    );
+                });
+            });
         }
     );
 });
 
-// PUT /:id/estatus — Paso 3: Tesorería marca como PAGADO (backward compat)
-router.put('/:id/estatus', verificarToken, (req, res) => {
-    const { estatus } = req.body;
-    const id = req.params.id;
+// ── POST /rechazar/:id ────────────────────────────────────────────────────────
+router.post('/rechazar/:id', verificarToken, (req, res) => {
+    const { id } = req.params;
+    const { motivo } = req.body;
 
-    // Solo ADMIN y TESORERIA pueden marcar como PAGADO
-    if (estatus === 'PAGADO' && req.usuario.rol !== 'ADMIN' && req.usuario.rol !== 'TESORERIA') {
-        return res.status(403).json({ success: false, message: 'Solo Tesorería puede marcar como pagado.' });
-    }
-    // Solo DHO y ADMIN pueden cambiar otros estatus
-    if (estatus !== 'PAGADO' && !puedeAutorizarViaticos(req.usuario)) {
-        return res.status(403).json({ success: false, message: 'Permisos insuficientes.' });
-    }
+    db.query('SELECT nivel_actual FROM solicitudes_viaticos WHERE id = ?', [id], (err, rows) => {
+        if (err || !rows.length) return res.status(404).json({ success: false, message: 'No encontrada.' });
+        const sol = rows[0];
 
-    db.query(
-        'UPDATE solicitudes_viaticos SET estatus = ?, id_autorizador = ? WHERE id = ?',
-        [estatus, req.usuario.id, id],
-        (err, result) => {
-            if (err) return res.status(500).json({ success: false, message: err.message });
-            if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'No encontrado.' });
-            registrarBitacora(req.usuario.id, `VIATICO_${estatus}`, `Marcó viático #${id} como ${estatus}`, req);
-            res.json({ success: true, message: `Solicitud actualizada a ${estatus}` });
-        }
-    );
+        puedeFirmar({ usuario: req.usuario, nivel: sol.nivel_actual, tipoFlujo: 'viaticos' }, (errMotor, resultado) => {
+            if (errMotor) return res.status(500).json({ success: false });
+            if (!resultado.puede && req.usuario.rol !== 'ADMIN') {
+                return res.status(403).json({ success: false, message: 'No tienes permiso para rechazar en este nivel.' });
+            }
+            const etiqueta = (resultado.etiqueta || `NIVEL ${sol.nivel_actual}`).toUpperCase();
+            db.query(
+                `INSERT INTO historial_firmas_viaticos (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios)
+                 VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`,
+                [id, req.usuario.id, etiqueta, motivo || 'Rechazado'],
+                () => {
+                    db.query('UPDATE solicitudes_viaticos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
+                        registrarBitacora(req.usuario.id, 'VIATICO_RECHAZADO', `Rechazó viático #${id}. Motivo: ${motivo || 'No especificado'}`, req);
+                        res.json({ success: true, message: 'Solicitud rechazada.' });
+                    });
+                }
+            );
+        });
+    });
 });
 
 router.post('/:id/confirmar-recepcion', verificarToken, upload.single('comprobante_empleado'), (req, res) => {
@@ -276,7 +391,11 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
             }
             const urlArchivo = `uploads/${req.file.filename}`;
             db.query(
-                'UPDATE solicitudes_viaticos SET url_comprobante_gastos = ?, estatus = "COMPROBADO" WHERE id = ? AND id_usuario = ?',
+                // Solo avanza a COMPROBADO si venía de RECIBIDO; si ya está más adelante no lo retrocede.
+                `UPDATE solicitudes_viaticos
+                 SET url_comprobante_gastos = ?,
+                     estatus = IF(estatus = 'RECIBIDO', 'COMPROBADO', estatus)
+                 WHERE id = ? AND id_usuario = ?`,
                 [urlArchivo, req.params.id, req.usuario.id],
                 (errUpdate) => {
                     if (errUpdate) return res.status(500).json({ success: false });
@@ -305,8 +424,8 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
         (err, rows) => {
             if (err) return res.status(500).json({ success: false, message: 'Error BD.' });
             if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes acceso a esta solicitud.' });
-            if (!['RECIBIDO', 'COMPROBADO'].includes(rows[0].estatus)) {
-                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobacion en solicitudes RECIBIDAS.' });
+            if (!['AUTORIZADO_DHO', 'PAGADO', 'RECIBIDO', 'COMPROBADO'].includes(rows[0].estatus)) {
+                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobación en solicitudes autorizadas o con pago en proceso.' });
             }
 
             const totalComprobado = (partidas || []).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
@@ -624,41 +743,78 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 // C. PDF DEL OFICIO DE COMISION
 // ==============================================================================
 router.get('/:id/pdf', verificarToken, (req, res) => {
+    // Query principal: solo datos del solicitante (firmas de autorizadores vienen del historial)
     const query = `
         SELECT sv.*,
                p.nombre_razon_social  AS solicitante_nombre,
                e.puesto               AS solicitante_puesto,
                e.unidad_negocio       AS solicitante_unidad,
                e.empresa_maestra      AS solicitante_empresa,
-               u.ruta_firma_png       AS solicitante_firma,
-               p_jefe.nombre_razon_social AS jefe_nombre,
-               e_jefe.puesto              AS jefe_puesto,
-               e_jefe.empresa_maestra     AS jefe_empresa,
-               u_jefe.ruta_firma_png      AS jefe_firma,
-               p_dho.nombre_razon_social  AS dho_nombre,
-               e_dho.puesto               AS dho_puesto,
-               e_dho.empresa_maestra      AS dho_empresa,
-               u_dho.ruta_firma_png       AS dho_firma
+               u.ruta_firma_png       AS solicitante_firma
         FROM solicitudes_viaticos sv
-        LEFT JOIN usuarios u      ON sv.id_usuario = u.id
-        LEFT JOIN empleados e     ON u.id_empleado = e.id_persona
-        LEFT JOIN personas p      ON e.id_persona = p.id
-        LEFT JOIN usuarios u_jefe    ON sv.id_autorizador_jefe = u_jefe.id
-        LEFT JOIN empleados e_jefe   ON u_jefe.id_empleado = e_jefe.id_persona
-        LEFT JOIN personas p_jefe    ON e_jefe.id_persona = p_jefe.id
-        LEFT JOIN usuarios u_dho     ON sv.id_autorizador_dho = u_dho.id
-        LEFT JOIN empleados e_dho    ON u_dho.id_empleado = e_dho.id_persona
-        LEFT JOIN personas p_dho     ON e_dho.id_persona = p_dho.id
+        LEFT JOIN usuarios u  ON sv.id_usuario = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p  ON e.id_persona = p.id
         WHERE sv.id = ?
     `;
 
+    // Query historial: trae cada firma con nombre, puesto y ruta_firma_png
+    const queryHistorial = `
+        SELECT hfv.etapa_firma, hfv.accion,
+               u.ruta_firma_png,
+               COALESCE(p.nombre_razon_social, u.username) AS firmante_nombre,
+               e.puesto AS firmante_puesto,
+               e.empresa_maestra AS firmante_empresa
+        FROM historial_firmas_viaticos hfv
+        JOIN usuarios u ON hfv.id_usuario = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p ON e.id_persona = p.id
+        WHERE hfv.id_solicitud = ? AND hfv.accion = 'APROBADO'
+        ORDER BY hfv.fecha_firma ASC
+    `;
+
     db.query(query, [req.params.id], (err, results) => {
-        if (err || results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
-        
+        if (err) {
+            console.error('[PDF Viático] Error BD:', err.message);
+            return res.status(500).json({ success: false, message: 'Error al consultar la solicitud.' });
+        }
+        if (results.length === 0) return res.status(404).json({ success: false, message: 'No encontrado' });
+
         const sol = results[0];
 
-        // Segunda consulta para traer los gastos por día y armar el desgloseMap
-        db.query('SELECT * FROM viaticos_desglose_dias WHERE id_solicitud = ?', [req.params.id], (errD, desgloseRows) => {
+        db.query(queryHistorial, [req.params.id], (errH, firmas) => {
+            if (errH) firmas = [];
+
+            // Mapear firmas por etapa para acceso fácil en el PDF
+            const getFirma = (etiqueta) => firmas.find(f =>
+                (f.etapa_firma || '').toUpperCase().includes(etiqueta.toUpperCase())
+            ) || {};
+
+            // DEBUG temporal — quitar después de confirmar
+            console.log(`[PDF #${req.params.id}] Firmas del historial:`, firmas.map(f => ({
+                etapa: f.etapa_firma, nombre: f.firmante_nombre, ruta: f.ruta_firma_png
+            })));
+
+            const firmaJefe     = getFirma('JEFE');
+            const firmaDHO      = getFirma('D.H.O');
+            const firmaTesorero = getFirma('TESOR');
+
+            // Enriquecer sol con datos del historial para compatibilidad con el resto del código
+            sol.jefe_nombre      = firmaJefe.firmante_nombre     || sol.jefe_inmediato || '';
+            sol.jefe_puesto      = firmaJefe.firmante_puesto     || 'Jefe Inmediato';
+            sol.jefe_empresa     = firmaJefe.firmante_empresa    || '';
+            sol.jefe_firma       = firmaJefe.ruta_firma_png      || null;
+            sol.dho_nombre       = firmaDHO.firmante_nombre      || '';
+            sol.dho_puesto       = firmaDHO.firmante_puesto      || 'D.H.O / FINANZAS';
+            sol.dho_empresa      = firmaDHO.firmante_empresa     || '';
+            sol.dho_firma        = firmaDHO.ruta_firma_png       || null;
+            sol.tesorero_nombre  = firmaTesorero.firmante_nombre || '';
+            sol.tesorero_puesto  = firmaTesorero.firmante_puesto || 'Tesorería';
+            sol.tesorero_empresa = firmaTesorero.firmante_empresa|| '';
+            sol.tesorero_firma   = firmaTesorero.ruta_firma_png  || null;
+
+            // Traer los gastos por día y armar el desgloseMap
+            db.query('SELECT * FROM viaticos_desglose_dias WHERE id_solicitud = ?', [req.params.id], (errD, desgloseRows) => {
             
             const desgloseMap = {};
             
@@ -844,7 +1000,6 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
                 gy += rowH;
             };
 
-            drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
             drawSubRow('Aereo', 'aereo');
             drawSubRow('Terrestre', 'terrestre');
             drawSubRow('Vehiculo', 'vehiculo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
@@ -905,9 +1060,9 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
 
             cargarFirmaViatic(sol.dho_firma, xF3A + 25, gy + 12, 100, 28);
 
-            // Firma de tesorería: si está pagado se muestra la firma del autorizador
-            if (['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
-                cargarFirmaViatic(sol.autorizador_firma, xF3B + 25, gy + 12, 100, 28);
+            // Firma de tesorería: usa id_tesorero (campo dedicado, no pisa a D.H.O.)
+            if (['PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
+                cargarFirmaViatic(sol.tesorero_firma, xF3B + 25, gy + 12, 100, 28);
             }
 
             // Firma de recepción del empleado
@@ -921,27 +1076,30 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             const yTexto = yLineaFirma + 4;
             const textoRecibio = ['RECIBIDO','COMPROBADO'].includes(sol.estatus)
                 ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
+            const textoTesorero = ['PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)
+                ? (sol.tesorero_nombre?.toUpperCase() || '---') : 'PENDIENTE TESORERÍA';
 
             doc.font('Helvetica').fontSize(7).fillColor(COLOR_TEXTO_AZUL)
                .text(sol.dho_nombre?.toUpperCase() || 'PENDIENTE D.H.O.', xF3A, yTexto, { width: wF3, align: 'center' })
-               .text(['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus) ? (sol.autorizador_nombre?.toUpperCase() || '---') : 'PENDIENTE TESORERÍA', xF3B, yTexto, { width: wF3, align: 'center' })
+               .text(textoTesorero, xF3B, yTexto, { width: wF3, align: 'center' })
                .text(textoRecibio, xF3C, yTexto, { width: wF3, align: 'center' });
 
             const yPuesto = yTexto + 9;
             doc.font('Helvetica-BoldOblique').fillColor('#000').fontSize(7)
                .text(sol.dho_puesto || 'D.H.O / FINANZAS', xF3A, yPuesto, { width: wF3, align: 'center' })
-               .text(sol.autorizador_puesto || 'Tesorería', xF3B, yPuesto, { width: wF3, align: 'center' })
+               .text(sol.tesorero_puesto || 'Tesorería', xF3B, yPuesto, { width: wF3, align: 'center' })
                .text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, xF3C, yPuesto, { width: wF3, align: 'center' });
 
             const yEmpresa = yPuesto + 9;
             doc.font('Helvetica').fontSize(7)
                .text(sol.dho_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3A, yEmpresa, { width: wF3, align: 'center' })
-               .text(sol.autorizador_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3B, yEmpresa, { width: wF3, align: 'center' })
+               .text(sol.tesorero_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3B, yEmpresa, { width: wF3, align: 'center' })
                .text(sol.solicitante_empresa || '', xF3C, yEmpresa, { width: wF3, align: 'center' });
 
             doc.end();
-        });
-    });
+        }); // cierre desglose_dias
+        }); // cierre historial_firmas
+    }); // cierre query principal
 });
 
 module.exports = router;

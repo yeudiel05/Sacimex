@@ -1,11 +1,7 @@
 // backend/utils/motorAutorizacion.js
 //
-// Motor único de autorización. Reemplaza los `if (miRol === 'AUTORIZADOR_1')`
-// hardcodeados y duplicados en solicitudes.routes.js y viaticos.routes.js.
-//
-// Requiere que req.usuario traiga `id`, `rol` e `id_departamento`
-// (ver el cambio en auth.routes.js para que el login incluya id_departamento
-// en el payload del JWT).
+// Motor único de autorización con soporte de tipo_flujo.
+// Cada flujo (solicitudes, viaticos) tiene sus propias reglas en matriz_autorizacion.
 
 const db = require('../db');
 
@@ -13,49 +9,54 @@ const db = require('../db');
  * Decide si un usuario puede firmar un nivel de autorización.
  *
  * @param {object} opts
- * @param {object} opts.usuario                  - normalmente req.usuario
+ * @param {object} opts.usuario
  * @param {number} opts.nivel                     - nivel_actual de la solicitud
- *                                                   (-1 = Visto Bueno, 0 = Revisor, 1..N = Autorizadores)
- * @param {number|null} [opts.idDepartamentoVoBo] - solo para nivel -1: el id_area_visto_bueno
- *                                                   del concepto de pago
+ * @param {string} [opts.tipoFlujo]               - 'solicitudes' | 'viaticos' (default: 'solicitudes')
+ * @param {number|null} [opts.idDepartamentoVoBo] - solo para nivel -1 (visto bueno)
  * @param {function} callback                     - (err, { puede: boolean, etiqueta: string })
  */
-function puedeFirmar({ usuario, nivel, idDepartamentoVoBo = null }, callback) {
-  // ADMIN conserva el comportamiento actual: puede firmar cualquier nivel.
+function puedeFirmar({ usuario, nivel, tipoFlujo = 'solicitudes', idDepartamentoVoBo = null }, callback) {
   if (usuario.rol === 'ADMIN') {
     return callback(null, { puede: true, etiqueta: 'ADMIN' });
   }
 
-  // Nivel -1 = Visto Bueno. No usa la matriz: lo firma cualquier persona
-  // del departamento dueño del concepto de pago.
+  // Nivel -1 = Visto Bueno (solo solicitudes de recursos)
   if (nivel === -1) {
     const puede = idDepartamentoVoBo != null && usuario.id_departamento === idDepartamentoVoBo;
     return callback(null, { puede, etiqueta: 'VISTO BUENO' });
   }
 
-  // Nivel 0 en adelante: se resuelve contra matriz_autorizacion.
-  // Prioridad: regla especifica del departamento del usuario > regla general (id_departamento NULL).
+  // Nivel 0 en adelante: consulta matriz filtrada por tipo_flujo
   const sql = `
     SELECT m.id_usuario, m.etiqueta_nivel, r.nombre_rol
     FROM matriz_autorizacion m
     LEFT JOIN catalogo_roles r ON m.id_rol = r.id
-    WHERE m.nivel = ? AND m.estatus_activo = 1
+    WHERE m.nivel = ?
+      AND m.tipo_flujo = ?
+      AND m.estatus_activo = 1
       AND (m.id_departamento = ? OR m.id_departamento IS NULL)
     ORDER BY (m.id_departamento IS NULL) ASC
     LIMIT 1
   `;
 
-  db.query(sql, [nivel, usuario.id_departamento], (err, rows) => {
+  db.query(sql, [nivel, tipoFlujo, usuario.id_departamento], (err, rows) => {
     if (err) return callback(err);
     if (rows.length === 0) {
-      // No hay regla configurada para este nivel: nadie puede firmar
-      // (mejor fallar cerrado que dejar pasar por accidente).
-      return callback(null, { puede: false, etiqueta: `NIVEL ${nivel} (sin regla configurada)` });
+      return callback(null, { puede: false, etiqueta: `NIVEL ${nivel} (sin regla en ${tipoFlujo})` });
     }
 
     const regla = rows[0];
 
-    // Excepción puntual: la regla fija a una persona específica.
+    // Nivel 0 de viáticos = Jefe Inmediato: sin rol fijo en BD.
+    // El motor no puede saber aquí si el usuario es el jefe correcto
+    // (eso lo valida la ruta comparando nombre_completo vs jefe_inmediato).
+    // Solo devolvemos puede=true si el flujo es viaticos y nivel=0 SIN rol asignado,
+    // para que la ruta haga la validación del nombre.
+    if (tipoFlujo === 'viaticos' && nivel === 0 && !regla.id_rol && !regla.id_usuario) {
+      // Dejar pasar al motor de la ruta — ella filtra por nombre_completo
+      return callback(null, { puede: true, etiqueta: regla.etiqueta_nivel, esJefeNivel: true });
+    }
+
     if (regla.id_usuario) {
       return callback(null, {
         puede: usuario.id === regla.id_usuario,
@@ -63,7 +64,6 @@ function puedeFirmar({ usuario, nivel, idDepartamentoVoBo = null }, callback) {
       });
     }
 
-    // Regla normal: cualquiera con el rol indicado.
     return callback(null, {
       puede: usuario.rol === regla.nombre_rol,
       etiqueta: regla.etiqueta_nivel
@@ -72,26 +72,21 @@ function puedeFirmar({ usuario, nivel, idDepartamentoVoBo = null }, callback) {
 }
 
 /**
- * Devuelve el nombre del rol que debe firmar un nivel dado (para saber a
- * quién notificarle por correo que le toca firmar). Generaliza el
- * `rolNotificar = nuevoNivel === 1 ? 'AUTORIZADOR_1' : 'AUTORIZADOR_2'`
- * hardcodeado que había antes.
- *
- * @param {number} nivel
- * @param {number|null} idDepartamento
- * @param {function} callback - (err, nombreRol|null)
+ * Devuelve el nombre del rol que debe firmar un nivel dado (para notificaciones).
  */
-function obtenerRolDeNivel(nivel, idDepartamento, callback) {
+function obtenerRolDeNivel(nivel, idDepartamento, callback, tipoFlujo = 'solicitudes') {
   const sql = `
     SELECT r.nombre_rol
     FROM matriz_autorizacion m
     LEFT JOIN catalogo_roles r ON m.id_rol = r.id
-    WHERE m.nivel = ? AND m.estatus_activo = 1
+    WHERE m.nivel = ?
+      AND m.tipo_flujo = ?
+      AND m.estatus_activo = 1
       AND (m.id_departamento = ? OR m.id_departamento IS NULL)
     ORDER BY (m.id_departamento IS NULL) ASC
     LIMIT 1
   `;
-  db.query(sql, [nivel, idDepartamento], (err, rows) => {
+  db.query(sql, [nivel, tipoFlujo, idDepartamento], (err, rows) => {
     if (err) return callback(err);
     if (rows.length === 0) return callback(null, null);
     callback(null, rows[0].nombre_rol || null);
@@ -99,8 +94,7 @@ function obtenerRolDeNivel(nivel, idDepartamento, callback) {
 }
 
 /**
- * Igual que puedeFirmar pero como Promesa, para usarse con Promise.all
- * al recorrer listados (un .forEach normal no espera callbacks async).
+ * Versión Promise de puedeFirmar.
  */
 function puedeFirmarAsync(opts) {
   return new Promise((resolve, reject) => {
@@ -108,16 +102,4 @@ function puedeFirmarAsync(opts) {
   });
 }
 
-/**
- * Viáticos es un flujo de un solo nivel (lo autoriza D.H.O), a diferencia de
- * solicitudes_recursos que tiene varios niveles. Por eso no usa la matriz de
- * autorización: es solo un chequeo de rol, pero centralizado en un único
- * lugar para no repetir `rol !== 'ADMIN' && rol !== 'D.H.O' && rol !== 'DHO'`
- * en cada ruta (y para no arrastrar la variante 'DHO' que no existe en los
- * datos reales, solo 'D.H.O').
- */
-function puedeAutorizarViaticos(usuario) {
-  return usuario.rol === 'ADMIN' || usuario.rol === 'D.H.O';
-}
-
-module.exports = { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel, puedeAutorizarViaticos };
+module.exports = { puedeFirmar, puedeFirmarAsync, obtenerRolDeNivel };

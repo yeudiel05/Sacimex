@@ -327,14 +327,41 @@ function Viaticos() {
     setFormData(prev => ({ ...prev, total_solicitado: total }));
   }, [formData.monto_alimentos, formData.monto_hospedaje, formData.monto_pasajes, formData.monto_taxis, formData.monto_gasolina, formData.monto_otros]);
 
-  const fetchSolicitudesJefe = async () => {
+  // Cuando el usuario llena el grid por día, sincronizar los totales
+  // por categoría con los campos de monto para que el resumen sea correcto.
+  useEffect(() => {
+    if (Object.keys(desgloseGrid).length === 0) return;
+
+    const sumar = (cats) => cats.reduce((s, cat) =>
+      s + fechasDesglose.reduce((s2, f) => s2 + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0), 0);
+
+    const totalAlimentos  = sumar(['almuerzo', 'comida', 'cena']);
+    const totalHospedaje  = sumar(['hospedaje']);
+    const totalTransporte = sumar(['aereo', 'terrestre']);
+    const totalVehiculo   = sumar(['vehiculo']);
+    const totalOtros      = sumar(['otros', 'especifique', 'comunicacion']);
+
+    setFormData(prev => {
+      const next = { ...prev };
+      if (totalAlimentos  > 0) next.monto_alimentos = totalAlimentos;
+      if (totalHospedaje  > 0) next.monto_hospedaje = totalHospedaje;
+      if (totalTransporte > 0) next.monto_pasajes   = totalTransporte;
+      if (totalVehiculo   > 0) next.monto_gasolina  = totalVehiculo;
+      if (totalOtros      > 0) next.monto_otros     = totalOtros;
+      next.total_solicitado = Object.values(desgloseGrid).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+      return next;
+    });
+  }, [desgloseGrid]);
+
+  const fetchSolicitudesPendientes = async () => {
     setCargandoJefe(true);
     try {
-      const res = await fetch('/api/viaticos/pendientes-jefe', {
+      const res = await fetch('/api/viaticos/pendientes', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
-      if (data.success) setSolicitudesPendientesJefe(data.data);
+      // Solo mostrar las que me toca firmar (no las propias del usuario)
+      if (data.success) setSolicitudesPendientesJefe(data.data.filter(s => s.me_toca_firmar));
     } catch {} finally { setCargandoJefe(false); }
   };
 
@@ -349,16 +376,16 @@ function Viaticos() {
 
   useEffect(() => {
     if (tabActiva === 'MIS_SOLICITUDES') fetchMisSolicitudes();
-    if (tabActiva === 'JEFE') fetchSolicitudesJefe();
+    if (tabActiva === 'JEFE') fetchSolicitudesPendientes();
   }, [tabActiva]);
   useAutoRefresh(fetchMisSolicitudes, 20000, tabActiva === 'MIS_SOLICITUDES');
+  useAutoRefresh(fetchSolicitudesPendientes, 20000, tabActiva === 'JEFE');
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.total_solicitado <= 0) return alert("El monto total debe ser mayor a cero.");
-    // Construir desglose_dias desde el grid
     const desglose_dias = Object.entries(desgloseGrid)
       .filter(([, monto]) => parseFloat(monto) > 0)
       .map(([key, monto]) => {
@@ -380,7 +407,7 @@ function Viaticos() {
       });
       const data = await res.json();
       if (data.success) {
-        alert("¡Solicitud enviada a D.H.O con éxito!");
+        alert("¡Solicitud enviada correctamente! Primero debe ser autorizada por tu jefe inmediato, luego pasará a D.H.O.");
         setTabActiva('MIS_SOLICITUDES');
         setFormData(prev => ({
           ...prev, origen: '', destino: '', motivo: '', fecha_salida: '', fecha_regreso: '', dias_comision: 0,
@@ -392,23 +419,23 @@ function Viaticos() {
     } catch (error) { alert("Error de conexión al servidor."); } finally { setIsSubmitting(false); }
   };
 
-  const handleAutorizarJefe = async (id, accion) => {
+  const handleAutorizar = async (id, accion) => {
     const comentario = accion === 'RECHAZAR' ? prompt('Motivo de rechazo:') : '';
     if (accion === 'RECHAZAR' && !comentario) return;
+    const url = accion === 'RECHAZAR'
+      ? `/api/viaticos/rechazar/${id}`
+      : `/api/viaticos/autorizar/${id}`;
+    const body = accion === 'RECHAZAR'
+      ? JSON.stringify({ motivo: comentario })
+      : JSON.stringify({ comentario: '' });
     try {
-      const url = accion === 'RECHAZAR' 
-        ? `/api/viaticos/${id}/estatus` 
-        : `/api/viaticos/${id}/autorizar-jefe`;
-      const body = accion === 'RECHAZAR' 
-        ? JSON.stringify({ estatus: 'RECHAZADO', comentario })
-        : JSON.stringify({ comentario });
       const res = await fetch(url, {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body
       });
       const data = await res.json();
-      if (data.success) { alert(data.message); fetchSolicitudesJefe(); }
+      if (data.success) { alert(data.message); fetchSolicitudesPendientes(); }
       else alert(data.message);
     } catch { alert('Error de conexión.'); }
   };
@@ -649,8 +676,17 @@ function Viaticos() {
                                   type="number" min="0" step="0.01"
                                   value={desgloseGrid[`${f}_${cat}`] || ''}
                                   onChange={e => setDesgloseGrid(prev => ({ ...prev, [`${f}_${cat}`]: e.target.value }))}
-                                  style={{ width: '100%', border: 'none', textAlign: 'right', fontSize: '12px', background: 'transparent', outline: 'none' }}
-                                  placeholder="0"
+                                  style={{
+                                    width: '100%', textAlign: 'right', fontSize: '12px',
+                                    border: '1px solid #cbd5e1', borderRadius: '4px',
+                                    padding: '4px 6px', boxSizing: 'border-box',
+                                    background: desgloseGrid[`${f}_${cat}`] > 0 ? '#f0fdf4' : 'white',
+                                    color: '#0f172a', outline: 'none',
+                                    fontWeight: desgloseGrid[`${f}_${cat}`] > 0 ? '600' : '400'
+                                  }}
+                                  placeholder="0.00"
+                                  onFocus={e => e.target.style.borderColor = '#10b981'}
+                                  onBlur={e => e.target.style.borderColor = '#cbd5e1'}
                                 />
                               </td>
                             ))}
@@ -730,10 +766,10 @@ function Viaticos() {
                 <div><span style={{color:'#64748b'}}>Transporte:</span> <strong>{sol.medio_transporte}</strong></div>
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button onClick={() => handleAutorizarJefe(sol.id, 'RECHAZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                <button onClick={() => handleAutorizar(sol.id, 'RECHAZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
                   Rechazar
                 </button>
-                <button onClick={() => handleAutorizarJefe(sol.id, 'AUTORIZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#10d440', color: 'white', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                <button onClick={() => handleAutorizar(sol.id, 'AUTORIZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#10d440', color: 'white', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
                   ✓ Autorizar
                 </button>
               </div>
@@ -758,7 +794,28 @@ function Viaticos() {
                 <div key={sol.id} className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                     <div>
-                      <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor: sol.estatus === 'PENDIENTE' ? '#fef3c7' : (sol.estatus === 'AUTORIZADO' || sol.estatus === 'PAGADO') ? '#dcfce7' : '#e0e7ff', color: sol.estatus === 'PENDIENTE' ? '#f59e0b' : (sol.estatus === 'AUTORIZADO' || sol.estatus === 'PAGADO') ? '#16a34a' : '#4f46e5' }}>{sol.estatus}</span>
+                      <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', backgroundColor:
+                        sol.estatus === 'PENDIENTE'      ? '#fef3c7' :
+                        sol.estatus === 'AUTORIZADO_JEFE'? '#dbeafe' :
+                        sol.estatus === 'AUTORIZADO_DHO' ? '#dcfce7' :
+                        sol.estatus === 'PAGADO'         ? '#eff6ff' :
+                        sol.estatus === 'RECIBIDO'       ? '#ccfbf1' :
+                        sol.estatus === 'COMPROBADO'     ? '#dcfce7' :
+                        sol.estatus === 'RECHAZADO'      ? '#fee2e2' : '#e0e7ff',
+                        color:
+                        sol.estatus === 'PENDIENTE'      ? '#f59e0b' :
+                        sol.estatus === 'AUTORIZADO_JEFE'? '#2563eb' :
+                        sol.estatus === 'AUTORIZADO_DHO' ? '#15803d' :
+                        sol.estatus === 'PAGADO'         ? '#3b82f6' :
+                        sol.estatus === 'RECIBIDO'       ? '#0d9488' :
+                        sol.estatus === 'COMPROBADO'     ? '#16a34a' :
+                        sol.estatus === 'RECHAZADO'      ? '#ef4444' : '#4f46e5'
+                      }}>
+                        {sol.estatus === 'PENDIENTE'       ? 'PENDIENTE (En revisión jefe)' :
+                         sol.estatus === 'AUTORIZADO_JEFE' ? 'AUTORIZADO POR JEFE' :
+                         sol.estatus === 'AUTORIZADO_DHO'  ? 'AUTORIZADO D.H.O.' :
+                         sol.estatus}
+                      </span>
                       <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
                       <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
 
@@ -783,11 +840,11 @@ function Viaticos() {
                           color: limiteVencido ? '#b91c1c' : diasRestantes <= 2 ? '#c2410c' : '#15803d'
                         }}>
                           {limiteVencido ? (
-                            <> <strong>Plazo vencido.</strong> Una vez regresado de comisión, tiene un máximo de <strong>5 días</strong> para adjuntar su factura y comprobación de gastos. En caso contrario, los viáticos serán pagados por cuenta propia.</>
+                            <> <strong>Plazo vencido.</strong> El máximo es de <strong>5 días naturales</strong> a partir de la fecha de regreso. Los viáticos no comprobados serán descontados de nómina.</>
                           ) : diasRestantes <= 2 ? (
-                            <> <strong>¡Atención!</strong> Le queda{diasRestantes === 1 ? '' : 'n'} <strong>{diasRestantes} día{diasRestantes === 1 ? '' : 's'}</strong> para subir su comprobación de gastos. Recuerde que tiene un máximo de <strong>5 días</strong> a partir de su regreso, de lo contrario los viáticos serán a su cargo.</>
+                            <> <strong>¡Atención!</strong> Le queda{diasRestantes === 1 ? '' : 'n'} <strong>{diasRestantes} día{diasRestantes === 1 ? '' : 's'} natural{diasRestantes === 1 ? '' : 'es'}</strong> para subir su comprobación. El plazo máximo es de <strong>5 días naturales</strong> desde su regreso, de lo contrario los viáticos serán descontados de nómina.</>
                           ) : (
-                            <> Tiene <strong>{diasRestantes} días</strong> restantes para adjuntar su factura y comprobación de gastos. Recuerde que el plazo máximo es de <strong>5 días</strong> a partir de su fecha de regreso.</>
+                            <> Tiene <strong>{diasRestantes} días naturales</strong> restantes para adjuntar su factura y comprobación de gastos. El plazo máximo es de <strong>5 días naturales</strong> a partir de su fecha de regreso.</>
                           )}
                         </div>
                       )}
@@ -810,7 +867,7 @@ function Viaticos() {
                               <a href={`/${sol.url_comprobante_gastos}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Mis Gastos</a>
                             ) : limiteVencido ? (
                               <div style={{ padding: '10px 14px', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', maxWidth: '280px', lineHeight: '1.5' }}>
-                                ⛔ Plazo vencido. Los viáticos no comprobados en 5 días hábiles de haber regresado de comisión serán descontados de nómina.
+                                ⛔ Plazo vencido. Los viáticos no comprobados en 5 días naturales de haber regresado de comisión serán descontados de nómina.
                               </div>
                             ) : (
                               <button onClick={() => fileInputRefs.current[sol.id].click()} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>Subir Facturas</button>

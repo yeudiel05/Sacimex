@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
 
-import logoSacimex from '../../assets/logo.png';
+import logoSacimex from '../../assets/Logo.png';
 
 function Login() {
   const [formData, setFormData] = useState({

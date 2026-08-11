@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import './Layout.css';
-import logoSacimex from '../../assets/logo.png';
+import logoSacimex from '../../assets/Logo.png';
 
 function Layout() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);

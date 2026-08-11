@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import './Viaticos.css';
 
 function RevisionViaticos() {
@@ -14,7 +15,7 @@ function RevisionViaticos() {
   const fetchSolicitudes = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch('/api/viaticos/todas', {
+      const res = await fetch('/api/viaticos/pendientes', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401 || res.status === 403) { localStorage.clear(); navigate('/'); return; }
@@ -51,45 +52,28 @@ function RevisionViaticos() {
     }
   };
 
-  const autorizarDHO = async (id) => {
-    if (!window.confirm('¿Autorizar esta solicitud de viáticos?')) return;
+  const handleAutorizar = async (id, accion) => {
+    const label = accion === 'RECHAZAR' ? 'rechazar' : 'autorizar';
+    if (!window.confirm(`¿Confirmas ${label} esta solicitud de viáticos?`)) return;
+    const motivo = accion === 'RECHAZAR' ? prompt('Motivo de rechazo:') : '';
+    if (accion === 'RECHAZAR' && !motivo) return;
     const token = localStorage.getItem('token');
+    const url = accion === 'RECHAZAR'
+      ? `/api/viaticos/rechazar/${id}`
+      : `/api/viaticos/autorizar/${id}`;
+    const body = accion === 'RECHAZAR'
+      ? JSON.stringify({ motivo })
+      : JSON.stringify({ comentario: '' });
     try {
-      const res = await fetch(`/api/viaticos/${id}/autorizar-dho`, {
-        method: 'PUT',
+      const res = await fetch(url, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({})
+        body
       });
       const data = await res.json();
-      if (data.success) {
-        alert(data.message);
-        fetchSolicitudes();
-      } else alert('No se pudo autorizar: ' + data.message);
+      if (data.success) { alert(data.message); fetchSolicitudes(); }
+      else alert('Error: ' + data.message);
     } catch { alert('Error de conexión.'); }
-  };
-
-  const cambiarEstatus = async (id, nuevoEstatus) => {
-    if (!window.confirm(`¿Estás seguro de marcar esta solicitud como ${nuevoEstatus}?`)) return;
-    const token = localStorage.getItem('token');
-    try {
-      const res = await fetch(`/api/viaticos/${id}/estatus`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ estatus: nuevoEstatus })
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(data.message || `Solicitud marcada como ${nuevoEstatus}`);
-        setSolicitudes(prev => prev.map(s => s.id === id ? { ...s, estatus: nuevoEstatus } : s));
-        fetch('/api/viaticos/todas?t=' + Date.now(), {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).then(d => { if (d.success) setSolicitudes(d.data); });
-      } else {
-        alert("No se pudo actualizar: " + data.message);
-      }
-    } catch (error) {
-      alert('Error al procesar la solicitud con el servidor.');
-    }
   };
 
   const handleSubirComprobante = async (id_solicitud, event) => {
@@ -140,7 +124,7 @@ function RevisionViaticos() {
     csvContent += "ID,Estatus,Solicitante,Departamento,Destino,Motivo,Transporte,Fecha Salida,Fecha Regreso,Alimentos,Hospedaje,Pasajes,Gasolina,Taxis,Otros,Total\n";
     solicitudesMes.forEach(sol => {
       const row = [
-        sol.id, sol.estatus, `"${sol.solicitante_usuario}"`, `"${sol.departamento}"`, `"${sol.destino}"`,
+        sol.id, sol.estatus, `"${sol.solicitante_nombre_completo || sol.solicitante_usuario}"`, `"${sol.departamento}"`, `"${sol.destino}"`,
         `"${sol.motivo.replace(/\n/g, " ")}"`, sol.medio_transporte,
         new Date(sol.fecha_salida).toLocaleDateString(), new Date(sol.fecha_regreso).toLocaleDateString(),
         sol.monto_alimentos || 0, sol.monto_hospedaje || 0, sol.monto_pasajes || 0,
@@ -161,8 +145,9 @@ function RevisionViaticos() {
   const toggleDetalle = (id) => setExpandidos(prev => ({ ...prev, [id]: !prev[id] }));
 
   const solicitudesFiltradas = solicitudes.filter(sol => {
-    if (tabActiva === 'PENDIENTES') return sol.estatus === 'AUTORIZADO_JEFE';
-    if (tabActiva === 'AUTORIZADOS') return ['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].includes(sol.estatus);
+    if (tabActiva === 'NUEVAS')     return sol.estatus === 'PENDIENTE';
+    if (tabActiva === 'PENDIENTES') return sol.me_toca_firmar && !['PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].includes(sol.estatus);
+    if (tabActiva === 'AUTORIZADOS') return ['PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].includes(sol.estatus);
     return true;
   });
 
@@ -201,9 +186,23 @@ function RevisionViaticos() {
       </div>
 
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+        <button onClick={() => setTabActiva('NUEVAS')}
+          style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'NUEVAS' ? '#f59e0b' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'NUEVAS' ? '3px solid #f59e0b' : '3px solid transparent', paddingBottom: '8px' }}>
+          Sin Revisar por Jefe
+          {solicitudes.filter(s => s.estatus === 'PENDIENTE').length > 0 && (
+            <span style={{ background: '#f59e0b', color: 'white', borderRadius: '50%', padding: '1px 6px', fontSize: '11px', marginLeft: '6px' }}>
+              {solicitudes.filter(s => s.estatus === 'PENDIENTE').length}
+            </span>
+          )}
+        </button>
         <button onClick={() => setTabActiva('PENDIENTES')}
           style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'PENDIENTES' ? '#10b981' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'PENDIENTES' ? '3px solid #10b981' : '3px solid transparent', paddingBottom: '8px' }}>
-          En Revisión
+          Pendientes D.H.O.
+          {solicitudes.filter(s => s.estatus === 'AUTORIZADO_JEFE').length > 0 && (
+            <span style={{ background: '#10b981', color: 'white', borderRadius: '50%', padding: '1px 6px', fontSize: '11px', marginLeft: '6px' }}>
+              {solicitudes.filter(s => s.estatus === 'AUTORIZADO_JEFE').length}
+            </span>
+          )}
         </button>
         <button onClick={() => setTabActiva('AUTORIZADOS')}
           style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'AUTORIZADOS' ? '#3b82f6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'AUTORIZADOS' ? '3px solid #3b82f6' : '3px solid transparent', paddingBottom: '8px' }}>
@@ -215,7 +214,11 @@ function RevisionViaticos() {
         <p>Cargando solicitudes...</p>
       ) : solicitudesFiltradas.length === 0 ? (
         <div className="premium-card" style={{ textAlign: 'center', padding: '50px' }}>
-          <h3 style={{ color: '#64748b' }}>No hay solicitudes {tabActiva === 'PENDIENTES' ? 'pendientes' : 'en el historial'} en este momento.</h3>
+          <h3 style={{ color: '#64748b' }}>
+            {tabActiva === 'NUEVAS'      ? 'No hay solicitudes sin revisar por jefe.' :
+             tabActiva === 'PENDIENTES'  ? 'No hay solicitudes pendientes de autorización D.H.O.' :
+             'No hay solicitudes en el historial.'}
+          </h3>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: '24px' }}>
@@ -227,11 +230,14 @@ function RevisionViaticos() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px', flexWrap: 'wrap', gap: '16px' }}>
                   <div>
                     <span style={{ fontSize: '12px', fontWeight: 'bold', padding: '4px 8px', borderRadius: '6px', display: 'inline-block', marginBottom: '8px', backgroundColor: badge.bg, color: badge.text }}>
-                      {sol.estatus}
+                      {sol.estatus === 'PENDIENTE'       ? 'PENDIENTE (Sin autorizar jefe)' :
+                       sol.estatus === 'AUTORIZADO_JEFE' ? 'AUTORIZADO POR JEFE' :
+                       sol.estatus === 'AUTORIZADO_DHO'  ? 'AUTORIZADO D.H.O.' :
+                       sol.estatus}
                     </span>
                     <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino}</h3>
                     <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.4' }}>
-                      <strong>Solicitante:</strong> {sol.solicitante_usuario} ({sol.departamento})<br/>
+                      <strong>Solicitante:</strong> {sol.solicitante_nombre_completo || sol.solicitante_usuario} ({sol.departamento})<br/>
                       <strong>Fechas:</strong> {new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}
                     </p>
                   </div>
@@ -251,10 +257,10 @@ function RevisionViaticos() {
                         Ver PDF
                       </button>
 
-                      {tabActiva === 'PENDIENTES' && (
+                      {sol.me_toca_firmar && !['PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].includes(sol.estatus) && (
                         <>
-                          <button onClick={() => cambiarEstatus(sol.id, 'RECHAZADO')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
-                          <button onClick={() => autorizarDHO(sol.id)} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✓ Autorizar D.H.O.</button>
+                          <button onClick={() => handleAutorizar(sol.id, 'RECHAZAR')} style={{ padding: '6px 12px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Rechazar</button>
+                          <button onClick={() => handleAutorizar(sol.id, 'AUTORIZAR')} style={{ padding: '6px 12px', border: 'none', color: 'white', background: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✓ Autorizar</button>
                         </>
                       )}
 

@@ -9,9 +9,11 @@ router.post('/login', (req, res) => {
   const { usuario, password } = req.body;
   
   const query = `
-    SELECT u.*, e.puesto, e.departamento 
+    SELECT u.*, e.puesto, e.departamento, e.id_departamento,
+           COALESCE(p.nombre_razon_social, u.username) AS nombre_completo
     FROM usuarios u 
-    LEFT JOIN empleados e ON u.id_empleado = e.id_persona 
+    LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+    LEFT JOIN personas p ON e.id_persona = p.id
     WHERE u.username = ? AND u.estatus_activo = TRUE
   `;
   
@@ -54,6 +56,7 @@ router.post('/login', (req, res) => {
             rol: user.rol,
             id_departamento: user.id_departamento,
             puesto: user.puesto || 'Sin Puesto',
+            nombre_completo: user.nombre_completo || user.username,
             puedeSolicitar: user.puede_solicitar || 0
         };
 
