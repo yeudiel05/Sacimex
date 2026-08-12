@@ -5,12 +5,14 @@ import './Viaticos.css';
 
 function RevisionViaticos() {
   const navigate = useNavigate();
-  const [solicitudes, setSolicitudes] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [tabActiva, setTabActiva] = useState('PENDIENTES');
+  const [solicitudes, setSolicitudes]       = useState([]);
+  const [historialFirmadas, setHistorial]   = useState([]);
+  const [cargando, setCargando]             = useState(true);
+  const [cargandoHist, setCargandoHist]     = useState(false);
+  const [tabActiva, setTabActiva]           = useState('PENDIENTES');
   const fileInputRefs = useRef({});
-  const [expandidos, setExpandidos] = useState({});
-  const [mesReporte, setMesReporte] = useState('');
+  const [expandidos, setExpandidos]         = useState({});
+  const [mesReporte, setMesReporte]         = useState('');
 
   const fetchSolicitudes = async () => {
     const token = localStorage.getItem('token');
@@ -28,6 +30,18 @@ function RevisionViaticos() {
     }
   };
 
+  const fetchHistorial = async () => {
+    setCargandoHist(true);
+    try {
+      const res = await fetch('/api/viaticos/historial-firmadas', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setHistorial(data.data);
+    } catch (e) { console.error(e); }
+    finally { setCargandoHist(false); }
+  };
+
   useAutoRefresh(fetchSolicitudes, 20000);
 
   useEffect(() => {
@@ -35,6 +49,10 @@ function RevisionViaticos() {
     const hoy = new Date();
     setMesReporte(`${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`);
   }, []);
+
+  useEffect(() => {
+    if (tabActiva === 'HISTORIAL') fetchHistorial();
+  }, [tabActiva]);
 
   const handleVerPDF = async (id_solicitud) => {
     try {
@@ -208,9 +226,62 @@ function RevisionViaticos() {
           style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'AUTORIZADOS' ? '#3b82f6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'AUTORIZADOS' ? '3px solid #3b82f6' : '3px solid transparent', paddingBottom: '8px' }}>
           Historial / Autorizados
         </button>
+        <button onClick={() => setTabActiva('HISTORIAL')}
+          style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'HISTORIAL' ? '#8b5cf6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'HISTORIAL' ? '3px solid #8b5cf6' : '3px solid transparent', paddingBottom: '8px' }}>
+          Mis Firmas
+          {historialFirmadas.length > 0 && (
+            <span style={{ background: '#8b5cf6', color: 'white', borderRadius: '12px', padding: '1px 7px', fontSize: '11px', marginLeft: '6px' }}>
+              {historialFirmadas.length}
+            </span>
+          )}
+        </button>
       </div>
 
-      {cargando ? (
+      {/* TAB: MIS FIRMAS */}
+      {tabActiva === 'HISTORIAL' && (
+        cargandoHist ? <p style={{ color: '#64748b' }}>Cargando historial...</p> :
+        historialFirmadas.length === 0 ? (
+          <div className="premium-card" style={{ textAlign: 'center', padding: '50px' }}>
+            <h3 style={{ color: '#94a3b8' }}>No has firmado ninguna solicitud de viáticos todavía.</h3>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            {historialFirmadas.map(sol => {
+              const badge = getBadgeStyle(sol.estatus);
+              return (
+                <div key={`${sol.id}-${sol.fecha_firma}`} className="premium-card" style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', padding: '3px 8px', borderRadius: '20px', display: 'inline-block', marginBottom: '6px', backgroundColor: badge.bg, color: badge.text }}>
+                      {sol.estatus}
+                    </span>
+                    <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 'bold', padding: '3px 8px', borderRadius: '20px', background: '#ede9fe', color: '#6d28d9' }}>
+                      Firmé: {sol.etapa_firma}
+                    </span>
+                    <h3 style={{ margin: '6px 0 4px', fontSize: '16px', color: '#0f172a' }}>{sol.destino}</h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                      <strong>{sol.solicitante_nombre_completo}</strong> · {sol.departamento} · {new Date(sol.fecha_salida).toLocaleDateString('es-MX')} – {new Date(sol.fecha_regreso).toLocaleDateString('es-MX')}
+                    </p>
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#94a3b8' }}>
+                      Firmado el {new Date(sol.fecha_firma).toLocaleString('es-MX')} · {sol.accion}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
+                    <span style={{ fontSize: '22px', fontWeight: '900', color: '#10b981' }}>
+                      ${parseFloat(sol.total_solicitado || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </span>
+                    <button onClick={() => handleVerPDF(sol.id)}
+                      style={{ padding: '6px 14px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                      Ver Oficio
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {tabActiva !== 'HISTORIAL' && (cargando ? (
         <p>Cargando solicitudes...</p>
       ) : solicitudesFiltradas.length === 0 ? (
         <div className="premium-card" style={{ textAlign: 'center', padding: '50px' }}>
@@ -346,7 +417,7 @@ function RevisionViaticos() {
             );
           })}
         </div>
-      )}
+      ))}
     </div>
   );
 }

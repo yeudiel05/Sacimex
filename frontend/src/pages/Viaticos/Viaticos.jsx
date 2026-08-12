@@ -42,6 +42,12 @@ function Viaticos() {
   const [tabActiva, setTabActiva] = useState('NUEVA');
   const [solicitudesPendientesJefe, setSolicitudesPendientesJefe] = useState([]);
   const [cargandoJefe, setCargandoJefe] = useState(false);
+  const [historialFirmas, setHistorialFirmas] = useState([]);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const [todasSolicitudes, setTodasSolicitudes] = useState([]);
+  const [cargandoTodas, setCargandoTodas] = useState(false);
+  const [filtroEstatus, setFiltroEstatus] = useState('TODAS');
+  const rolUsuario = (localStorage.getItem('rol') || '').toUpperCase();
   const [desgloseGrid, setDesgloseGrid] = useState({}); // { 'fecha_categoria': monto }
   const [fechasDesglose, setFechasDesglose] = useState([]); // array de fechas del viaje
   const [misSolicitudes, setMisSolicitudes] = useState([]);
@@ -321,6 +327,53 @@ function Viaticos() {
     }));
   }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes]);
 
+  // Autocompletar el grid de desglose por día usando las tarifas del tabulador
+  useEffect(() => {
+    if (!formData.destino || formData.destino === 'Otro') return;
+    if (fechasDesglose.length === 0) return;
+    const tab = TABULADOR[formData.destino];
+    if (!tab) return;
+
+    const personas = 1 + parseInt(formData.num_acompanantes || 0);
+    const usaVehiculo = formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio';
+    const usaAutobus  = formData.medio_transporte === 'Autobús';
+    const usaAvion    = formData.medio_transporte === 'Avión';
+
+    const nuevoGrid = {};
+    fechasDesglose.forEach((fecha, idx) => {
+      const esUltimoDia = idx === fechasDesglose.length - 1;
+      const esPrimerDia = idx === 0;
+
+      // Hospedaje: tarifa completa por persona, excepto el último día
+      if (!esUltimoDia && tab.hospedaje > 0) {
+        nuevoGrid[`${fecha}_hospedaje`] = tab.hospedaje * personas;
+      }
+
+      // Alimentos: tarifa diaria completa, el empleado decide cómo la divide
+      if (tab.alimentos > 0) {
+        nuevoGrid[`${fecha}_almuerzo`] = tab.alimentos * personas;
+      }
+
+      // Transporte: solo primer y último día
+      if (esPrimerDia || esUltimoDia) {
+        if (usaAutobus && tab.bus > 0) {
+          nuevoGrid[`${fecha}_terrestre`] = tab.bus * personas;
+        } else if (usaAvion && tab.bus > 0) {
+          nuevoGrid[`${fecha}_aereo`] = tab.bus * personas;
+        } else if (usaVehiculo && esPrimerDia && tab.gasolina > 0) {
+          nuevoGrid[`${fecha}_vehiculo`] = tab.gasolina;
+        }
+      }
+
+      // Urban/taxi: cada día (transporte urbano local)
+      if (tab.urban > 0) {
+        nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + tab.urban * personas;
+      }
+    });
+
+    setDesgloseGrid(nuevoGrid);
+  }, [formData.destino, formData.medio_transporte, formData.num_acompanantes, fechasDesglose]);
+
   useEffect(() => {
     const total = ['monto_alimentos', 'monto_hospedaje', 'monto_pasajes', 'monto_taxis', 'monto_gasolina', 'monto_otros']
       .reduce((sum, key) => sum + (parseFloat(formData[key]) || 0), 0);
@@ -335,7 +388,7 @@ function Viaticos() {
     const sumar = (cats) => cats.reduce((s, cat) =>
       s + fechasDesglose.reduce((s2, f) => s2 + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0), 0);
 
-    const totalAlimentos  = sumar(['almuerzo', 'comida', 'cena']);
+    const totalAlimentos  = sumar(['almuerzo']);
     const totalHospedaje  = sumar(['hospedaje']);
     const totalTransporte = sumar(['aereo', 'terrestre']);
     const totalVehiculo   = sumar(['vehiculo']);
@@ -374,12 +427,39 @@ function Viaticos() {
     } catch (error) { console.error(error); } finally { setCargandoSolicitudes(false); }
   };
 
+  const fetchTodasSolicitudes = async () => {
+    setCargandoTodas(true);
+    try {
+      const res = await fetch('/api/viaticos/todas', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setTodasSolicitudes(data.data);
+    } catch (e) { console.error(e); }
+    finally { setCargandoTodas(false); }
+  };
+
+  const fetchHistorialFirmas = async () => {
+    setCargandoHistorial(true);
+    try {
+      const res = await fetch('/api/viaticos/historial-firmadas', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setHistorialFirmas(data.data);
+    } catch (e) { console.error(e); }
+    finally { setCargandoHistorial(false); }
+  };
+
   useEffect(() => {
     if (tabActiva === 'MIS_SOLICITUDES') fetchMisSolicitudes();
     if (tabActiva === 'JEFE') fetchSolicitudesPendientes();
+    if (tabActiva === 'MIS_FIRMAS') fetchHistorialFirmas();
+    if (tabActiva === 'ADMIN') fetchTodasSolicitudes();
   }, [tabActiva]);
   useAutoRefresh(fetchMisSolicitudes, 20000, tabActiva === 'MIS_SOLICITUDES');
   useAutoRefresh(fetchSolicitudesPendientes, 20000, tabActiva === 'JEFE');
+  useAutoRefresh(fetchTodasSolicitudes, 30000, tabActiva === 'ADMIN');
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
@@ -501,6 +581,14 @@ function Viaticos() {
         <button onClick={() => setTabActiva('JEFE')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'JEFE' ? '#f59e0b' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'JEFE' ? '3px solid #f59e0b' : '3px solid transparent', paddingBottom: '8px' }}>
           Para Aprobar {solicitudesPendientesJefe.length > 0 && <span style={{background:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'11px',marginLeft:'4px'}}>{solicitudesPendientesJefe.length}</span>}
         </button>
+        <button onClick={() => setTabActiva('MIS_FIRMAS')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'MIS_FIRMAS' ? '#8b5cf6' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'MIS_FIRMAS' ? '3px solid #8b5cf6' : '3px solid transparent', paddingBottom: '8px' }}>
+          Mis Firmas {historialFirmas.length > 0 && <span style={{background:'#8b5cf6',color:'white',borderRadius:'12px',padding:'1px 7px',fontSize:'11px',marginLeft:'4px'}}>{historialFirmas.length}</span>}
+        </button>
+        {rolUsuario === 'ADMIN' && (
+          <button onClick={() => setTabActiva('ADMIN')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'ADMIN' ? '#ef4444' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'ADMIN' ? '3px solid #ef4444' : '3px solid transparent', paddingBottom: '8px' }}>
+            Todas las Solicitudes {todasSolicitudes.length > 0 && <span style={{background:'#ef4444',color:'white',borderRadius:'12px',padding:'1px 7px',fontSize:'11px',marginLeft:'4px'}}>{todasSolicitudes.length}</span>}
+          </button>
+        )}
       </div>
 
       {tabActiva === 'NUEVA' ? (
@@ -665,31 +753,37 @@ function Viaticos() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[['hospedaje','Hospedaje'],['aereo','Aéreo'],['terrestre','Terrestre'],['vehiculo','Vehículo'],['almuerzo','Almuerzo'],['comida','Comida'],['cena','Cena'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
+                      {[['hospedaje','Hospedaje'],['aereo','Aéreo'],['terrestre','Terrestre'],['vehiculo','Vehículo'],['almuerzo','Alimentos'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
                         const totalCat = fechasDesglose.reduce((s, f) => s + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0);
                         return (
                           <tr key={cat} style={{ background: totalCat > 0 ? '#f0fdf4' : 'white' }}>
                             <td style={{ padding: '6px 8px', border: '1px solid #e2e8f0', fontWeight: '600' }}>{label}</td>
-                            {fechasDesglose.map(f => (
-                              <td key={f} style={{ padding: '4px', border: '1px solid #e2e8f0' }}>
-                                <input
-                                  type="number" min="0" step="0.01"
-                                  value={desgloseGrid[`${f}_${cat}`] || ''}
-                                  onChange={e => setDesgloseGrid(prev => ({ ...prev, [`${f}_${cat}`]: e.target.value }))}
-                                  style={{
-                                    width: '100%', textAlign: 'right', fontSize: '12px',
-                                    border: '1px solid #cbd5e1', borderRadius: '4px',
-                                    padding: '4px 6px', boxSizing: 'border-box',
-                                    background: desgloseGrid[`${f}_${cat}`] > 0 ? '#f0fdf4' : 'white',
-                                    color: '#0f172a', outline: 'none',
-                                    fontWeight: desgloseGrid[`${f}_${cat}`] > 0 ? '600' : '400'
-                                  }}
-                                  placeholder="0.00"
-                                  onFocus={e => e.target.style.borderColor = '#10b981'}
-                                  onBlur={e => e.target.style.borderColor = '#cbd5e1'}
-                                />
-                              </td>
-                            ))}
+                            {fechasDesglose.map(f => {
+                              const editable = cat === 'otros' || cat === 'especifique';
+                              const val = desgloseGrid[`${f}_${cat}`] || '';
+                              return (
+                                <td key={f} style={{ padding: '4px', border: '1px solid #e2e8f0' }}>
+                                  <input
+                                    type="number" min="0" step="0.01"
+                                    value={val}
+                                    readOnly={!editable}
+                                    onChange={editable ? e => setDesgloseGrid(prev => ({ ...prev, [`${f}_${cat}`]: e.target.value })) : undefined}
+                                    style={{
+                                      width: '100%', textAlign: 'right', fontSize: '12px',
+                                      border: editable ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                                      borderRadius: '4px', padding: '4px 6px', boxSizing: 'border-box',
+                                      background: val > 0 ? (editable ? '#f0fdf4' : '#f8fafc') : 'white',
+                                      color: '#0f172a',
+                                      cursor: editable ? 'text' : 'default',
+                                      fontWeight: val > 0 ? '600' : '400'
+                                    }}
+                                    placeholder="0.00"
+                                    onFocus={editable ? e => e.target.style.borderColor = '#10b981' : undefined}
+                                    onBlur={editable ? e => e.target.style.borderColor = '#cbd5e1' : undefined}
+                                  />
+                                </td>
+                              );
+                            })}
                             <td style={{ padding: '6px 8px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: '800', color: '#15803d' }}>
                               {totalCat > 0 ? `$${totalCat.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}
                             </td>
@@ -699,7 +793,7 @@ function Viaticos() {
                       <tr style={{ background: '#f0fdf4', fontWeight: '800' }}>
                         <td style={{ padding: '8px', border: '2px solid #10d440' }}>TOTAL</td>
                         {fechasDesglose.map(f => {
-                          const totalDia = [['hospedaje'],['aereo'],['terrestre'],['vehiculo'],['almuerzo'],['comida'],['cena'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
+                          const totalDia = [['hospedaje'],['aereo'],['terrestre'],['vehiculo'],['almuerzo'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
                           return <td key={f} style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>{totalDia > 0 ? `$${totalDia.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}</td>;
                         })}
                         <td style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>
@@ -708,7 +802,9 @@ function Viaticos() {
                       </tr>
                     </tbody>
                   </table>
-                  <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>* El desglose por días queda registrado en el sistema y aparece en el PDF.</p>
+                  <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>
+                    Los importes se calculan automáticamente con base en el tabulador autorizado para el destino. Solo <strong>Otros</strong> y <strong>Especifique</strong> son editables para gastos adicionales.
+                  </p>
                 </div>
               )}
               <div className="form-field mt-16">
@@ -766,11 +862,117 @@ function Viaticos() {
                 <div><span style={{color:'#64748b'}}>Transporte:</span> <strong>{sol.medio_transporte}</strong></div>
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button onClick={() => handleVerPDF(sol.id)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #dc2626', background: 'white', color: '#dc2626', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                  📄 Ver Oficio
+                </button>
                 <button onClick={() => handleAutorizar(sol.id, 'RECHAZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
                   Rechazar
                 </button>
                 <button onClick={() => handleAutorizar(sol.id, 'AUTORIZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#10d440', color: 'white', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
                   ✓ Autorizar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : tabActiva === 'ADMIN' ? (
+        <div style={{ display: 'grid', gap: '16px' }}>
+          {/* Filtro por estatus */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>Filtrar:</span>
+            {['TODAS','PENDIENTE','AUTORIZADO_N0','AUTORIZADO_N1','PAGADO','RECIBIDO','COMPROBADO','RECHAZADO'].map(est => (
+              <button key={est} onClick={() => setFiltroEstatus(est)}
+                style={{ padding: '4px 12px', borderRadius: '20px', border: '1px solid #e2e8f0', fontSize: '12px', fontWeight: filtroEstatus === est ? '700' : '400',
+                  background: filtroEstatus === est ? '#0f172a' : 'white', color: filtroEstatus === est ? 'white' : '#475569', cursor: 'pointer' }}>
+                {est === 'AUTORIZADO_N0' ? 'Aut. Jefe' : est === 'AUTORIZADO_N1' ? 'Aut. D.H.O.' : est.charAt(0) + est.slice(1).toLowerCase()}
+              </button>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#94a3b8' }}>
+              {todasSolicitudes.filter(s => filtroEstatus === 'TODAS' || s.estatus === filtroEstatus).length} solicitudes
+            </span>
+          </div>
+
+          {cargandoTodas ? (
+            <p style={{ color: '#64748b', textAlign: 'center', padding: '40px' }}>Cargando...</p>
+          ) : todasSolicitudes.filter(s => filtroEstatus === 'TODAS' || s.estatus === filtroEstatus).length === 0 ? (
+            <div className="premium-card" style={{ textAlign: 'center', padding: '60px' }}>
+              <p style={{ fontSize: '16px', color: '#94a3b8' }}>No hay solicitudes con ese estatus.</p>
+            </div>
+          ) : todasSolicitudes
+              .filter(s => filtroEstatus === 'TODAS' || s.estatus === filtroEstatus)
+              .map(sol => {
+                const colores = {
+                  PENDIENTE: { bg:'#fef3c7', txt:'#f59e0b' }, AUTORIZADO_N0: { bg:'#dbeafe', txt:'#2563eb' },
+                  AUTORIZADO_N1: { bg:'#dcfce7', txt:'#15803d' }, PAGADO: { bg:'#eff6ff', txt:'#3b82f6' },
+                  RECIBIDO: { bg:'#ccfbf1', txt:'#0d9488' }, COMPROBADO: { bg:'#dcfce7', txt:'#16a34a' },
+                  RECHAZADO: { bg:'#fee2e2', txt:'#ef4444' }
+                };
+                const c = colores[sol.estatus] || { bg:'#f1f5f9', txt:'#64748b' };
+                const etiquetas = { AUTORIZADO_N0:'Aut. Jefe', AUTORIZADO_N1:'Aut. D.H.O.', PENDIENTE:'Pendiente', PAGADO:'Pagado', RECIBIDO:'Recibido', COMPROBADO:'Comprobado', RECHAZADO:'Rechazado' };
+                return (
+                  <div key={sol.id} className="premium-card" style={{ padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                    <div style={{ flex: 1, minWidth: '260px' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '20px', background: c.bg, color: c.txt }}>
+                          {etiquetas[sol.estatus] || sol.estatus}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>#{sol.id}</span>
+                      </div>
+                      <h3 style={{ margin: '0 0 4px', fontSize: '15px', color: '#0f172a' }}>
+                        {sol.solicitante_nombre_completo || sol.solicitante_usuario}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                        {sol.departamento} → <strong>{sol.destino}</strong>
+                      </p>
+                      <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                        {new Date(sol.fecha_salida).toLocaleDateString('es-MX')} – {new Date(sol.fecha_regreso).toLocaleDateString('es-MX')} · {sol.dias_comision} días · {sol.medio_transporte}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                      <span style={{ fontSize: '20px', fontWeight: '900', color: '#10b981' }}>{formatMoney(sol.total_solicitado)}</span>
+                      <button onClick={() => handleVerPDF(sol.id)}
+                        style={{ padding: '6px 14px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                        📄 Ver Oficio
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+      ) : tabActiva === 'MIS_FIRMAS' ? (
+        <div style={{ display: 'grid', gap: '16px' }}>
+          {cargandoHistorial ? (
+            <p style={{ color: '#64748b', textAlign: 'center', padding: '40px' }}>Cargando...</p>
+          ) : historialFirmas.length === 0 ? (
+            <div className="premium-card" style={{ textAlign: 'center', padding: '60px' }}>
+              <p style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8' }}>No has firmado ninguna solicitud de viáticos todavía.</p>
+            </div>
+          ) : historialFirmas.map(sol => (
+            <div key={`${sol.id}-${sol.fecha_firma}`} className="premium-card" style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', padding: '3px 10px', borderRadius: '20px',
+                    background: sol.estatus === 'PAGADO' ? '#eff6ff' : sol.estatus === 'COMPROBADO' ? '#dcfce7' : sol.estatus === 'RECHAZADO' ? '#fee2e2' : '#f0fdf4',
+                    color: sol.estatus === 'PAGADO' ? '#3b82f6' : sol.estatus === 'COMPROBADO' ? '#16a34a' : sol.estatus === 'RECHAZADO' ? '#ef4444' : '#15803d' }}>
+                    {sol.estatus}
+                  </span>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', padding: '3px 10px', borderRadius: '20px', background: '#ede9fe', color: '#6d28d9' }}>
+                    ✓ Firmé: {sol.etapa_firma}
+                  </span>
+                </div>
+                <h3 style={{ margin: '0 0 4px', fontSize: '16px', color: '#0f172a' }}>{sol.destino}</h3>
+                <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                  <strong>{sol.solicitante_nombre_completo}</strong> · {sol.departamento}
+                </p>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                  {new Date(sol.fecha_salida).toLocaleDateString('es-MX')} – {new Date(sol.fecha_regreso).toLocaleDateString('es-MX')} · Firmado el {new Date(sol.fecha_firma).toLocaleString('es-MX')}
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
+                <span style={{ fontSize: '22px', fontWeight: '900', color: '#10b981' }}>{formatMoney(sol.total_solicitado)}</span>
+                <button onClick={() => handleVerPDF(sol.id)}
+                  style={{ padding: '6px 14px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                  📄 Ver Oficio
                 </button>
               </div>
             </div>

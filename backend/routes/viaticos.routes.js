@@ -114,7 +114,29 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
     });
 });
 
-// ── GET /pendientes — solicitudes que le toca firmar al usuario actual ────────
+// GET /historial-firmadas — solicitudes que YO he firmado (cualquier nivel)
+router.get('/historial-firmadas', verificarToken, (req, res) => {
+    db.query(
+        `SELECT sv.*,
+                COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre_completo,
+                e.puesto AS solicitante_puesto,
+                hfv.etapa_firma, hfv.accion, hfv.fecha_firma, hfv.comentarios
+         FROM historial_firmas_viaticos hfv
+         JOIN solicitudes_viaticos sv ON hfv.id_solicitud = sv.id
+         JOIN usuarios u ON sv.id_usuario = u.id
+         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+         LEFT JOIN personas p ON e.id_persona = p.id
+         WHERE hfv.id_usuario = ?
+         ORDER BY hfv.fecha_firma DESC`,
+        [req.usuario.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+
 // Reemplaza /pendientes-jefe, /todas y la lógica manual de roles.
 router.get('/pendientes', verificarToken, async (req, res) => {
     const sql = `
@@ -816,16 +838,23 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             // Traer los gastos por día y armar el desgloseMap
             db.query('SELECT * FROM viaticos_desglose_dias WHERE id_solicitud = ?', [req.params.id], (errD, desgloseRows) => {
             
+            // Helper timezone-safe: MySQL puede devolver Date objects o strings
+            const toLocalISO = (val) => {
+                if (!val) return '';
+                if (typeof val === 'string') return val.split('T')[0];
+                const d = new Date(val);
+                return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            };
+
             const desgloseMap = {};
             
             // Si hay resultados, armamos el mapa
             if (!errD && desgloseRows) {
                 desgloseRows.forEach(row => {
-                    const fecha = new Date(row.fecha).toISOString().split('T')[0];
+                    const fecha = toLocalISO(row.fecha);
                     if (!desgloseMap[fecha]) desgloseMap[fecha] = {};
-                    
-                    if (row.categoria) desgloseMap[fecha][row.categoria.toLowerCase()] = row.monto;
-                    if (row.subcategoria) desgloseMap[fecha][row.subcategoria.toLowerCase()] = row.monto;
+                    if (row.categoria) desgloseMap[fecha][row.categoria.toLowerCase()] = parseFloat(row.monto) || 0;
+                    if (row.subcategoria) desgloseMap[fecha][row.subcategoria.toLowerCase()] = parseFloat(row.monto) || 0;
                 });
             }
 
@@ -945,106 +974,131 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             doc.moveTo(30, y).lineTo(552, y).dash(2, { space: 2 }).stroke(); doc.undash();
             y += 10;
 
-            const colMain = 130, colSub = 80, colDay = 44, colTotal = 84, rowH = 13; 
+            // ════════════════════════════════════════════════════════════════
+            // TABULADOR "EXCLUSIVO FINANZAS" — igual al modal de la solicitud
+            // ════════════════════════════════════════════════════════════════
+            const colMain  = 110;  // columna de concepto
+            const colTotal =  70;  // columna total
+            const rowH     =  14;  // alto de fila normal
+            const rowHHead =  22;  // alto del encabezado (2 líneas: día + número)
             let gy = y;
 
-            drawCell(30, gy, colMain, rowH, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
-            const dias = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
-            let rx = 30 + colMain;
-            for(let i=0; i<7; i++) { drawCell(rx, gy, colDay, rowH, dias[i], '#fff', '#000', 'Helvetica-Bold', 8, 'center'); rx += colDay; }
-            drawCell(rx, gy, colTotal, rowH, 'TOTAL', '#fff', '#000', 'Helvetica-Bold', 8, 'center');
-            gy += rowH;
-
-            // Generar fechas del viaje para columnas Lun-Dom
+            // Fechas reales del viaje — se parsean como fecha local (no UTC)
             const fechasSol = [];
-            const dIni = new Date(sol.fecha_salida);
-            const dFin = new Date(sol.fecha_regreso);
-            for (let d = new Date(dIni); d <= dFin; d.setDate(d.getDate() + 1)) {
-                fechasSol.push(new Date(d).toISOString().split('T')[0]);
+            {
+                const [y1,m1,d1] = toLocalISO(sol.fecha_salida).split('-').map(Number);
+                const [y2,m2,d2] = toLocalISO(sol.fecha_regreso).split('-').map(Number);
+                const dIni2 = new Date(y1, m1-1, d1);
+                const dFin2 = new Date(y2, m2-1, d2);
+                for (let d = new Date(dIni2); d <= dFin2; d.setDate(d.getDate() + 1)) {
+                    fechasSol.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+                }
             }
-            
-            // Función para obtener monto de una categoría en un día
-            const getMonto = (cat) => fechasSol.reduce((s, f) => s + ((desgloseMap[f] || {})[cat] || 0), 0);
+            const numDias   = Math.min(fechasSol.length, 10);
+            const anchoUtil = 552 - colMain - colTotal;           // px disponibles para días
+            const dw        = Math.floor(anchoUtil / numDias);    // ancho de cada columna día
+
+            const diasSemanaLabels = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+            const getMonto      = (cat) => fechasSol.reduce((s, f) => s + ((desgloseMap[f] || {})[cat] || 0), 0);
             const getMontoFecha = (f, cat) => (desgloseMap[f] || {})[cat] || 0;
 
-            // Hospedaje
-            drawCell(30, gy, colMain, rowH, 'Hospedaje', null, '#000', 'Helvetica-Bold', 8, 'left');
-            rx = 30 + colMain;
-            for(let i=0; i<7; i++) {
-                const diaLabel = dias[i].toLowerCase();
-                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
-                const val = fechaDia ? getMontoFecha(fechaDia, 'hospedaje') : 0;
-                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right');
-                rx += colDay;
-            }
-            const totalHosp = getMonto('hospedaje') || sol.monto_hospedaje || 0;
-            doc.lineWidth(2);
-            drawCell(rx, gy, colTotal, rowH, totalHosp > 0 ? formatMoney(totalHosp) : '', null, '#000', 'Helvetica', 8, 'right');
-            doc.lineWidth(1);
-            gy += rowH;
+            // ── Encabezado: "EXCLUSIVO FINANZAS" | Lun/17 … | TOTAL ──────────
+            drawCell(30, gy, colMain, rowHHead, 'EXCLUSIVO FINANZAS', '#FFFF00', '#FF0000', 'Helvetica-Bold', 8, 'center');
+            let rx = 30 + colMain;
+            fechasSol.slice(0, numDias).forEach(f => {
+                const d = new Date(f + 'T00:00:00');
+                const diaLabel = diasSemanaLabels[d.getDay()];
+                const numLabel = String(d.getDate());
+                // Fondo alternado claro para facilitar lectura
+                drawCell(rx, gy, dw, rowHHead, '', '#f1f5f9', null);
+                // Día de semana (arriba)
+                doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7)
+                   .text(diaLabel, rx, gy + 4, { width: dw, align: 'center' });
+                // Número del día (abajo)
+                doc.font('Helvetica').fontSize(8)
+                   .text(numLabel, rx, gy + 13, { width: dw, align: 'center' });
+                rx += dw;
+            });
+            drawCell(rx, gy, colTotal, rowHHead, 'TOTAL', '#1e293b', '#fff', 'Helvetica-Bold', 9, 'center');
+            gy += rowHHead;
 
-            drawCell(30, gy, 50, rowH*3, 'Transporte', null, '#000', 'Helvetica-Bold', 8, 'center');
-            const drawSubRow = (label, catKey, montoFallback = 0) => {
-                drawCell(80, gy, colSub, rowH, label, null, '#000', 'Helvetica', 8, 'left');
+            // ── Helper: fila diaria (Hospedaje, Alimentos, etc.) ─────────────
+            const drawFilaDiaria = (label, catKey, montoFallback = 0, bold = false) => {
+                const font  = bold ? 'Helvetica-Bold' : 'Helvetica';
+                const bgLbl = bold ? '#f8fafc' : null;
+                drawCell(30, gy, colMain, rowH, label, bgLbl, '#000', font, 8, 'left');
                 rx = 30 + colMain;
-                let totalCat = 0;
-                for(let i=0; i<7; i++) {
-                    const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
-                    const val = fechaDia && catKey ? getMontoFecha(fechaDia, catKey) : 0;
-                    totalCat += val;
-                    drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right');
-                    rx += colDay;
-                }
-                const total = totalCat > 0 ? totalCat : montoFallback;
-                doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, total > 0 ? formatMoney(total) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1);
+                let totalFila = 0;
+                fechasSol.slice(0, numDias).forEach(f => {
+                    const val = catKey ? getMontoFecha(f, catKey) : 0;
+                    totalFila += val;
+                    drawCell(rx, gy, dw, rowH,
+                        val > 0 ? formatMoney(val) : '',
+                        val > 0 ? BG_VERDE_CLARO : null,
+                        '#000', 'Helvetica', 7, 'right');
+                    rx += dw;
+                });
+                const total = totalFila > 0 ? totalFila : montoFallback;
+                doc.lineWidth(bold ? 2 : 1);
+                drawCell(rx, gy, colTotal, rowH,
+                    total > 0 ? formatMoney(total) : '-',
+                    bold ? '#f0fdf4' : null,
+                    bold ? '#15803d' : '#000', font, 8, 'right');
+                doc.lineWidth(1);
                 gy += rowH;
+                return total;
             };
 
-            drawSubRow('Aereo', 'aereo');
-            drawSubRow('Terrestre', 'terrestre');
-            drawSubRow('Vehiculo', 'vehiculo', (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
+            // ── Helper: fila de pago único (Transporte) ───────────────────────
+            // El monto va solo en la primera columna (primer día del viaje),
+            // el resto de columnas vacías, y el total al final.
+            const drawFilaUnica = (label, catKey, montoFallback = 0) => {
+                drawCell(30, gy, colMain, rowH, label, null, '#000', 'Helvetica', 8, 'left');
+                rx = 30 + colMain;
+                const total = getMonto(catKey) || montoFallback;
+                fechasSol.slice(0, numDias).forEach((_, idx) => {
+                    const val = (idx === 0 && total > 0) ? total : 0;
+                    drawCell(rx, gy, dw, rowH,
+                        val > 0 ? formatMoney(val) : '',
+                        val > 0 ? BG_VERDE_CLARO : null,
+                        '#000', 'Helvetica', 7, 'right');
+                    rx += dw;
+                });
+                drawCell(rx, gy, colTotal, rowH,
+                    total > 0 ? formatMoney(total) : '-',
+                    null, '#000', 'Helvetica', 8, 'right');
+                gy += rowH;
+                return total;
+            };
 
-            drawCell(30, gy, 50, rowH*3, 'Alimentos', null, '#000', 'Helvetica-Bold', 8, 'center');
-            drawSubRow('Almuerzo', 'almuerzo');
-            drawSubRow('Comida', 'comida', sol.monto_alimentos);
-            drawSubRow('Cena', 'cena');
+            // ── Filas ─────────────────────────────────────────────────────────
+            const tHosp  = drawFilaDiaria('Hospedaje',    'hospedaje',  sol.monto_hospedaje || 0, true);
+            const tAereo = drawFilaUnica ('Aéreo',        'aereo',      0);
+            const tTerr  = drawFilaUnica ('Terrestre',    'terrestre',  sol.monto_pasajes   || 0);
+            const tVeh   = drawFilaUnica ('Vehículo',     'vehiculo',   (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
+            const tAlim  = drawFilaDiaria('Alimentos',    'almuerzo',   sol.monto_alimentos || 0, true);
+            const tComun = drawFilaDiaria('Comunicación', 'comunicacion', 0);
+            const tOtros = drawFilaDiaria('Otros',        'otros',      sol.monto_otros     || 0);
+            const tEsp   = drawFilaDiaria('Especifique',  'especifique', 0);
 
-            drawCell(30, gy, 50, rowH, 'Comunicacion', null, '#000', 'Helvetica-Bold', 7, 'center');
-            drawSubRow('Tarjeta', 'comunicacion');
-            
-            drawCell(30, gy, colMain, rowH, 'Otros', null, '#000', 'Helvetica-Bold', 8, 'left');
-            rx = 30 + colMain;
-            const totalOtros = getMonto('otros') || sol.monto_otros || 0;
-            for(let i=0; i<7; i++) {
-                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
-                const val = fechaDia ? getMontoFecha(fechaDia, 'otros') : 0;
-                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right'); rx += colDay;
-            }
-            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, totalOtros > 0 ? formatMoney(totalOtros) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
-
-            drawCell(30, gy, colMain, rowH, 'Especifique', null, '#000', 'Helvetica', 8, 'left');
-            rx = 30 + colMain;
-            const totalEsp = getMonto('especifique') || 0;
-            for(let i=0; i<7; i++) {
-                const fechaDia = fechasSol.find(f => new Date(f+'T00:00:00').getDay() === i);
-                const val = fechaDia ? getMontoFecha(fechaDia, 'especifique') : 0;
-                drawCell(rx, gy, colDay, rowH, val > 0 ? formatMoney(val) : '', BG_VERDE_CLARO, '#000', 'Helvetica', 7, 'right'); rx += colDay;
-            }
-            doc.lineWidth(2); drawCell(rx, gy, colTotal, rowH, totalEsp > 0 ? formatMoney(totalEsp) : '', null, '#000', 'Helvetica', 8, 'right'); doc.lineWidth(1); gy += rowH;
-
+            // ── Fila TOTAL ─────────────────────────────────────────────────────
             doc.lineWidth(2);
-            let anchoMerge = colMain + (colDay*7);
-            drawCell(30, gy, anchoMerge, 18, 'TOTAL', null, '#000', 'Helvetica-Bold', 9, 'left');
-            drawCell(30+colMain, gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*2), gy, colDay*2, 18, ''); drawCell(30+colMain+(colDay*4), gy, colDay*3, 18, '');
-            drawCell(30+anchoMerge, gy, colTotal, 18, formatMoney(sol.total_solicitado), null, '#000', 'Helvetica-Bold', 9, 'right');
+            drawCell(30, gy, colMain, rowH + 4, 'TOTAL', '#1e293b', '#fff', 'Helvetica-Bold', 9, 'center');
+            rx = 30 + colMain;
+            fechasSol.slice(0, numDias).forEach((f, idx) => {
+                // Transporte va solo en día 0
+                const transp = idx === 0 ? (tAereo + tTerr + tVeh) : 0;
+                const totalDia = ['hospedaje','almuerzo','comunicacion','otros','especifique']
+                    .reduce((s, cat) => s + getMontoFecha(f, cat), 0) + transp;
+                drawCell(rx, gy, dw, rowH + 4,
+                    totalDia > 0 ? formatMoney(totalDia) : '',
+                    '#dcfce7', '#15803d', 'Helvetica-Bold', 7, 'right');
+                rx += dw;
+            });
+            const gran = sol.total_solicitado || (tHosp + tAereo + tTerr + tVeh + tAlim + tComun + tOtros + tEsp);
+            drawCell(rx, gy, colTotal, rowH + 4, formatMoney(gran), '#dcfce7', '#15803d', 'Helvetica-Bold', 9, 'right');
             doc.lineWidth(1);
-            gy += 20;
-
-            doc.font('Helvetica').fontSize(8).fillColor('#000').text('Notas (Antes o despues de impresion).', 30, gy);
-            doc.font('Helvetica').fontSize(8).fillColor('#FF0000').text('¡Para imprimir. Ver instrucciones en 5 pasos aqui!', 200, gy);
-            gy += 12;
-            drawCell(30, gy, 522, 25, '', BG_VERDE_CLARO, '#000', 'Helvetica', 8, 'left', true);
-            gy += 35; 
+            gy += rowH + 10;
 
             // ── FIRMAS INFERIORES: D.H.O. | Tesorería | Recibió ──────────────
             const wF3 = 150, gapF3 = 18;
