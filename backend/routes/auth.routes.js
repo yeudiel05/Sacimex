@@ -15,8 +15,7 @@ router.post('/login', (req, res) => {
     LEFT JOIN empleados e ON u.id_empleado = e.id_persona
     LEFT JOIN personas p ON e.id_persona = p.id
     WHERE u.username = ? AND u.estatus_activo = TRUE
-  `;
-  
+  `;  
   db.query(query, [usuario], async (err, results) => {
     if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
     

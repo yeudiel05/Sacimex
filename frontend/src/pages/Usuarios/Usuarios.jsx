@@ -983,10 +983,20 @@ function Usuarios() {
                 </div>
               ) : (() => {
                 const rolMods = PERMISOS_POR_ROL[drawerUser.rol] || [];
+                // Módulos con permiso granular activo (ver=true)
+                const modsGranularActivo = MODULOS_CATALOGO.filter(m => drawerPermisosEdit[m.key]?.puede_ver === true || (drawerPermisosEdit[m.key] && typeof drawerPermisosEdit[m.key] !== 'object'));
+                // Módulos desactivados explícitamente (ver=false pero en granular)
+                const modsDesactivados = MODULOS_CATALOGO.filter(m => drawerPermisosEdit[m.key]?.puede_ver === false);
+                // Módulos activos por rol (sin permiso granular)
+                const modsRol = MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && rolMods.includes(m.key));
+                // Módulos sin acceso
+                const modsSin = MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && !rolMods.includes(m.key));
+
                 const secciones = [
-                  { tipo:'bd',  label:'Permisos granulares', color:'#15803d', bg:'#dcfce7', border:'#bbf7d0', mods: MODULOS_CATALOGO.filter(m => drawerPermisosEdit[m.key]) },
-                  { tipo:'rol', label:`Acceso por rol — ${drawerUser.rol}`, color:'#4338ca', bg:'#e0e7ff', border:'#c7d2fe', mods: MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && rolMods.includes(m.key)) },
-                  { tipo:'sin', label:'Sin acceso — puedes agregar permisos', color:'#64748b', bg:'#f1f5f9', border:'#e2e8f0', mods: MODULOS_CATALOGO.filter(m => !drawerPermisosEdit[m.key] && !rolMods.includes(m.key)) },
+                  { tipo:'bd',       label:'Permisos granulares',                          color:'#15803d', bg:'#dcfce7', border:'#bbf7d0', mods: modsGranularActivo },
+                  { tipo:'rol',      label:`Acceso por rol — ${drawerUser.rol}`,            color:'#4338ca', bg:'#e0e7ff', border:'#c7d2fe', mods: modsRol },
+                  { tipo:'bloq',     label:'Desactivados para este usuario',               color:'#dc2626', bg:'#fee2e2', border:'#fecaca', mods: modsDesactivados },
+                  { tipo:'sin',      label:'Sin acceso — puedes agregar permisos',          color:'#64748b', bg:'#f1f5f9', border:'#e2e8f0', mods: modsSin },
                 ];
                 const ACCIONES_D = [
                   { key:'puede_ver', label:'Ver', color:'#4338ca' },
@@ -1030,20 +1040,38 @@ function Usuarios() {
                             </div>
                             <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
                               {ACCIONES_D.map(acc => {
-                                const activo = sec.tipo==='rol' ? acc.key==='puede_ver' : !!(p?.[acc.key]);
+                                const activo = sec.tipo==='rol'
+                                  ? acc.key === 'puede_ver' // rol hereda solo "ver" por defecto
+                                  : !!(p?.[acc.key]);
                                 return (
                                   <button
                                     key={acc.key}
-                                    disabled={sec.tipo==='rol'}
-                                    onClick={() => sec.tipo!=='rol' && toggleDrawerPermiso(mod.key, acc.key)}
+                                    onClick={() => {
+                                      if (sec.tipo === 'rol') {
+                                        // Al hacer click en un módulo de rol, se crea un permiso granular
+                                        // con ver=false para bloquearlo explícitamente
+                                        if (acc.key === 'puede_ver') {
+                                          toggleDrawerPermiso(mod.key, acc.key);
+                                          // Inicializar el permiso granular con todos en false
+                                          setDrawerPermisosEdit(prev => ({
+                                            ...prev,
+                                            [mod.key]: { puede_ver: false, puede_crear: false, puede_editar: false, puede_eliminar: false }
+                                          }));
+                                        }
+                                      } else {
+                                        toggleDrawerPermiso(mod.key, acc.key);
+                                      }
+                                    }}
+                                    title={sec.tipo === 'rol' && acc.key === 'puede_ver' ? 'Click para desactivar este módulo para este usuario' : ''}
                                     style={{
                                       padding:'4px 9px', borderRadius:20, fontSize:11, fontWeight:700,
                                       border: activo ? `1px solid ${acc.color}40` : '1px solid #e2e8f0',
                                       background: activo ? acc.color+'18' : '#f8fafc',
                                       color: activo ? acc.color : '#94a3b8',
-                                      cursor: sec.tipo==='rol' ? 'default' : 'pointer',
+                                      cursor: (sec.tipo === 'rol' && acc.key !== 'puede_ver') ? 'default' : 'pointer',
                                       transition:'all 0.15s',
-                                      display:'flex', alignItems:'center', gap:3, opacity: sec.tipo==='rol' ? 0.6 : 1,
+                                      display:'flex', alignItems:'center', gap:3,
+                                      opacity: (sec.tipo === 'rol' && acc.key !== 'puede_ver') ? 0.4 : 1,
                                     }}
                                   >
                                     {activo && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width:9}}><polyline points="20 6 9 17 4 12"/></svg>}
@@ -1058,12 +1086,31 @@ function Usuarios() {
                                 >
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:14}}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                 </button>
+                              ) : sec.tipo === 'bloq' ? (
+                                <button
+                                  onClick={() => { const newP = {...drawerPermisosEdit}; delete newP[mod.key]; setDrawerPermisosEdit(newP); }}
+                                  style={{ padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:700, border:'1px dashed #86efac', background:'transparent', color:'#15803d', cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
+                                  onMouseEnter={e => { e.currentTarget.style.background='#f0fdf4'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}
+                                >
+                                  ↩ Restaurar
+                                </button>
+                              ) : sec.tipo === 'rol' ? (
+                                <button
+                                  onClick={() => setDrawerPermisosEdit(prev => ({ ...prev, [mod.key]: { puede_ver: false, puede_crear: false, puede_editar: false, puede_eliminar: false } }))}
+                                  title="Desactivar este módulo para este usuario"
+                                  style={{ padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:700, border:'1px dashed #fca5a5', background:'transparent', color:'#ef4444', cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
+                                  onMouseEnter={e => { e.currentTarget.style.background='#fef2f2'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}
+                                >
+                                  ✕ Desactivar
+                                </button>
                               ) : (
                                 <button onClick={() => toggleDrawerPermiso(mod.key, 'puede_ver')} style={{ padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:700, border:'1px dashed #cbd5e1', background:'transparent', color:'#64748b', cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
                                   onMouseEnter={e => { e.currentTarget.style.borderColor='#10d440'; e.currentTarget.style.color='#10d440'; }}
                                   onMouseLeave={e => { e.currentTarget.style.borderColor='#cbd5e1'; e.currentTarget.style.color='#64748b'; }}
                                 >
-                                  {sec.tipo==='rol' ? 'Personalizar' : '+ Agregar'}
+                                  + Agregar
                                 </button>
                               )}
                             </div>

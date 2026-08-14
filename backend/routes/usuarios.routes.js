@@ -156,8 +156,12 @@ router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), asy
 
                     const idPersona = resultPersona.insertId;
 
-                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, unidad_negocio, fecha_ingreso, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria) VALUES (?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [idPersona, puesto || '', departamento || '', unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || ''], (err) => {
+                    // Obtener el id del departamento desde el catálogo
+                    db.query('SELECT id FROM catalogo_departamentos WHERE nombre = ? LIMIT 1', [departamento || ''], (errDepto, rowsDepto) => {
+                        const idDepto = rowsDepto?.[0]?.id || null;
+
+                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, id_departamento, unidad_negocio, fecha_ingreso, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria) VALUES (?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [idPersona, puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || ''], (err) => {
                             
                             if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Empleados): ' + err.message }));
 
@@ -165,13 +169,6 @@ router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), asy
                                 [idPersona, username, hashedPassword, rol, puede_solicitar || 0, nivel_autorizacion || 0, rutaFirma], (err) => {
                                     
                                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Usuarios): ' + err.message }));
-
-                                    // Sincronizar id_departamento al crear
-                                    db.query(
-                                        'UPDATE usuarios u JOIN catalogo_departamentos cd ON cd.nombre = ? SET u.id_departamento = cd.id WHERE u.id_empleado = ?',
-                                        [departamento || '', idPersona],
-                                        (errD) => { if (errD) console.error('Error sync id_departamento al crear:', errD.message); }
-                                    );
 
                                     db.commit(err => {
                                         if (err) return db.rollback(() => res.status(500).json({ success: false }));
@@ -199,6 +196,7 @@ router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), asy
                                     });
                                 });
                         });
+                    }); // cierre query catalogo_departamentos
                 });
         });
     } catch (error) {
@@ -243,16 +241,12 @@ router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('fi
                         [nombre || '', telefono || '', email || '', titulo || '', iniciales || '', id_persona], (err) => {
                             if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Personas: ' + err.message }));
 
-                            db.query('UPDATE empleados SET puesto=?, departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
-                                [puesto || '', departamento || '', unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
-                                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
+                            db.query('SELECT id FROM catalogo_departamentos WHERE nombre = ? LIMIT 1', [departamento || ''], (errDepto, rowsDepto) => {
+                                const idDepto = rowsDepto?.[0]?.id || null;
 
-                                    // Sincronizar id_departamento en usuarios basado en el nombre del departamento
-                                    db.query(
-                                        'UPDATE usuarios u JOIN catalogo_departamentos cd ON cd.nombre = ? SET u.id_departamento = cd.id WHERE u.id = ?',
-                                        [departamento || '', id_usuario],
-                                        (errDept) => { if (errDept) console.error('Error sync id_departamento:', errDept.message); }
-                                    );
+                            db.query('UPDATE empleados SET puesto=?, departamento=?, id_departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
+                                [puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
+                                    if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
                                     
                                     let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';
                                     let paramsUser = [username, rol, puede_solicitar || 0, nivel_autorizacion || 0];
@@ -275,12 +269,12 @@ router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('fi
 
                                         db.commit(err => {
                                             if (err) return db.rollback(() => res.status(500).json({ success: false }));
-                                            // REGISTRO EN BITACORA - EDITAR USUARIO (usa username)
                                             registrarBitacora(req.usuario.id, 'EDITAR_USUARIO', `Se edito al usuario: ${nombreUsuarioActual}`, req);
                                             res.json({ success: true, message: 'Usuario actualizado correctamente.' });
                                         });
                                     });
                                 });
+                            }); // cierre query catalogo_departamentos
                         });
                 });
             } catch (error) {

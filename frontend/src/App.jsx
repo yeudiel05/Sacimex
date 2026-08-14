@@ -27,10 +27,9 @@ function PermisosProvider({ children }) {
   const token  = localStorage.getItem('token');
   const rol    = (localStorage.getItem('rol') || '').toUpperCase();
 
-  // ADMIN no necesita permisos granulares — siempre listo
-  const [permisos, setPermisos] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem('permisos') || '{}'); } catch { return {}; }
-  });
+  // Iniciar siempre con permisos vacíos — se cargan del servidor
+  // para evitar que permisos obsoletos del localStorage bloqueen rutas
+  const [permisos, setPermisos] = React.useState({});
   const [listo, setListo] = React.useState(rol === 'ADMIN' || !token);
 
   const refrescar = React.useCallback(async () => {
@@ -62,41 +61,56 @@ function PermisosProvider({ children }) {
   );
 }
 
+// Tabla centralizada de módulos por rol — fuente única de verdad
+const PERMISOS_POR_ROL = {
+  ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+  CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
+  AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+  TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
+  'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
+  GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
+  DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
+  AUXILIAR:      ['dashboard','solicitudes','historial','viaticos'],
+  ALMACEN:       ['dashboard','proveedores'],
+};
+
 // ProtectedRoute — espera a que los permisos estén listos antes de evaluar
-const ProtectedRoute = ({ children, modulo, rolesPermitidos = [], deptosPermitidos = [] }) => {
+const ProtectedRoute = ({ children, modulo }) => {
   const token = localStorage.getItem('token');
   if (!token) return <Navigate to="/" replace />;
 
-  const rol   = (localStorage.getItem('rol')          || '').trim().toUpperCase();
-  const depto = (localStorage.getItem('departamento') || '').trim().toUpperCase();
-
+  const rol = (localStorage.getItem('rol') || '').trim().toUpperCase();
   if (rol === 'ADMIN') return children;
 
   const { permisos, listo } = React.useContext(PermisosContext);
 
-  // Esperar a que carguen los permisos del servidor antes de decidir
-  if (!listo) return null;
+  // Mostrar spinner mientras cargan los permisos del servidor
+  if (!listo) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#f8fafc' }}>
+      <div style={{ width:32, height:32, borderRadius:'50%', border:'3px solid #e2e8f0', borderTopColor:'#10b981', animation:'spin 0.8s linear infinite' }} />
+    </div>
+  );
 
-  // Permiso granular explícito → esa regla manda
+  // 1. Permiso granular explícito → manda siempre
   if (modulo && modulo in permisos) {
     const p = permisos[modulo];
     const puedeVer = typeof p === 'object' ? !!p.ver : !!p;
     return puedeVer ? children : <Navigate to="/dashboard" replace />;
   }
 
-  // Sin permiso granular → fallback al rol/depto
-  const tieneRol   = rolesPermitidos.length === 0 || rolesPermitidos.includes(rol);
-  const tieneDepto = deptosPermitidos.length > 0  && deptosPermitidos.includes(depto);
+  // 2. Sin granular → usar tabla de rol base
+  if (modulo) {
+    const modulosRol = PERMISOS_POR_ROL[rol] || [];
+    if (!modulosRol.includes(modulo)) return <Navigate to="/dashboard" replace />;
+  }
 
-  if (tieneRol || tieneDepto) return children;
-  return <Navigate to="/dashboard" replace />;
+  return children;
 };
 
 // ============================================================
 function App() {
-  const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
-  const deptosVistoBueno = ['COORDINACION TI', 'COORDINACION DHO', 'GERENCIA GENERAL', 'DIRECCION'];
-
   return (
     <PermisosProvider>
     <Router>
@@ -105,89 +119,59 @@ function App() {
 
         <Route element={<Layout />}>
           <Route path="/dashboard" element={
-            <ProtectedRoute modulo="dashboard" rolesPermitidos={rolesGenerales}>
-              <Dashboard />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="dashboard"><Dashboard /></ProtectedRoute>
           } />
 
           <Route path="/clientes" element={
-            <ProtectedRoute modulo="clientes" rolesPermitidos={['ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR']} deptosPermitidos={['DIRECCION', 'GERENCIA GENERAL']}>
-              <Clientes />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="clientes"><Clientes /></ProtectedRoute>
           } />
 
           <Route path="/inversores" element={
-            <ProtectedRoute modulo="inversores" rolesPermitidos={['ADMIN', 'CONTADOR']} deptosPermitidos={['CONTABILIDAD', 'DIRECCION']}>
-              <Inversores />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="inversores"><Inversores /></ProtectedRoute>
           } />
 
           <Route path="/proveedores" element={
-            <ProtectedRoute modulo="proveedores" rolesPermitidos={['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']}>
-              <Proveedores />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="proveedores"><Proveedores /></ProtectedRoute>
           } />
 
           <Route path="/solicitudes/nueva" element={
-            <ProtectedRoute modulo="solicitudes" rolesPermitidos={rolesGenerales}>
-              <Solicitud />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="solicitudes"><Solicitud /></ProtectedRoute>
           } />
           <Route path="/solicitudes/historial" element={
-            <ProtectedRoute modulo="historial" rolesPermitidos={rolesGenerales}>
-              <Historial />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="historial"><Historial /></ProtectedRoute>
           } />
           <Route path="/solicitudes/detalle/:id" element={
-            <ProtectedRoute modulo="historial" rolesPermitidos={rolesGenerales}>
-              <DetalleSolicitud />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="historial"><DetalleSolicitud /></ProtectedRoute>
           } />
 
           <Route path="/viaticos" element={
-            <ProtectedRoute modulo="viaticos" rolesPermitidos={rolesGenerales}>
-              <Viaticos />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="viaticos"><Viaticos /></ProtectedRoute>
           } />
           <Route path="/revision-viaticos" element={
-            <ProtectedRoute modulo="bandeja_dho" rolesPermitidos={['D.H.O', 'ADMIN']}>
-              <RevisionViaticos />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="bandeja_dho"><RevisionViaticos /></ProtectedRoute>
           } />
 
           <Route path="/autorizaciones" element={
-            <ProtectedRoute modulo="autorizaciones" rolesPermitidos={['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA']} deptosPermitidos={deptosVistoBueno}>
-              <Autorizaciones />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="autorizaciones"><Autorizaciones /></ProtectedRoute>
           } />
 
           <Route path="/reportes" element={
-            <ProtectedRoute modulo="reportes" rolesPermitidos={['ADMIN', 'CONTADOR']}>
-              <Reportes />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="reportes"><Reportes /></ProtectedRoute>
           } />
 
           <Route path="/usuarios" element={
-            <ProtectedRoute modulo="usuarios" rolesPermitidos={['ADMIN']}>
-              <Usuarios />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="usuarios"><Usuarios /></ProtectedRoute>
           } />
 
           <Route path="/configuracion" element={
-            <ProtectedRoute modulo="configuracion" rolesPermitidos={['ADMIN']}>
-              <Configuracion />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="configuracion"><Configuracion /></ProtectedRoute>
           } />
           <Route path="/configuracion/matriz-autorizacion" element={
-            <ProtectedRoute modulo="matriz" rolesPermitidos={['ADMIN']}>
-              <MatrizAutorizacion />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="matriz"><MatrizAutorizacion /></ProtectedRoute>
           } />
 
           <Route path="/auditoria" element={
-            <ProtectedRoute modulo="auditoria" rolesPermitidos={['ADMIN']}>
-              <Auditoria />
-            </ProtectedRoute>
+            <ProtectedRoute modulo="auditoria"><Auditoria /></ProtectedRoute>
           } />
         </Route>
       </Routes>

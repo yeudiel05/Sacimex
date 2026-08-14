@@ -33,18 +33,34 @@ function Layout() {
   })();
 
   // Decide si un módulo debe mostrarse en el menú
-  const puedeVerModulo = (modulo, rolesFallback = [], deptosFallback = []) => {
+  // Tabla centralizada de módulos por rol — fuente única de verdad
+  // que comparte lógica con App.jsx (ProtectedRoute) y Usuarios.jsx (drawer de permisos)
+  const PERMISOS_POR_ROL = {
+    ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+    CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
+    AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
+    TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
+    'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
+    GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
+    DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
+    AUXILIAR:      ['dashboard','solicitudes','historial','viaticos'],
+    ALMACEN:       ['dashboard','proveedores'],
+  };
+
+  const puedeVerModulo = (modulo) => {
     if (userRole === 'ADMIN') return true;
-    // Si tiene permiso granular explícito, ese manda
+
+    // 1. Permiso granular explícito → manda siempre (puede activar o desactivar)
     if (modulo in permisosGranulares) {
       const p = permisosGranulares[modulo];
-      // Nuevo formato: { ver, crear, editar, eliminar } o legacy: true/false
       return typeof p === 'object' ? !!p.ver : !!p;
     }
-    // Sin permiso granular → evalúa rol/depto
-    if (rolesFallback.includes(userRole)) return true;
-    if (deptosFallback.length > 0 && deptosFallback.includes(userDepto)) return true;
-    return false;
+
+    // 2. Sin granular → consultar tabla de rol base
+    const modulosRol = PERMISOS_POR_ROL[userRole] || [];
+    return modulosRol.includes(modulo);
   };
 
   const fetchNotificaciones = async () => {
@@ -136,61 +152,61 @@ function Layout() {
     {
       path: '/dashboard',
       label: 'Dashboard',
-      mostrar: puedeVerModulo('dashboard', rolesGenerales),
+      mostrar: puedeVerModulo('dashboard'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
     },
     {
       path: '/usuarios',
       label: 'Usuarios y Roles',
-      mostrar: puedeVerModulo('usuarios', ['ADMIN']),
+      mostrar: puedeVerModulo('usuarios'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
     },
     {
       path: '/clientes',
       label: 'Clientes',
-      mostrar: puedeVerModulo('clientes', ['ADMIN', 'CONTADOR', 'GERENTE', 'DIRECTOR'], ['DIRECCION', 'GERENCIA GENERAL']),
+      mostrar: puedeVerModulo('clientes'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
     },
     {
       path: '/inversores',
       label: 'Fondeadores',
-      mostrar: puedeVerModulo('inversores', ['ADMIN', 'CONTADOR'], ['CONTABILIDAD', 'DIRECCION']),
+      mostrar: puedeVerModulo('inversores'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
     },
     {
       path: '/proveedores',
       label: 'Proveedores',
-      mostrar: puedeVerModulo('proveedores', ['ADMIN', 'CONTADOR', 'ALMACEN', 'TESORERIA']),
+      mostrar: puedeVerModulo('proveedores'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
     },
     {
       path: '/solicitudes/nueva',
       label: 'Solicitudes',
-      mostrar: puedeVerModulo('solicitudes', rolesGenerales),
+      mostrar: puedeVerModulo('solicitudes'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
     },
     {
       path: '/viaticos',
       label: 'Solicitud de Viáticos',
-      mostrar: puedeVerModulo('viaticos', rolesGenerales),
+      mostrar: puedeVerModulo('viaticos'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
     },
     {
       path: '/revision-viaticos',
       label: 'Bandeja D.H.O.',
-      mostrar: puedeVerModulo('bandeja_dho', ['D.H.O', 'ADMIN']),
+      mostrar: puedeVerModulo('bandeja_dho'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
     },
     {
       path: '/autorizaciones',
       label: 'Autorizar Pagos',
-      mostrar: puedeVerModulo('autorizaciones', ['ADMIN', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'], deptosVistoBueno),
+      mostrar: puedeVerModulo('autorizaciones'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M9 12l2 2 4-4"></path></svg>
     },
     {
       path: '/configuracion',
       label: 'Configuraciones',
-      mostrar: puedeVerModulo('configuracion', ['ADMIN']),
+      mostrar: puedeVerModulo('configuracion'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
     },
     {

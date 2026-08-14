@@ -352,14 +352,14 @@ router.get('/mis-permisos', verificarToken, (req, res) => {
             if (err) return res.status(500).json({ success: false });
             const permisos = {};
             rows.forEach(p => {
-                if (p.puede_ver) {
-                    permisos[p.modulo] = {
-                        ver:      !!p.puede_ver,
-                        crear:    !!p.puede_crear,
-                        editar:   !!p.puede_editar,
-                        eliminar: !!p.puede_eliminar,
-                    };
-                }
+                // Incluir TODOS los módulos con permiso granular, incluso ver=false,
+                // para que el frontend pueda bloquear módulos heredados por rol
+                permisos[p.modulo] = {
+                    ver:      !!p.puede_ver,
+                    crear:    !!p.puede_crear,
+                    editar:   !!p.puede_editar,
+                    eliminar: !!p.puede_eliminar,
+                };
             });
             res.json({ success: true, permisos });
         }
