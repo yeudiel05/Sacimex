@@ -98,13 +98,18 @@ const Solicitud = () => {
     const [unidadesNegocio, setUnidadesNegocio] = useState([]);
     const [loadingUnidades, setLoadingUnidades] = useState(true);
 
-    // NUEVO: Estado para el archivo adjunto
     const [archivoCotizacion, setArchivoCotizacion] = useState(null);
+
+    // Datos del cheque — se auto-llenan al seleccionar unidad + forma_pago=CHEQUE
+    const [datosCheque, setDatosCheque] = useState({
+        numero_cheque: '',
+        nombre_proveedor: '',
+    });
 
     const [formData, setFormData] = useState({
         concepto_id: '',
         unidad_negocio: userRole === 'ADMIN' ? '' : userUnidad,
-        id_proveedor: '', 
+        id_proveedor: '',
         forma_pago: 'TRANSFERENCIA',
         monto: '',
         descripcion: '',
@@ -200,6 +205,18 @@ const Solicitud = () => {
         formDataToSend.append('unidad_negocio', formData.unidad_negocio);
         formDataToSend.append('id_proveedor', formData.id_proveedor);
         formDataToSend.append('forma_pago', formData.forma_pago);
+        if (formData.forma_pago === 'CHEQUE') {
+            // Calcular cuenta directo aquí para evitar problemas de closure
+            const unidadActual = unidadesNegocio.find(u => u.nombre === formData.unidad_negocio);
+            const cuentaActual = unidadActual?.cuenta_bancaria || '';
+            const bancoActual  = unidadActual?.banco || '';
+            console.log('[Cheque] unidad:', formData.unidad_negocio, '→ cuenta:', cuentaActual, 'banco:', bancoActual);
+            formDataToSend.append('numero_cheque',      datosCheque.numero_cheque);
+            formDataToSend.append('nombre_beneficiario', proveedorSeleccionado?.nombre_razon_social || '');
+            formDataToSend.append('cuenta_afectada',    cuentaActual);
+            formDataToSend.append('banco_afectado',     bancoActual);
+            formDataToSend.append('monto_letra',        montoNumerico > 0 ? numeroALetras(montoNumerico) : '');
+        }
         formDataToSend.append('monto', formData.monto);
         formDataToSend.append('descripcion', formData.descripcion);
         formDataToSend.append('fecha_limite_pago', formData.fecha_limite_pago);
@@ -231,8 +248,37 @@ const Solicitud = () => {
     };
 
     const conceptoSeleccionado = conceptosDB.find((c) => String(c.id) === String(formData.concepto_id));
-    const unidadSeleccionada = unidadesNegocio.find((u) => u.nombre === formData.unidad_negocio);
+    const unidadSeleccionada   = unidadesNegocio.find((u) => u.nombre === formData.unidad_negocio);
     const proveedorSeleccionado = proveedoresDB.find((p) => String(p.id_persona || p.id) === String(formData.id_proveedor));
+
+    const esCheque = formData.forma_pago === 'CHEQUE';
+
+    // Convertir número a letras (pesos mexicanos)
+    const numeroALetras = (num) => {
+        const unidades = ['','UN','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE',
+                          'DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISÉIS','DIECISIETE','DIECIOCHO','DIECINUEVE'];
+        const decenas  = ['','DIEZ','VEINTE','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA'];
+        const centenas = ['','CIENTO','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS','SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS'];
+        const toText = (n) => {
+            if (n === 0) return '';
+            if (n === 100) return 'CIEN';
+            if (n < 20) return unidades[n];
+            if (n < 100) return decenas[Math.floor(n/10)] + (n%10 ? ' Y ' + unidades[n%10] : '');
+            return centenas[Math.floor(n/100)] + (n%100 ? ' ' + toText(n%100) : '');
+        };
+        const entero  = Math.floor(num);
+        const decimal = Math.round((num - entero) * 100);
+        let texto = '';
+        if (entero >= 1000000) { texto += toText(Math.floor(entero/1000000)) + ' MILLÓN '; }
+        if (entero >= 1000)    { const miles = Math.floor((entero%1000000)/1000); texto += (miles === 1 ? 'MIL' : toText(miles) + ' MIL'); texto += ' '; }
+        texto += toText(entero % 1000);
+        texto = texto.trim() + ' PESOS ' + String(decimal).padStart(2,'0') + '/100 M.N.';
+        return texto;
+    };
+
+    const montoNumerico = parseFloat(String(formData.monto || '0').replace(/,/g, '')) || 0;
+    const cuentaUnidad  = unidadSeleccionada?.cuenta_bancaria || '';
+    const bancoUnidad   = unidadSeleccionada?.banco || '';
 
     return (
         <div className="solicitud-container">
@@ -465,6 +511,24 @@ const Solicitud = () => {
                                 </select>
                             </div>
                         </div>
+
+                        {/* BLOQUE CHEQUE — solo visible cuando forma_pago = CHEQUE */}
+                        {esCheque && (
+                            <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'12px', padding:'20px', marginBottom:'16px' }}>
+                                <h4 style={{ margin:'0 0 16px', fontSize:'14px', fontWeight:'800', color:'#92400e' }}>
+                                    Datos de la Póliza de Cheque
+                                </h4>
+                                <div className="form-group">
+                                    <label className="form-label">Número de Cheque</label>
+                                    <input type="text" className="form-input"
+                                        value={datosCheque.numero_cheque}
+                                        onChange={e => setDatosCheque(prev => ({ ...prev, numero_cheque: e.target.value }))}
+                                        placeholder="Ej. 001234"
+                                        maxLength={20}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* ── FILA: Monto + Fecha Limite de Pago ── */}
                         <div className="form-row-2">

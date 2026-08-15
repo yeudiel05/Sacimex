@@ -6,227 +6,75 @@ const db = require('../db');
 
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 
-/**
- * GET - Obtener todas las unidades (Ruta Protegida)
- */
+// GET - Obtener todas las unidades con datos bancarios
 router.get('/', verificarToken, (req, res) => {
-    const sql = `
-        SELECT *
-        FROM unidades_negocio
-        ORDER BY id ASC
-    `;
-
-    db.query(sql, (err, results) => {
-        if (err) {
-            console.error('Error al obtener unidades:', err);
-            return res.status(500).json({
-                success: false,
-                message: 'Error al obtener las unidades',
-                error: err.message
-            });
+    db.query(
+        `SELECT id, nombre, cuenta_bancaria, banco, clabe, estatus_activo
+         FROM unidades_negocio ORDER BY id ASC`,
+        (err, results) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.status(200).json({ success: true, data: results });
         }
-
-        res.status(200).json({
-            success: true,
-            data: results
-        });
-    });
+    );
 });
 
-/**
- * POST - Crear nueva unidad (Ruta Protegida)
- */
+// POST - Crear nueva unidad
 router.post('/', verificarToken, (req, res) => {
-    let { nombre } = req.body;
-
+    let { nombre, cuenta_bancaria, banco, clabe } = req.body;
     nombre = nombre?.trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es obligatorio' });
 
-    if (!nombre) {
-        return res.status(400).json({
-            success: false,
-            message: 'El nombre es obligatorio'
-        });
-    }
+    db.query('SELECT id FROM unidades_negocio WHERE nombre = ? LIMIT 1', [nombre], (err, existe) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (existe.length > 0) return res.status(409).json({ success: false, message: 'Ya existe una unidad con ese nombre' });
 
-    const verificarSql = `
-        SELECT id
-        FROM unidades_negocio
-        WHERE nombre = ?
-        LIMIT 1
-    `;
-
-    db.query(verificarSql, [nombre], (err, existe) => {
-        if (err) {
-            console.error('Error al validar unidad:', err);
-            return res.status(500).json({
-                success: false,
-                message: 'Error al validar la unidad',
-                error: err.message
-            });
-        }
-
-        if (existe.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Ya existe una unidad con ese nombre'
-            });
-        }
-
-        const insertSql = `
-            INSERT INTO unidades_negocio
-            (nombre, estatus_activo)
-            VALUES (?, 1)
-        `;
-
-        db.query(insertSql, [nombre], (err, result) => {
-            if (err) {
-                console.error('Error al crear unidad:', err);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Error al crear la unidad',
-                    error: err.message
-                });
+        db.query(
+            `INSERT INTO unidades_negocio (nombre, cuenta_bancaria, banco, clabe, estatus_activo) VALUES (?, ?, ?, ?, 1)`,
+            [nombre, cuenta_bancaria || null, banco || null, clabe || null],
+            (err, result) => {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                try { registrarBitacora(req.usuario.id, 'CREAR_UNIDAD_NEGOCIO', `Creó la unidad: ${nombre}`, req); } catch {}
+                res.status(201).json({ success: true, message: 'Unidad creada correctamente', id: result.insertId });
             }
-            
-            try {
-                registrarBitacora(req.usuario.id, 'CREAR_UNIDAD_NEGOCIO', `Creó la nueva unidad de negocio: ${nombre}`, req);
-            } catch (bitErr) {}
-
-            res.status(201).json({
-                success: true,
-                message: 'Unidad creada correctamente',
-                id: result.insertId
-            });
-        });
+        );
     });
 });
 
-/**
- * PUT - Actualizar unidad (Ruta Protegida)
- */
+// PUT - Actualizar unidad (nombre + datos bancarios)
 router.put('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
-    let { nombre } = req.body;
-
-    if (isNaN(id)) {
-        return res.status(400).json({
-            success: false,
-            message: 'ID inválido'
-        });
-    }
-
+    let { nombre, cuenta_bancaria, banco, clabe } = req.body;
+    if (isNaN(id)) return res.status(400).json({ success: false, message: 'ID inválido' });
     nombre = nombre?.trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es obligatorio' });
 
-    if (!nombre) {
-        return res.status(400).json({
-            success: false,
-            message: 'El nombre es obligatorio'
-        });
-    }
+    db.query('SELECT id FROM unidades_negocio WHERE nombre = ? AND id <> ? LIMIT 1', [nombre, id], (err, existe) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (existe.length > 0) return res.status(409).json({ success: false, message: 'Ya existe una unidad con ese nombre' });
 
-    const validarDuplicadoSql = `
-        SELECT id
-        FROM unidades_negocio
-        WHERE nombre = ?
-        AND id <> ?
-        LIMIT 1
-    `;
-
-    db.query(validarDuplicadoSql, [nombre, id], (err, existe) => {
-        if (err) {
-            console.error('Error al validar duplicados:', err);
-            return res.status(500).json({
-                success: false,
-                message: 'Error al validar la unidad',
-                error: err.message
-            });
-        }
-
-        if (existe.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Ya existe una unidad con ese nombre'
-            });
-        }
-
-        const updateSql = `
-            UPDATE unidades_negocio
-            SET nombre = ?
-            WHERE id = ?
-        `;
-
-        db.query(updateSql, [nombre, id], (err, result) => {
-            if (err) {
-                console.error('Error al actualizar unidad:', err);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Error al actualizar la unidad',
-                    error: err.message
-                });
+        db.query(
+            `UPDATE unidades_negocio SET nombre = ?, cuenta_bancaria = ?, banco = ?, clabe = ? WHERE id = ?`,
+            [nombre, cuenta_bancaria || null, banco || null, clabe || null, id],
+            (err, result) => {
+                if (err) return res.status(500).json({ success: false, message: err.message });
+                if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Unidad no encontrada' });
+                try { registrarBitacora(req.usuario.id, 'EDITAR_UNIDAD_NEGOCIO', `Actualizó unidad ID ${id}: ${nombre}`, req); } catch {}
+                res.status(200).json({ success: true, message: 'Unidad actualizada correctamente' });
             }
-
-            if (result.affectedRows === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Unidad no encontrada'
-                });
-            }
-            
-            try {
-                registrarBitacora(req.usuario.id, 'EDITAR_UNIDAD_NEGOCIO', `Actualizó el nombre de la unidad ID ${id} a: ${nombre}`, req);
-            } catch (bitErr) {}
-
-            res.status(200).json({
-                success: true,
-                message: 'Unidad actualizada correctamente'
-            });
-        });
+        );
     });
 });
 
-/**
- * DELETE - Eliminar unidad (Ruta Protegida)
- */
+// DELETE - Eliminar unidad
 router.delete('/:id', verificarToken, (req, res) => {
     const { id } = req.params;
+    if (isNaN(id)) return res.status(400).json({ success: false, message: 'ID inválido' });
 
-    if (isNaN(id)) {
-        return res.status(400).json({
-            success: false,
-            message: 'ID inválido'
-        });
-    }
-
-    const deleteSql = `
-        DELETE FROM unidades_negocio
-        WHERE id = ?
-    `;
-
-    db.query(deleteSql, [id], (err, result) => {
-        if (err) {
-            console.error('Error al eliminar unidad:', err);
-            return res.status(500).json({
-                success: false,
-                message: 'Error al eliminar la unidad',
-                error: err.message
-            });
-        }
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Unidad no encontrada'
-            });
-        }
-        
-        try {
-            registrarBitacora(req.usuario.id, 'ELIMINAR_UNIDAD_NEGOCIO', `Eliminó la unidad de negocio ID: ${id}`, req);
-        } catch (bitErr) {}
-
-        res.status(200).json({
-            success: true,
-            message: 'Unidad eliminada correctamente'
-        });
+    db.query('DELETE FROM unidades_negocio WHERE id = ?', [id], (err, result) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: 'Unidad no encontrada' });
+        try { registrarBitacora(req.usuario.id, 'ELIMINAR_UNIDAD_NEGOCIO', `Eliminó unidad ID: ${id}`, req); } catch {}
+        res.status(200).json({ success: true, message: 'Unidad eliminada correctamente' });
     });
 });
 

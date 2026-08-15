@@ -31,7 +31,7 @@ function Configuracion() {
   const [isUnidadModalOpen, setIsUnidadModalOpen] = useState(false);
   const [isEditingUnidad, setIsEditingUnidad] = useState(false);
   const [editUnidadId, setEditUnidadId] = useState(null);
-  const [unidadFormData, setUnidadFormData] = useState({ nombre: '' });
+  const [unidadFormData, setUnidadFormData] = useState({ nombre: '', cuenta_bancaria: '', banco: '', clabe: '' });
 
   // --- ESTADOS PARA CATÁLOGO DE GASTOS ---
   const [conceptos, setConceptos] = useState([]);
@@ -153,8 +153,8 @@ function Configuracion() {
   // ==========================================
   // CONTROLADORES DE MODALES (UNIDADES)
   // ==========================================
-  const openNewUnidadModal = () => { setIsEditingUnidad(false); setEditUnidadId(null); setUnidadFormData({ nombre: '' }); setIsUnidadModalOpen(true); };
-  const openEditUnidadModal = (u) => { setIsEditingUnidad(true); setEditUnidadId(u.id); setUnidadFormData({ nombre: u.nombre }); setIsUnidadModalOpen(true); };
+  const openNewUnidadModal  = () => { setIsEditingUnidad(false); setEditUnidadId(null); setUnidadFormData({ nombre: '', cuenta_bancaria: '', banco: '', clabe: '' }); setIsUnidadModalOpen(true); };
+  const openEditUnidadModal = (u) => { setIsEditingUnidad(true); setEditUnidadId(u.id); setUnidadFormData({ nombre: u.nombre, cuenta_bancaria: u.cuenta_bancaria || '', banco: u.banco || '', clabe: u.clabe || '' }); setIsUnidadModalOpen(true); };
   const handleUnidadSubmit = async (e) => {
     e.preventDefault(); const headers = getAuthHeaders(); setIsLoading(true);
     const url = isEditingUnidad ? `/api/unidades/${editUnidadId}` : '/api/unidades';
@@ -404,6 +404,13 @@ function Configuracion() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-main)' }}>{unidad.nombre}</span>
+                      {unidad.cuenta_bancaria ? (
+                        <span style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          🏦 {unidad.banco || 'Banco'} — {unidad.cuenta_bancaria}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }}>Sin cuenta bancaria</span>
+                      )}
                       <button onClick={() => cambiarEstatusUnidad(unidad.id, unidad.estatus_activo !== false && unidad.estatus_activo !== 0 ? 1 : 0)} style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold', border: 'none', cursor: 'pointer', marginTop: '4px', alignSelf: 'flex-start', backgroundColor: (unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? '#dcfce3' : '#fef2f2', color: (unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? '#166534' : '#ef4444' }}>
                           {(unidad.estatus_activo !== false && unidad.estatus_activo !== 0) ? 'ACTIVO' : 'INACTIVO'}
                       </button>
@@ -686,11 +693,57 @@ function Configuracion() {
       {/* MODAL UNIDADES */}
       {isUnidadModalOpen && (
         <div className="modal-overlay" style={{ zIndex: 1050 }}>
-          <div className="modal-content fade-in-down" style={{maxWidth: '500px', borderRadius: '16px'}}>
-            <div className="modal-header"><h2>{isEditingUnidad ? 'Editar Unidad' : 'Nueva Unidad de Negocio'}</h2><button className="btn-close" onClick={() => setIsUnidadModalOpen(false)}>×</button></div>
-            <form onSubmit={handleUnidadSubmit} style={{ padding: '24px' }}>
-              <div className="form-group"><label>Nombre de la Unidad (Clave - Sede)</label><input type="text" required value={unidadFormData.nombre} onChange={(e) => setUnidadFormData({ nombre: e.target.value })} /></div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '32px' }}><button type="button" className="btn-cancel" onClick={() => setIsUnidadModalOpen(false)}>Cancelar</button><button type="submit" className="btn-primary" style={{ backgroundColor: '#3b82f6' }} disabled={isLoading}>{isLoading ? 'Guardando...' : 'Guardar Unidad'}</button></div>
+          <div className="modal-content fade-in-down" style={{ maxWidth:'560px', borderRadius:'16px' }}>
+            <div className="modal-header">
+              <h2>{isEditingUnidad ? 'Editar Unidad' : 'Nueva Unidad de Negocio'}</h2>
+              <button className="btn-close" onClick={() => setIsUnidadModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleUnidadSubmit} style={{ padding:'24px' }}>
+              <div className="form-group" style={{ marginBottom:'16px' }}>
+                <label style={{ display:'block', fontSize:'12px', fontWeight:'bold', color:'#475569', marginBottom:'8px' }}>
+                  Nombre de la Unidad (Clave - Sede) <span style={{ color:'red' }}>*</span>
+                </label>
+                <input type="text" required value={unidadFormData.nombre}
+                  onChange={e => setUnidadFormData(prev => ({ ...prev, nombre: e.target.value }))}
+                  style={{ width:'100%', padding:'10px 12px', borderRadius:'8px', border:'1px solid #cbd5e1', outline:'none', boxSizing:'border-box' }} />
+              </div>
+
+              <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'10px', padding:'16px', marginBottom:'16px' }}>
+                <p style={{ margin:'0 0 14px', fontSize:'12px', fontWeight:'700', color:'#92400e' }}>
+                  🏦 Cuenta Bancaria para Póliza de Cheque
+                </p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' }}>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'bold', color:'#475569', marginBottom:'6px' }}>Banco</label>
+                    <input type="text" value={unidadFormData.banco}
+                      onChange={e => setUnidadFormData(prev => ({ ...prev, banco: e.target.value }))}
+                      placeholder="Ej. BBVA"
+                      style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1px solid #cbd5e1', outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'bold', color:'#475569', marginBottom:'6px' }}>Número de Cuenta</label>
+                    <input type="text" value={unidadFormData.cuenta_bancaria}
+                      onChange={e => setUnidadFormData(prev => ({ ...prev, cuenta_bancaria: e.target.value }))}
+                      placeholder="Ej. 111480715"
+                      style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1px solid #cbd5e1', outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  <div style={{ gridColumn:'1 / -1' }}>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'bold', color:'#475569', marginBottom:'6px' }}>CLABE Interbancaria <span style={{ fontWeight:'normal', color:'#94a3b8' }}>(opcional)</span></label>
+                    <input type="text" value={unidadFormData.clabe}
+                      onChange={e => setUnidadFormData(prev => ({ ...prev, clabe: e.target.value }))}
+                      placeholder="18 dígitos"
+                      maxLength={18}
+                      style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1px solid #cbd5e1', outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:'12px', marginTop:'8px' }}>
+                <button type="button" className="btn-cancel" onClick={() => setIsUnidadModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="btn-primary" style={{ backgroundColor:'#3b82f6' }} disabled={isLoading}>
+                  {isLoading ? 'Guardando...' : 'Guardar Unidad'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

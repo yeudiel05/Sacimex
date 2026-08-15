@@ -355,7 +355,8 @@ router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AU
 
 router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), upload.single('cotizacion'), (req, res) => {
     try {
-        const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago, unidad_negocio } = req.body;
+        const { concepto_id, monto, descripcion, id_proveedor, forma_pago, fecha_limite_pago, unidad_negocio,
+                numero_cheque, nombre_beneficiario, cuenta_afectada, banco_afectado, monto_letra } = req.body;
         
         const solicitante_id = req.usuario.id;
         const miRol = req.usuario.rol;
@@ -408,14 +409,16 @@ router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 
                 const query = `
                     INSERT INTO solicitudes_recursos 
                     (solicitante_id, concepto_id, descripcion, monto, unidad_negocio, 
-                     id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago, cotizacion_path) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     id_proveedor, forma_pago, estatus, nivel_actual, niveles_requeridos, fecha_limite_pago, cotizacion_path,
+                     numero_cheque, cuenta_afectada, banco_afectado, monto_letra) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `;
 
                 db.query(query, [
                     solicitante_id, concepto_id, descripcion, montoNum,
-                    unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA', 
-                    estatusInicial, nivelInicial, niveles, fechaLimiteFinal, cotizacionPath
+                    unidad_negocio_final, idProvFinal, forma_pago || 'TRANSFERENCIA',
+                    estatusInicial, nivelInicial, niveles, fechaLimiteFinal, cotizacionPath,
+                    numero_cheque || null, cuenta_afectada || null, banco_afectado || null, monto_letra || null
                 ], async (err, result) => {
                     if (err) {
                         console.error("Error BD en Crear Solicitud:", err);
@@ -817,8 +820,7 @@ function generarPDFSolicitud(res, sol, firmas) {
 
     y += 13;
     drawCell(LEFT, y, 120, 15, (sol.forma_pago || 'TRANSFERENCIA').toUpperCase(), C_AMARILLO, C_AZUL, 'left', true, 8, 4);
-    // Campo amarillo vacío para No. Cheque o Referencia
-    drawCell(LEFT + 120, y, 130, 15, '', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
+    drawCell(LEFT + 120, y, 130, 15, sol.numero_cheque || '', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
     drawCell(LEFT + 250, y, 180, 15, `CUENTA   ${sol.proveedor_cuenta || sol.proveedor_clabe || '---'}`, C_AMARILLO, C_AZUL, 'left', true, 8, 4);
     drawCell(LEFT + 430, y, W - 430, 15, sol.proveedor_banco || '---', C_AMARILLO, C_AZUL, 'left', true, 8, 4);
 
@@ -852,38 +854,52 @@ function generarPDFSolicitud(res, sol, firmas) {
     const isCheque = (sol.forma_pago || '').toUpperCase() === 'CHEQUE';
     
     if (isCheque) {
-        // ── HEADER PÓLIZA CHEQUE ──
+        // HEADER PÓLIZA CHEQUE
         doc.rect(LEFT, y, 160, 16).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
         doc.fillColor('#FFF').font('Helvetica-Bold').fontSize(9).text('PÓLIZA DE CHEQUE', LEFT, y + 4, {width: 160, align: 'center'});
         doc.fillColor('#000').font('Helvetica').fontSize(8).text(`Unidad de negocio: ${sol.unidad_negocio || ''}`, LEFT + 170, y + 4);
         doc.text(fechaText, LEFT + 430, y + 4);
 
         y += 16;
-        // ── CUERPO PÓLIZA ──
-        doc.rect(LEFT, y, W, 90).stroke(C_VERDE_CAJA);
+        doc.rect(LEFT, y, W, 110).stroke(C_VERDE_CAJA);
 
-        // Nombre proveedor (izquierda) + No. cheque (derecha)
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000');
-        doc.text(sol.proveedor_nombre || '---', LEFT + 10, y + 10, {width: 380});
-        doc.font('Helvetica-Bold').fontSize(12);
-        doc.text(sol.num_cuenta_destino || '', LEFT + 440, y + 10, {width: 110, align: 'right'});
+        // Fila 1: Proveedor (izq) — No. Cheque (der)
+        doc.font('Helvetica-Bold').fontSize(11).fillColor('#000')
+           .text(sol.proveedor_nombre || '---', LEFT + 10, y + 10, {width: 360});
+        doc.font('Helvetica').fontSize(8).fillColor('#555')
+           .text('No. Cheque:', LEFT + 390, y + 8);
+        doc.font('Helvetica-Bold').fontSize(11).fillColor('#000')
+           .text(sol.numero_cheque || '---', LEFT + 450, y + 7, {width: 100, align: 'right'});
 
-        // Monto en letra (fila 2)
-        doc.font('Helvetica').fontSize(8).fillColor('#000');
-        const montoNum = parseFloat(sol.monto || 0);
-        const montoStr = montoNum.toLocaleString('es-MX', {minimumFractionDigits: 2});
-        doc.text(`$ ${montoStr}`, LEFT + 10, y + 32, {width: 540});
+        doc.moveTo(LEFT + 10, y + 28).lineTo(LEFT + W - 10, y + 28).dash(2, {space: 2}).stroke('#bbb').undash();
 
-        // Tercera fila vacía (espacio para monto en letra escrito a mano)
-        doc.moveTo(LEFT + 10, y + 50).lineTo(LEFT + W - 10, y + 50).dash(2, {space: 2}).stroke('#aaa').undash();
+        // Fila 2: Monto en número (fondo amarillo) + monto en letra en negritas
+        const montoNum2  = parseFloat(sol.monto || 0);
+        const montoStr2  = `$${montoNum2.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
+        // Si no está guardado en BD (solicitudes viejas), generarlo en tiempo real
+        const montoLetra = sol.monto_letra || numeroALetras(montoNum2);
 
-        // Datos cuenta + Copia del cheque
-        doc.font('Helvetica').fontSize(8).fillColor('#000');
-        doc.text(`Datos cuenta:  ${sol.proveedor_cuenta || sol.num_cuenta_destino || '---'}`, LEFT + 10, y + 62);
-        doc.font('Helvetica-Bold').text('Copia del cheque:', LEFT + 380, y + 62);
-        doc.font('Helvetica').text('0', LEFT + 480, y + 62);
+        // Rectángulo amarillo para el número
+        doc.rect(LEFT + 10, y + 34, 110, 18).fillAndStroke('#FFFF00', '#FFFF00');
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#0000AA')
+           .text(montoStr2, LEFT + 10, y + 38, {width: 110, align: 'center'});
 
-        y += 90;
+        // Monto en letra en negritas a la derecha del recuadro
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
+           .text(montoLetra, LEFT + 130, y + 38, {width: W - 140, lineBreak: false});
+
+        doc.moveTo(LEFT + 10, y + 60).lineTo(LEFT + W - 10, y + 60).dash(2, {space: 2}).stroke('#bbb').undash();
+
+        // Fila 3: Cuenta afectada (izq) — Copia del cheque (der)
+        const cuentaTexto = sol.banco_afectado && sol.cuenta_afectada
+            ? `${sol.banco_afectado}   ${sol.cuenta_afectada}`
+            : (sol.cuenta_afectada || '---');
+        doc.font('Helvetica').fontSize(8).fillColor('#555').text('Cuenta afectada:', LEFT + 10, y + 68);
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(cuentaTexto, LEFT + 100, y + 67, {width: 280});
+        doc.font('Helvetica').fontSize(8).fillColor('#555').text('Copia del cheque:', LEFT + 400, y + 68);
+        doc.font('Helvetica-Bold').fillColor('#000').text('0', LEFT + 493, y + 68);
+
+        y += 110;
 
         // ── CONCEPTO DE PAGO + FIRMA DE RECIBIDO ──
         doc.rect(LEFT, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
@@ -895,6 +911,11 @@ function generarPDFSolicitud(res, sol, firmas) {
         doc.rect(LEFT + 292, y, 260, 14).fillAndStroke(C_VERDE_CAJA, C_VERDE_CAJA);
         doc.fillColor('#FFF').font('Helvetica-Bold').fontSize(8).text('NOMBRE Y FIRMA DE RECIBIDO', LEFT + 292, y + 3, {width: 260, align: 'center'});
         doc.rect(LEFT + 292, y + 14, 260, 50).stroke(C_VERDE_CAJA);
+        // Nombre del proveedor arriba, espacio para firma presencial abajo
+        doc.fillColor('#000').font('Helvetica-Bold').fontSize(9)
+           .text(sol.proveedor_nombre || '---', LEFT + 297, y + 18, {width: 250, align: 'center'});
+        // Línea para firma
+        doc.moveTo(LEFT + 312, y + 52).lineTo(LEFT + 537, y + 52).stroke('#000');
 
         y += 64;
         // Separador antes de firmas
