@@ -20,6 +20,7 @@ const rolesRoutes = require('./routes/roles.routes');
 const viaticosroutes = require('./routes/viaticos.routes');
 const solicitudesRoutes = require('./routes/solicitudes.routes');
 const unidadesRoutes = require('./routes/unidades.routes');
+const tabuladorRoutes = require('./routes/tabulador.routes');
 const configuracionRoutes = require('./routes/configuracion.routes');
 const logAccesos = require('./middlewares/logAccesos');
 
@@ -56,6 +57,7 @@ app.use('/api/roles', rolesRoutes);
 app.use('/api/viaticos', viaticosroutes);
 app.use('/api/solicitudes', solicitudesRoutes);
 app.use('/api/unidades', unidadesRoutes);
+app.use('/api/tabulador-viaticos', tabuladorRoutes);
 app.use('/api/configuracion', configuracionRoutes);
 
 // =============================================

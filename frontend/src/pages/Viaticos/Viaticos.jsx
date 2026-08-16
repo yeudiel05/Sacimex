@@ -18,18 +18,6 @@ const AUTORIZADORES = [
   'ELVIRA GARCIA GARZON', 'EBER ZABDIEL ALVAREZ MIRANDA', 'ELIZABETH CRUZ CANO', 'ISAAC CRUZ CANO'
 ];
 
-const TABULADOR = {
-  'Cuicatlán': { hospedaje: 400, urban: 200, bus: 0, alimentos: 250, peaje: 0, gasolina: 700, taxi: 150 },
-  'Huatulco': { hospedaje: 550, urban: 680, bus: 0, alimentos: 350, peaje: 0, gasolina: 1000, taxi: 150 },
-  'Ajalpan': { hospedaje: 500, urban: 500, bus: 60, alimentos: 300, peaje: 460, gasolina: 1200, taxi: 150 },
-  'Tecamachalco': { hospedaje: 500, urban: 500, bus: 140, alimentos: 300, peaje: 562, gasolina: 1200, taxi: 150 },
-  'Huauchinango': { hospedaje: 550, urban: 0, bus: 1988, alimentos: 350, peaje: 950, gasolina: 1500, taxi: 150 },
-  'Salina Cruz': { hospedaje: 550, urban: 480, bus: 820, alimentos: 300, peaje: 0, gasolina: 1500, taxi: 150 },
-  'Huajuapan': { hospedaje: 590, urban: 400, bus: 0, alimentos: 300, peaje: 200, gasolina: 1000, taxi: 150 },
-  'Puerto Escondido': { hospedaje: 600, urban: 680, bus: 0, alimentos: 350, peaje: 0, gasolina: 0, taxi: 0 },
-  'Ocotlán': { hospedaje: 0, urban: 0, bus: 120, alimentos: 150, peaje: 0, gasolina: 0, taxi: 0 },
-  'Corporativo': { hospedaje: 0, urban: 0, bus: 120, alimentos: 150, peaje: 0, gasolina: 0, taxi: 0 }
-};
 
 const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
 
@@ -47,9 +35,12 @@ function Viaticos() {
   const [todasSolicitudes, setTodasSolicitudes] = useState([]);
   const [cargandoTodas, setCargandoTodas] = useState(false);
   const [filtroEstatus, setFiltroEstatus] = useState('TODAS');
+  const [tabuladorDinamico, setTabuladorDinamico] = useState({});
+  const [listaEmpleados, setListaEmpleados] = useState([]); // para select de acompañantes
   const rolUsuario = (localStorage.getItem('rol') || '').toUpperCase();
-  const [desgloseGrid, setDesgloseGrid] = useState({}); // { 'fecha_categoria': monto }
-  const [fechasDesglose, setFechasDesglose] = useState([]); // array de fechas del viaje
+  const [desgloseGrid, setDesgloseGrid] = useState({});
+  const [fechasDesglose, setFechasDesglose] = useState([]);
+  const [acompanantes, setAcompanantes] = useState([]); // [{ nombre, sexo }]
   const [misSolicitudes, setMisSolicitudes] = useState([]);
   const [cargandoSolicitudes, setCargandoSolicitudes] = useState(false);
   const fileInputRefs = useRef({});
@@ -63,7 +54,7 @@ function Viaticos() {
   const [formData, setFormData] = useState({
     solicitante_nombre: '', puesto: '', unidad_negocio: '', area: '', departamento: '', jefe_inmediato: '', 
     origen: '', destino: '', motivo: '', fecha_salida: '', fecha_regreso: '', dias_comision: 0,
-    num_acompanantes: '0', nombres_acompanantes: '', medio_transporte: '', 
+    num_acompanantes: '0', nombres_acompanantes: '', sexo_solicitante: 'M', medio_transporte: '', 
     monto_alimentos: '', monto_hospedaje: '', monto_pasajes: '', monto_taxis: '', monto_gasolina: '', monto_otros: '', 
     observaciones: '', total_solicitado: 0
   });
@@ -259,6 +250,33 @@ function Viaticos() {
     }
   };
 
+  const fetchTabulador = async () => {
+    try {
+      const res = await fetch('/api/tabulador-viaticos', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Convertir array a objeto { destino: { hospedaje, alimentos, ... } }
+        const obj = {};
+        data.data.forEach(t => {
+          if (t.estatus_activo) {
+            obj[t.destino] = {
+              hospedaje: parseFloat(t.hospedaje) || 0,
+              alimentos: parseFloat(t.alimentos) || 0,
+              urban:     parseFloat(t.urban)     || 0,
+              bus:       parseFloat(t.bus)        || 0,
+              peaje:     parseFloat(t.peaje)      || 0,
+              gasolina:  parseFloat(t.gasolina)   || 0,
+              taxi:      parseFloat(t.taxi)       || 0,
+            };
+          }
+        });
+        setTabuladorDinamico(obj);
+      }
+    } catch (error) { console.error("Error al cargar tabulador:", error); }
+  };
+
   useEffect(() => {
     const fetchPerfilEmpleado = async () => {
       try {
@@ -266,20 +284,26 @@ function Viaticos() {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
         const data = await res.json();
-        if (data.success && data.perfil) {
+        if (data.success) {
+          const p = data.perfil;
           setFormData(prev => ({
             ...prev,
-            solicitante_nombre: data.perfil.nombre_completo || localStorage.getItem('username') || '',
-            puesto: data.perfil.puesto || prev.puesto,
-            departamento: data.perfil.departamento || prev.departamento,
-            unidad_negocio: data.perfil.ubicacion || prev.unidad_negocio
+            solicitante_nombre: p.nombre_completo || localStorage.getItem('nombre_completo') || localStorage.getItem('username') || '',
+            puesto:             p.puesto           || prev.puesto,
+            departamento:       p.departamento     || prev.departamento,
+            unidad_negocio:     p.ubicacion        || prev.unidad_negocio,
+            area:               p.ubicacion        || prev.area,
+            jefe_inmediato:     p.jefe_inmediato   || prev.jefe_inmediato,
+            sexo_solicitante:   p.sexo             || localStorage.getItem('sexo') || 'M'
           }));
+          if (data.empleados) setListaEmpleados(data.empleados);
         }
       } catch (error) { console.error("Error al cargar perfil."); }
     };
     if (tabActiva === 'NUEVA') {
       fetchPerfilEmpleado();
       fetchUnidadesNegocio();
+      fetchTabulador();
     }
   }, [tabActiva]);
 
@@ -301,78 +325,116 @@ function Viaticos() {
     }
   }, [formData.fecha_salida, formData.fecha_regreso]);
 
+  // Sincronizar array de acompañantes cuando cambia el número
+  useEffect(() => {
+    const n = parseInt(formData.num_acompanantes) || 0;
+    setAcompanantes(prev => {
+      if (prev.length === n) return prev;
+      if (prev.length < n) return [...prev, ...Array(n - prev.length).fill(null).map(() => ({ nombre: '', sexo: '', motivo: '' }))];
+      return prev.slice(0, n);
+    });
+  }, [formData.num_acompanantes]);
+
   useEffect(() => {
     if (!formData.destino || formData.destino === 'Otro' || formData.dias_comision === 0) return;
-    const tab = TABULADOR[formData.destino];
+    const tab = tabuladorDinamico[formData.destino];
     if (!tab) return;
-    const dias = formData.dias_comision;
+    const dias   = formData.dias_comision;
     const noches = Math.max(0, dias - 1);
     const totalPersonas = 1 + parseInt(formData.num_acompanantes || 0);
-    let calcAlimentos = (tab.alimentos * dias) * totalPersonas;
-    let calcHospedaje = (tab.hospedaje * noches) * totalPersonas;
+
+    // Hospedaje: cuartos por sexo, máx 3 personas del mismo sexo por cuarto
+    const sexoSol = formData.sexo_solicitante || 'M';
+    const masc    = (sexoSol === 'M' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'M').length;
+    const fem     = (sexoSol === 'F' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'F').length;
+    const sinSexo = acompanantes.filter(a => !a.sexo).length;
+    const cuartos = Math.ceil(masc / 3) + Math.ceil(fem / 3) + sinSexo;
+    const calcHospedaje = tab.hospedaje * noches * Math.max(cuartos, 1);
+    const calcAlimentos = tab.alimentos * dias * totalPersonas;
+
     let calcPasajes = 0, calcGasolina = 0, calcOtros = tab.peaje, calcTaxis = tab.taxi;
     if (formData.medio_transporte === 'Autobús' || formData.medio_transporte === 'Avión') {
-      calcPasajes = (tab.bus + tab.urban) * totalPersonas; calcGasolina = 0; calcOtros = 0;
+      calcPasajes = (tab.bus + tab.urban) * totalPersonas;
+      calcGasolina = 0; calcOtros = 0; calcTaxis = 0;
     } else if (formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio') {
-      calcPasajes = 0; calcGasolina = tab.gasolina; calcOtros = tab.peaje;
+      const vehiculos = Math.ceil(totalPersonas / 4);
+      calcPasajes  = 0;
+      calcGasolina = tab.gasolina * vehiculos; // ida+vuelta por vehículo
+      calcOtros    = tab.peaje   * vehiculos;  // ida+vuelta por vehículo
+      calcTaxis    = 0;
     }
     setFormData(prev => ({
       ...prev,
       monto_alimentos: calcAlimentos > 0 ? calcAlimentos : '',
       monto_hospedaje: calcHospedaje > 0 ? calcHospedaje : '',
-      monto_pasajes: calcPasajes > 0 ? calcPasajes : '',
-      monto_gasolina: calcGasolina > 0 ? calcGasolina : '',
-      monto_taxis: calcTaxis > 0 ? calcTaxis : '',
+      monto_pasajes:   calcPasajes   > 0 ? calcPasajes   : '',
+      monto_gasolina:  calcGasolina  > 0 ? calcGasolina  : '',
+      monto_taxis:     calcTaxis     > 0 ? calcTaxis     : '',
       monto_otros: prev.monto_otros ? prev.monto_otros : (calcOtros > 0 ? calcOtros : '')
     }));
-  }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes]);
+  }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, acompanantes]);
 
   // Autocompletar el grid de desglose por día usando las tarifas del tabulador
   useEffect(() => {
     if (!formData.destino || formData.destino === 'Otro') return;
     if (fechasDesglose.length === 0) return;
-    const tab = TABULADOR[formData.destino];
+    const tab = tabuladorDinamico[formData.destino];
     if (!tab) return;
 
     const personas = 1 + parseInt(formData.num_acompanantes || 0);
-    const usaVehiculo = formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio';
-    const usaAutobus  = formData.medio_transporte === 'Autobús';
-    const usaAvion    = formData.medio_transporte === 'Avión';
+    const sexoSol = formData.sexo_solicitante || 'M';
+    const masc2   = (sexoSol === 'M' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'M').length;
+    const fem2    = (sexoSol === 'F' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'F').length;
+    const sin2    = acompanantes.filter(a => !a.sexo).length;
+    const cuartos2 = Math.max(Math.ceil(masc2/3) + Math.ceil(fem2/3) + sin2, 1);
 
     const nuevoGrid = {};
+    const vehiculos = Math.ceil(personas / 4);
+    const usaVehiculo2 = formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio';
+
     fechasDesglose.forEach((fecha, idx) => {
       const esUltimoDia = idx === fechasDesglose.length - 1;
       const esPrimerDia = idx === 0;
 
-      // Hospedaje: tarifa completa por persona, excepto el último día
+      // Hospedaje: por cuartos, excepto el último día
       if (!esUltimoDia && tab.hospedaje > 0) {
-        nuevoGrid[`${fecha}_hospedaje`] = tab.hospedaje * personas;
+        nuevoGrid[`${fecha}_hospedaje`] = tab.hospedaje * cuartos2;
       }
 
-      // Alimentos: tarifa diaria completa, el empleado decide cómo la divide
+      // Alimentos: tarifa diaria por persona
       if (tab.alimentos > 0) {
         nuevoGrid[`${fecha}_almuerzo`] = tab.alimentos * personas;
       }
 
-      // Transporte: solo primer y último día
-      if (esPrimerDia || esUltimoDia) {
-        if (usaAutobus && tab.bus > 0) {
+      // Transporte:
+      if (usaVehiculo2) {
+        // Gasolina: la tarifa ya incluye ida+vuelta — se divide 50/50 entre primer y último día
+        if (tab.gasolina > 0) {
+          const mitad = (tab.gasolina * vehiculos) / 2;
+          if (esPrimerDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitad;
+          if (esUltimoDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitad;
+        }
+        // Peaje: igual, dividido 50/50 entre primer y último día
+        if (tab.peaje > 0) {
+          const mitadPeaje = (tab.peaje * vehiculos) / 2;
+          if (esPrimerDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitadPeaje;
+          if (esUltimoDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitadPeaje;
+        }
+      } else {
+        // Bus/Avión: tarifa por persona, solo primer día (ida+vuelta ya incluido)
+        if (esPrimerDia && tab.bus > 0) {
           nuevoGrid[`${fecha}_terrestre`] = tab.bus * personas;
-        } else if (usaAvion && tab.bus > 0) {
-          nuevoGrid[`${fecha}_aereo`] = tab.bus * personas;
-        } else if (usaVehiculo && esPrimerDia && tab.gasolina > 0) {
-          nuevoGrid[`${fecha}_vehiculo`] = tab.gasolina;
         }
       }
 
-      // Urban/taxi: cada día (transporte urbano local)
+      // Urban/taxi: cada día por persona
       if (tab.urban > 0) {
         nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + tab.urban * personas;
       }
     });
 
     setDesgloseGrid(nuevoGrid);
-  }, [formData.destino, formData.medio_transporte, formData.num_acompanantes, fechasDesglose]);
+  }, [formData.destino, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, acompanantes, fechasDesglose]);
 
   useEffect(() => {
     const total = ['monto_alimentos', 'monto_hospedaje', 'monto_pasajes', 'monto_taxis', 'monto_gasolina', 'monto_otros']
@@ -388,8 +450,7 @@ function Viaticos() {
     const sumar = (cats) => cats.reduce((s, cat) =>
       s + fechasDesglose.reduce((s2, f) => s2 + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0), 0);
 
-    const totalAlimentos  = sumar(['almuerzo']);
-    const totalHospedaje  = sumar(['hospedaje']);
+    const totalAlimentos  = sumar(['almuerzo']);    const totalHospedaje  = sumar(['hospedaje']);
     const totalTransporte = sumar(['aereo', 'terrestre']);
     const totalVehiculo   = sumar(['vehiculo']);
     const totalOtros      = sumar(['otros', 'especifique', 'comunicacion']);
@@ -473,7 +534,7 @@ function Viaticos() {
         const categoria = catParts.join('_');
         return { fecha, categoria, monto: parseFloat(monto) };
       });
-    const payloadFinal = { ...formData, desglose_dias };
+    const payloadFinal = { ...formData, desglose_dias, acompanantes };
     if (payloadFinal.destino === 'Otro') {
       if (!destinoOtro.trim()) return alert("Por favor especifique el destino.");
       payloadFinal.destino = destinoOtro;
@@ -642,7 +703,11 @@ function Viaticos() {
                 <label>Seleccione quien autorizó su comisión</label>
                 <select name="jefe_inmediato" required value={formData.jefe_inmediato} onChange={handleChange}>
                   <option value="" disabled>Seleccione Autorizador</option>
-                  {AUTORIZADORES.map(j => <option key={j} value={j}>{j}</option>)}
+                  {listaEmpleados.map((emp, i) => (
+                    <option key={i} value={emp.nombre_completo}>
+                      {emp.nombre_completo}{emp.puesto ? ` — ${emp.puesto}` : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -661,7 +726,7 @@ function Viaticos() {
                   <label>Lugar de Comisión o Ruta (Destino)</label>
                   <select name="destino" required value={formData.destino} onChange={handleChange}>
                     <option value="" disabled>Seleccione ruta</option>
-                    {Object.keys(TABULADOR).map(dest => <option key={dest} value={dest}>{dest}</option>)}
+                    {Object.keys(tabuladorDinamico).map(dest => <option key={dest} value={dest}>{dest}</option>)}
                     <option value="Otro">Otro (Especificar manual)</option>
                   </select>
                 </div>
@@ -695,8 +760,81 @@ function Viaticos() {
               </div>
               {parseInt(formData.num_acompanantes) > 0 && (
                 <div className="form-field mt-16" style={{ animation: 'fadeIn 0.3s' }}>
-                  <label>Nombres de los acompañantes</label>
-                  <input type="text" name="nombres_acompanantes" required value={formData.nombres_acompanantes} onChange={handleChange} placeholder="Ej. Juan Pérez, María Gómez" />
+                  <label>Datos de los acompañantes</label>
+                  <div style={{ display: 'grid', gap: '10px', marginTop: '8px' }}>
+                    {acompanantes.map((a, idx) => (
+                      <div key={idx} style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: '700', color: '#475569' }}>Acompañante {idx + 1}</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          {/* Select de empleado */}
+                          <div>
+                            <label style={{ fontSize: '11px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Colaborador</label>
+                            <select
+                              value={a.nombre}
+                              onChange={e => {
+                                const nueva = [...acompanantes];
+                                const emp = listaEmpleados.find(em => em.nombre_completo === e.target.value);
+                                nueva[idx] = { ...nueva[idx], nombre: e.target.value, sexo: emp?.sexo || '' };
+                                setAcompanantes(nueva);
+                              }}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', boxSizing: 'border-box' }}
+                            >
+                              <option value="">Seleccionar colaborador...</option>
+                              {listaEmpleados.map((emp, i) => (
+                                <option key={i} value={emp.nombre_completo}>
+                                  {emp.nombre_completo} {emp.puesto ? `— ${emp.puesto}` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Motivo de su participación */}
+                          <div>
+                            <label style={{ fontSize: '11px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Motivo de su participación</label>
+                            <input
+                              type="text"
+                              value={a.motivo || ''}
+                              onChange={e => {
+                                const nueva = [...acompanantes];
+                                nueva[idx] = { ...nueva[idx], motivo: e.target.value };
+                                setAcompanantes(nueva);
+                              }}
+                              placeholder="Ej. Apoyo técnico, capacitación..."
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Sexo detectado automáticamente */}
+                        {a.nombre && (
+                          <p style={{ margin: '6px 0 0', fontSize: '11px', color: a.sexo ? '#10b981' : '#f59e0b', fontWeight: '600' }}>
+                            {a.sexo === 'M' ? 'Masculino' : a.sexo === 'F' ? 'Femenino' : 'Sexo no registrado — no afecta el cálculo de cuartos'}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Resumen de cuartos */}
+                  {acompanantes.some(a => a.nombre) && (
+                    <div style={{ marginTop: '10px', padding: '10px 14px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '13px', color: '#15803d' }}>
+                      {(() => {
+                        const sexoSol = formData.sexo_solicitante;
+                        const masc = (sexoSol === 'M' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'M').length;
+                        const fem  = (sexoSol === 'F' ? 1 : 0) + acompanantes.filter(a => a.sexo === 'F').length;
+                        const sin  = acompanantes.filter(a => a.nombre && !a.sexo).length;
+                        const cuartos = Math.ceil(masc / 3) + Math.ceil(fem / 3) + sin;
+                        return (
+                          <>
+                            <strong>Cuartos estimados: {cuartos}</strong>
+                            {masc > 0 && ` · ${masc} hombre(s) → ${Math.ceil(masc/3)} cuarto(s)`}
+                            {fem  > 0 && ` · ${fem} mujer(es) → ${Math.ceil(fem/3)} cuarto(s)`}
+                            {sin  > 0 && ` · ${sin} sin sexo registrado → ${sin} cuarto(s) individual(es)`}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               )}
               <div className="form-field mt-16"><label>Motivo de la comisión</label><textarea name="motivo" required rows="2" value={formData.motivo} onChange={handleChange}></textarea></div>
@@ -753,7 +891,7 @@ function Viaticos() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[['hospedaje','Hospedaje'],['aereo','Aéreo'],['terrestre','Terrestre'],['vehiculo','Vehículo'],['almuerzo','Alimentos'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
+                      {[['hospedaje','Hospedaje'],['terrestre','Transporte'],['almuerzo','Alimentos'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
                         const totalCat = fechasDesglose.reduce((s, f) => s + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0);
                         return (
                           <tr key={cat} style={{ background: totalCat > 0 ? '#f0fdf4' : 'white' }}>
@@ -793,7 +931,7 @@ function Viaticos() {
                       <tr style={{ background: '#f0fdf4', fontWeight: '800' }}>
                         <td style={{ padding: '8px', border: '2px solid #10d440' }}>TOTAL</td>
                         {fechasDesglose.map(f => {
-                          const totalDia = [['hospedaje'],['aereo'],['terrestre'],['vehiculo'],['almuerzo'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
+                          const totalDia = [['hospedaje'],['terrestre'],['almuerzo'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
                           return <td key={f} style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>{totalDia > 0 ? `$${totalDia.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}</td>;
                         })}
                         <td style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>
@@ -1263,7 +1401,7 @@ function Viaticos() {
                   <th style={{ padding: '12px', fontSize: '13px' }}>GASOLINA</th>
                 </tr></thead>
                 <tbody>
-                  {Object.entries(TABULADOR).map(([destino, fila], idx) => (
+                  {Object.entries(tabuladorDinamico).map(([destino, fila], idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ padding: '12px', fontWeight: 'bold', fontSize: '13px' }}>{destino}</td>
                       <td style={{ padding: '12px', fontSize: '13px' }}>{fila.hospedaje ? formatMoney(fila.hospedaje) : '-'}</td>

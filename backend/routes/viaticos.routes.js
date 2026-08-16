@@ -36,11 +36,31 @@ const upload = multer({ storage: storage });
 const formatMoney = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 router.get('/perfil', verificarToken, (req, res) => {
-    const query = `SELECT e.puesto, e.departamento, e.unidad_negocio AS ubicacion FROM usuarios u JOIN empleados e ON u.id_empleado = e.id_persona WHERE u.id = ?`;
-    db.query(query, [req.usuario.id], (err, results) => {
+    const queryPerfil = `
+        SELECT p.nombre_razon_social AS nombre_completo,
+               e.puesto, e.departamento, e.unidad_negocio AS ubicacion,
+               e.jefe_inmediato, e.sexo,
+               COALESCE(e.unidad_negocio, '') AS area
+        FROM usuarios u
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        WHERE u.id = ?`;
+
+    const queryEmpleados = `
+        SELECT p.nombre_razon_social AS nombre_completo, e.sexo, e.puesto
+        FROM usuarios u
+        JOIN empleados e ON u.id_empleado = e.id_persona
+        JOIN personas p ON e.id_persona = p.id
+        WHERE u.estatus_activo = 1
+        ORDER BY p.nombre_razon_social ASC`;
+
+    db.query(queryPerfil, [req.usuario.id], (err, results) => {
         if (err) return res.status(500).json({ success: false });
-        const perfil = results.length > 0 ? results[0] : { puesto: '', departamento: '', ubicacion: '' };
-        res.json({ success: true, perfil });
+        const perfil = results.length > 0 ? results[0] : {};
+        db.query(queryEmpleados, (err2, empleados) => {
+            if (err2) return res.status(500).json({ success: false });
+            res.json({ success: true, perfil, empleados: empleados || [] });
+        });
     });
 });
 
@@ -1073,9 +1093,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
 
             // ── Filas ─────────────────────────────────────────────────────────
             const tHosp  = drawFilaDiaria('Hospedaje',    'hospedaje',  sol.monto_hospedaje || 0, true);
-            const tAereo = drawFilaUnica ('Aéreo',        'aereo',      0);
-            const tTerr  = drawFilaUnica ('Terrestre',    'terrestre',  sol.monto_pasajes   || 0);
-            const tVeh   = drawFilaUnica ('Vehículo',     'vehiculo',   (sol.monto_gasolina || 0) + (sol.monto_taxis || 0));
+            const tTerr  = drawFilaUnica ('Transporte',   'terrestre',  sol.monto_pasajes   || 0);
             const tAlim  = drawFilaDiaria('Alimentos',    'almuerzo',   sol.monto_alimentos || 0, true);
             const tComun = drawFilaDiaria('Comunicación', 'comunicacion', 0);
             const tOtros = drawFilaDiaria('Otros',        'otros',      sol.monto_otros     || 0);
@@ -1087,7 +1105,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             rx = 30 + colMain;
             fechasSol.slice(0, numDias).forEach((f, idx) => {
                 // Transporte va solo en día 0
-                const transp = idx === 0 ? (tAereo + tTerr + tVeh) : 0;
+                const transp = idx === 0 ? tTerr : 0;
                 const totalDia = ['hospedaje','almuerzo','comunicacion','otros','especifique']
                     .reduce((s, cat) => s + getMontoFecha(f, cat), 0) + transp;
                 drawCell(rx, gy, dw, rowH + 4,
@@ -1095,7 +1113,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
                     '#dcfce7', '#15803d', 'Helvetica-Bold', 7, 'right');
                 rx += dw;
             });
-            const gran = sol.total_solicitado || (tHosp + tAereo + tTerr + tVeh + tAlim + tComun + tOtros + tEsp);
+            const gran = sol.total_solicitado || (tHosp + tTerr + tAlim + tComun + tOtros + tEsp);
             drawCell(rx, gy, colTotal, rowH + 4, formatMoney(gran), '#dcfce7', '#15803d', 'Helvetica-Bold', 9, 'right');
             doc.lineWidth(1);
             gy += rowH + 10;

@@ -9,7 +9,7 @@ router.post('/login', (req, res) => {
   const { usuario, password } = req.body;
   
   const query = `
-    SELECT u.*, e.puesto, e.departamento, e.id_departamento,
+    SELECT u.*, e.puesto, e.departamento, e.id_departamento, e.sexo,
            COALESCE(p.nombre_razon_social, u.username) AS nombre_completo
     FROM usuarios u 
     LEFT JOIN empleados e ON u.id_empleado = e.id_persona
@@ -56,6 +56,7 @@ router.post('/login', (req, res) => {
             id_departamento: user.id_departamento,
             puesto: user.puesto || 'Sin Puesto',
             nombre_completo: user.nombre_completo || user.username,
+            sexo: user.sexo || null,
             puedeSolicitar: user.puede_solicitar || 0
         };
 

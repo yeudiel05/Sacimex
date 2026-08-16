@@ -137,7 +137,7 @@ router.get('/:id', verificarToken, autorizarModulo('usuarios', ['ADMIN'], 'puede
 router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), async (req, res) => {
     const { 
         nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, puede_solicitar, nivel_autorizacion,
-        titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria 
+        titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria, sexo
     } = req.body;
     
     const rutaFirma = req.file ? `uploads/firmas/${req.file.filename}` : null;
@@ -160,8 +160,8 @@ router.post('/', verificarToken, autorizar('ADMIN'), upload.single('firma'), asy
                     db.query('SELECT id FROM catalogo_departamentos WHERE nombre = ? LIMIT 1', [departamento || ''], (errDepto, rowsDepto) => {
                         const idDepto = rowsDepto?.[0]?.id || null;
 
-                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, id_departamento, unidad_negocio, fecha_ingreso, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria) VALUES (?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [idPersona, puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || ''], (err) => {
+                    db.query('INSERT INTO empleados (id_persona, puesto, departamento, id_departamento, unidad_negocio, fecha_ingreso, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria, sexo) VALUES (?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [idPersona, puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', sexo || null], (err) => {
                             
                             if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD (Empleados): ' + err.message }));
 
@@ -212,7 +212,7 @@ router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('fi
     const { id_usuario } = req.params;
     const { 
         nombre, telefono, email, puesto, departamento, unidad_negocio, username, password, rol, id_persona, puede_solicitar, nivel_autorizacion,
-        titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria 
+        titulo, iniciales, no_empleado, empresa_maestra, clave_puesto, nivel, zona, jefe_inmediato, banco, cuenta_bancaria, sexo
     } = req.body;
     
     if (!id_persona || id_persona === 'null') {
@@ -244,8 +244,8 @@ router.put('/:id_usuario', verificarToken, autorizar('ADMIN'), upload.single('fi
                             db.query('SELECT id FROM catalogo_departamentos WHERE nombre = ? LIMIT 1', [departamento || ''], (errDepto, rowsDepto) => {
                                 const idDepto = rowsDepto?.[0]?.id || null;
 
-                            db.query('UPDATE empleados SET puesto=?, departamento=?, id_departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=? WHERE id_persona=?',
-                                [puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', id_persona], (err) => {
+                            db.query('UPDATE empleados SET puesto=?, departamento=?, id_departamento=?, unidad_negocio=?, no_empleado=?, empresa_maestra=?, clave_puesto=?, nivel=?, zona=?, jefe_inmediato=?, banco=?, cuenta_bancaria=?, sexo=? WHERE id_persona=?',
+                                [puesto || '', departamento || '', idDepto, unidad_negocio || '', no_empleado || '', empresa_maestra || '', clave_puesto || '', nivel || '', zona || '', jefe_inmediato || '', banco || '', cuenta_bancaria || '', sexo || null, id_persona], (err) => {
                                     if (err) return db.rollback(() => res.status(500).json({ success: false, message: 'Error BD Empleados: ' + err.message }));
                                     
                                     let queryUser = 'UPDATE usuarios SET username=?, rol=?, puede_solicitar=?, nivel_autorizacion=?';

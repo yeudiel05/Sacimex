@@ -62,6 +62,7 @@ function Login() {
         localStorage.setItem('rol', data.rol);
         localStorage.setItem('username', data.username || formData.usuario);
         localStorage.setItem('departamento', data.departamento || '');
+        localStorage.setItem('sexo', data.sexo || '');
         localStorage.setItem('permisos', JSON.stringify(data.permisos || {}));
 
         if (rememberMe) {

@@ -53,7 +53,7 @@ function Usuarios() {
     username: '', password: '', rol: 'AUXILIAR', puede_solicitar: 0, nivel_autorizacion: 0, id_persona: null,
     titulo: '', nombre_completo: '', iniciales: '', telefono: '', correo_electronico: '',
     no_empleado: '', empresa_maestra: '', puesto: '', clave_puesto: '', nivel: '', area_departamento: '', sucursal_unidad: '', zona: '', jefe_inmediato: '',
-    banco: '', cuenta_bancaria: ''
+    banco: '', cuenta_bancaria: '', sexo: ''
   });
 
   const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box', fontSize: '13px' };
@@ -272,7 +272,8 @@ function Usuarios() {
             zona:               u.zona                || '',
             jefe_inmediato:     u.jefe_inmediato      || '',
             banco:              u.banco               || '',
-            cuenta_bancaria:    u.cuenta_bancaria     || ''
+            cuenta_bancaria:    u.cuenta_bancaria     || '',
+            sexo:               u.sexo                || ''
         });
       }
     } catch (error) {
@@ -800,7 +801,15 @@ function Usuarios() {
                         </div>
                     </div>
 
-                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px' }}>
+                    <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div className="form-group">
+                            <label>Sexo</label>
+                            <select value={formData.sexo || ''} onChange={e => setFormData({...formData, sexo: e.target.value})} style={inputStyle}>
+                                <option value="">Sin especificar</option>
+                                <option value="M">Masculino</option>
+                                <option value="F">Femenino</option>
+                            </select>
+                        </div>
                         <div className="form-group">
                             <label>Jefe Inmediato</label>
                             <select value={formData.jefe_inmediato} onChange={e => setFormData({...formData, jefe_inmediato: e.target.value})} style={inputStyle}>
@@ -819,7 +828,7 @@ function Usuarios() {
                                 )}
                             </select>
                         </div>
-                    </div>
+                    </div>  {/* cierre grid sexo + jefe */}
                 </div>
 
                 {/* --- SECCIÓN 4: DATOS BANCARIOS PARA VIÁTICOS --- */}

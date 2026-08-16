@@ -53,6 +53,15 @@ function Configuracion() {
   const [editCategoriaId, setEditCategoriaId] = useState(null);
   const [categoriaFormData, setCategoriaFormData] = useState({ nombre: '' });
 
+  // --- ESTADOS PARA TABULADOR DE VIÁTICOS ---
+  const [tabulador, setTabulador] = useState([]);
+  const [isTabuladorModalOpen, setIsTabuladorModalOpen] = useState(false);
+  const [isEditingTabulador, setIsEditingTabulador] = useState(false);
+  const [editTabuladorId, setEditTabuladorId] = useState(null);
+  const [tabuladorFormData, setTabuladorFormData] = useState({
+    destino: '', hospedaje: 0, alimentos: 0, urban: 0, bus: 0, peaje: 0, gasolina: 0, taxi: 0
+  });
+
   // --- ESTADOS PARA CATÁLOGO DE PUESTOS ---
   const [puestos, setPuestos] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
@@ -75,7 +84,7 @@ function Configuracion() {
   const fetchAllData = async () => {
       const headers = getAuthHeaders(); if (!headers) return;
       try {
-          const [resTasas, resUnidades, resConceptos, resBancos, resDeptos, resPuestos, resRoles, resCategorias] = await Promise.all([
+          const [resTasas, resUnidades, resConceptos, resBancos, resDeptos, resPuestos, resRoles, resCategorias, resTabulador] = await Promise.all([
               fetch('/api/tasas', { headers }).catch(()=>null),
               fetch('/api/unidades', { headers }).catch(()=>null),
               fetch('/api/configuracion/conceptos', { headers }).catch(()=>null),
@@ -83,7 +92,8 @@ function Configuracion() {
               fetch('/api/configuracion/departamentos', { headers }).catch(()=>null),
               fetch('/api/configuracion/puestos', { headers }).catch(()=>null),
               fetch('/api/roles', { headers }).catch(()=>null),
-              fetch('/api/configuracion/categorias', { headers }).catch(()=>null) 
+              fetch('/api/configuracion/categorias', { headers }).catch(()=>null),
+              fetch('/api/tabulador-viaticos', { headers }).catch(()=>null)
           ]);
 
           if (resTasas && resTasas.ok) { const d = await resTasas.json(); if(d.success) setTasas(d.data); }
@@ -94,6 +104,7 @@ function Configuracion() {
           if (resPuestos && resPuestos.ok) { const d = await resPuestos.json(); if(d.success) setPuestos(d.data); }
           if (resRoles && resRoles.ok) { const d = await resRoles.json(); if(d.success) setRoles(d.data); }
           if (resCategorias && resCategorias.ok) { const d = await resCategorias.json(); if(d.success) setCategorias(d.data); }
+          if (resTabulador && resTabulador.ok) { const d = await resTabulador.json(); if(d.success) setTabulador(d.data); }
       } catch (error) { console.error("Error cargando configuraciones", error); }
   };
 
@@ -153,6 +164,38 @@ function Configuracion() {
   // ==========================================
   // CONTROLADORES DE MODALES (UNIDADES)
   // ==========================================
+  const openNewTabuladorModal = () => {
+    setIsEditingTabulador(false); setEditTabuladorId(null);
+    setTabuladorFormData({ destino: '', hospedaje: 0, alimentos: 0, urban: 0, bus: 0, peaje: 0, gasolina: 0, taxi: 0 });
+    setIsTabuladorModalOpen(true);
+  };
+  const openEditTabuladorModal = (t) => {
+    setIsEditingTabulador(true); setEditTabuladorId(t.id);
+    setTabuladorFormData({ destino: t.destino, hospedaje: t.hospedaje, alimentos: t.alimentos, urban: t.urban, bus: t.bus, peaje: t.peaje, gasolina: t.gasolina, taxi: t.taxi });
+    setIsTabuladorModalOpen(true);
+  };
+  const handleTabuladorSubmit = async (e) => {
+    e.preventDefault();
+    const headers = getAuthHeaders(); if (!headers) return;
+    const method = isEditingTabulador ? 'PUT' : 'POST';
+    const url = isEditingTabulador ? `/api/tabulador-viaticos/${editTabuladorId}` : '/api/tabulador-viaticos';
+    setIsLoading(true);
+    try {
+      const res = await fetch(url, { method, headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(tabuladorFormData) });
+      const data = await res.json();
+      if (data.success) { setIsTabuladorModalOpen(false); fetchAllData(); }
+      else alert(data.message);
+    } catch { alert('Error de conexión'); } finally { setIsLoading(false); }
+  };
+  const eliminarTabulador = async (id, destino) => {
+    if (!window.confirm(`¿Eliminar el destino "${destino}"?`)) return;
+    const headers = getAuthHeaders(); if (!headers) return;
+    const res = await fetch(`/api/tabulador-viaticos/${id}`, { method: 'DELETE', headers });
+    const data = await res.json();
+    if (data.success) fetchAllData();
+    else alert(data.message);
+  };
+
   const openNewUnidadModal  = () => { setIsEditingUnidad(false); setEditUnidadId(null); setUnidadFormData({ nombre: '', cuenta_bancaria: '', banco: '', clabe: '' }); setIsUnidadModalOpen(true); };
   const openEditUnidadModal = (u) => { setIsEditingUnidad(true); setEditUnidadId(u.id); setUnidadFormData({ nombre: u.nombre, cuenta_bancaria: u.cuenta_bancaria || '', banco: u.banco || '', clabe: u.clabe || '' }); setIsUnidadModalOpen(true); };
   const handleUnidadSubmit = async (e) => {
@@ -428,6 +471,46 @@ function Configuracion() {
         </div>
       </div>
 
+      {/* SECCIÓN TABULADOR DE VIÁTICOS */}
+      <div className="backup-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div>
+            <h2 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>Tabulador de Viáticos</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>Importes autorizados por destino para el cálculo automático de viáticos.</p>
+          </div>
+          <button className="btn-primary" onClick={openNewTabuladorModal} style={{ backgroundColor: '#10b981' }}>+ Nuevo Destino</button>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9' }}>
+                {['Destino', 'Hospedaje', 'Alimentos', 'Urban', 'Bus/Taxi', 'Peaje', 'Gasolina', 'Taxi', ''].map(h => (
+                  <th key={h} style={{ padding: '10px 12px', textAlign: h === '' ? 'center' : 'left', fontWeight: '700', color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tabulador.length === 0 ? (
+                <tr><td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>Sin destinos registrados</td></tr>
+              ) : tabulador.map(t => (
+                <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => e.currentTarget.style.background='#f8fafc'} onMouseLeave={e => e.currentTarget.style.background='white'}>
+                  <td style={{ padding: '10px 12px', fontWeight: '600', color: '#0f172a' }}>{t.destino}</td>
+                  {['hospedaje','alimentos','urban','bus','peaje','gasolina','taxi'].map(k => (
+                    <td key={k} style={{ padding: '10px 12px', color: parseFloat(t[k]) > 0 ? '#15803d' : '#94a3b8' }}>
+                      {parseFloat(t[k]) > 0 ? `$${parseFloat(t[k]).toLocaleString('es-MX')}` : '-'}
+                    </td>
+                  ))}
+                  <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => openEditTabuladorModal(t)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #3b82f6', color: '#3b82f6', background: 'white', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}>Editar</button>
+                    <button onClick={() => eliminarTabulador(t.id, t.destino)} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #ef4444', color: '#ef4444', background: 'white', cursor: 'pointer', fontSize: '12px' }}>Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* SECCIÓN CONCEPTOS DE GASTO */}
       <div className="conceptos-section stagger-3 fade-in-up" style={{ marginTop: '48px', borderTop: '1px solid var(--border-light)', paddingTop: '32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -688,6 +771,50 @@ function Configuracion() {
                   </form>
               </div>
           </div>
+      )}
+
+      {/* MODAL TABULADOR */}
+      {isTabuladorModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+          <div className="modal-content fade-in-down" style={{ maxWidth: '560px', borderRadius: '16px' }}>
+            <div className="modal-header">
+              <h2>{isEditingTabulador ? 'Editar Destino' : 'Nuevo Destino'}</h2>
+              <button className="btn-close" onClick={() => setIsTabuladorModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleTabuladorSubmit} style={{ padding: '24px' }}>
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#475569', marginBottom: '6px' }}>Destino <span style={{ color: 'red' }}>*</span></label>
+                <input type="text" required value={tabuladorFormData.destino}
+                  onChange={e => setTabuladorFormData(p => ({ ...p, destino: e.target.value }))}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                {[
+                  { key: 'hospedaje', label: 'Hospedaje (por noche)' },
+                  { key: 'alimentos', label: 'Alimentos (por día)' },
+                  { key: 'urban',     label: 'Urban / Transporte local' },
+                  { key: 'bus',       label: 'Bus / Avión (ida y vuelta)' },
+                  { key: 'peaje',     label: 'Peaje (ida y vuelta)' },
+                  { key: 'gasolina',  label: 'Gasolina (ida y vuelta)' },
+                  { key: 'taxi',      label: 'Taxi' },
+                ].map(({ key, label }) => (
+                  <div key={key}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#475569', marginBottom: '4px' }}>{label}</label>
+                    <input type="number" min="0" step="0.01" value={tabuladorFormData[key]}
+                      onChange={e => setTabuladorFormData(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }))}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" className="btn-cancel" onClick={() => setIsTabuladorModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="btn-primary" style={{ backgroundColor: '#10b981' }} disabled={isLoading}>
+                  {isLoading ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* MODAL UNIDADES */}
