@@ -1092,12 +1092,12 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             };
 
             // ── Filas ─────────────────────────────────────────────────────────
-            const tHosp  = drawFilaDiaria('Hospedaje',    'hospedaje',  sol.monto_hospedaje || 0, true);
-            const tTerr  = drawFilaUnica ('Transporte',   'terrestre',  sol.monto_pasajes   || 0);
-            const tAlim  = drawFilaDiaria('Alimentos',    'almuerzo',   sol.monto_alimentos || 0, true);
-            const tComun = drawFilaDiaria('Comunicación', 'comunicacion', 0);
-            const tOtros = drawFilaDiaria('Otros',        'otros',      sol.monto_otros     || 0);
-            const tEsp   = drawFilaDiaria('Especifique',  'especifique', 0);
+            const tHosp  = drawFilaDiaria('Hospedaje',  'hospedaje',  sol.monto_hospedaje || 0, true);
+            const tAlim  = drawFilaDiaria('Alimentos',  'almuerzo',   sol.monto_alimentos || 0, true);
+            const tUrban = drawFilaDiaria('Urban',       'urban',      0);
+            const tBus   = drawFilaUnica ('Bus/Taxi',    'bus',        0);
+            const tPeaje = drawFilaDiaria('Peaje',       'peaje',      sol.monto_otros     || 0);
+            const tGas   = drawFilaDiaria('Gasolina',    'gasolina',   sol.monto_gasolina  || 0);
 
             // ── Fila TOTAL ─────────────────────────────────────────────────────
             doc.lineWidth(2);
@@ -1105,15 +1105,15 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             rx = 30 + colMain;
             fechasSol.slice(0, numDias).forEach((f, idx) => {
                 // Transporte va solo en día 0
-                const transp = idx === 0 ? tTerr : 0;
-                const totalDia = ['hospedaje','almuerzo','comunicacion','otros','especifique']
-                    .reduce((s, cat) => s + getMontoFecha(f, cat), 0) + transp;
+                const totalDia = ['hospedaje','almuerzo','urban','bus','peaje','gasolina']
+                    .reduce((s, cat) => s + getMontoFecha(f, cat), 0);
+
                 drawCell(rx, gy, dw, rowH + 4,
                     totalDia > 0 ? formatMoney(totalDia) : '',
                     '#dcfce7', '#15803d', 'Helvetica-Bold', 7, 'right');
                 rx += dw;
             });
-            const gran = sol.total_solicitado || (tHosp + tTerr + tAlim + tComun + tOtros + tEsp);
+            const gran = sol.total_solicitado || (tHosp + tAlim + tUrban + tBus + tPeaje + tGas);
             drawCell(rx, gy, colTotal, rowH + 4, formatMoney(gran), '#dcfce7', '#15803d', 'Helvetica-Bold', 9, 'right');
             doc.lineWidth(1);
             gy += rowH + 10;

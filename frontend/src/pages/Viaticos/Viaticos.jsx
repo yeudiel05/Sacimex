@@ -54,7 +54,7 @@ function Viaticos() {
   const [formData, setFormData] = useState({
     solicitante_nombre: '', puesto: '', unidad_negocio: '', area: '', departamento: '', jefe_inmediato: '', 
     origen: '', destino: '', motivo: '', fecha_salida: '', fecha_regreso: '', dias_comision: 0,
-    num_acompanantes: '0', nombres_acompanantes: '', sexo_solicitante: 'M', medio_transporte: '', 
+    num_acompanantes: '0', nombres_acompanantes: '', sexo_solicitante: 'M', medio_transporte: '', tipo_ruta: '', 
     monto_alimentos: '', monto_hospedaje: '', monto_pasajes: '', monto_taxis: '', monto_gasolina: '', monto_otros: '', 
     observaciones: '', total_solicitado: 0
   });
@@ -358,9 +358,10 @@ function Viaticos() {
       calcGasolina = 0; calcOtros = 0; calcTaxis = 0;
     } else if (formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio') {
       const vehiculos = Math.ceil(totalPersonas / 4);
+      const diasCampo = formData.tipo_ruta === 'CAMPO' ? Math.max(0, parseInt(formData.dias_comision || 0) - 2) : 0;
       calcPasajes  = 0;
-      calcGasolina = tab.gasolina * vehiculos; // ida+vuelta por vehículo
-      calcOtros    = tab.peaje   * vehiculos;  // ida+vuelta por vehículo
+      calcGasolina = (tab.gasolina * vehiculos) + (diasCampo * 300);
+      calcOtros    = tab.peaje * vehiculos;
       calcTaxis    = 0;
     }
     setFormData(prev => ({
@@ -372,7 +373,7 @@ function Viaticos() {
       monto_taxis:     calcTaxis     > 0 ? calcTaxis     : '',
       monto_otros: prev.monto_otros ? prev.monto_otros : (calcOtros > 0 ? calcOtros : '')
     }));
-  }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, acompanantes]);
+  }, [formData.destino, formData.dias_comision, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, formData.tipo_ruta, acompanantes]);
 
   // Autocompletar el grid de desglose por día usando las tarifas del tabulador
   useEffect(() => {
@@ -389,52 +390,56 @@ function Viaticos() {
     const cuartos2 = Math.max(Math.ceil(masc2/3) + Math.ceil(fem2/3) + sin2, 1);
 
     const nuevoGrid = {};
-    const vehiculos = Math.ceil(personas / 4);
+    const vehiculos   = Math.ceil(personas / 4);
     const usaVehiculo2 = formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio';
+    const usaPublico   = !usaVehiculo2; // Autobús o cualquier otro
 
     fechasDesglose.forEach((fecha, idx) => {
       const esUltimoDia = idx === fechasDesglose.length - 1;
       const esPrimerDia = idx === 0;
 
-      // Hospedaje: por cuartos, excepto el último día
-      if (!esUltimoDia && tab.hospedaje > 0) {
+      // HOSPEDAJE — por cuartos, todos los días excepto el último
+      if (!esUltimoDia && tab.hospedaje > 0)
         nuevoGrid[`${fecha}_hospedaje`] = tab.hospedaje * cuartos2;
-      }
 
-      // Alimentos: tarifa diaria por persona
-      if (tab.alimentos > 0) {
+      // ALIMENTOS — tarifa diaria por persona, todos los días
+      if (tab.alimentos > 0)
         nuevoGrid[`${fecha}_almuerzo`] = tab.alimentos * personas;
-      }
 
-      // Transporte:
       if (usaVehiculo2) {
-        // Gasolina: la tarifa ya incluye ida+vuelta — se divide 50/50 entre primer y último día
+        // GASOLINA — ÷2, día 1 (ida) y último día (vuelta), por vehículo
         if (tab.gasolina > 0) {
           const mitad = (tab.gasolina * vehiculos) / 2;
-          if (esPrimerDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitad;
-          if (esUltimoDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitad;
+          if (esPrimerDia) nuevoGrid[`${fecha}_gasolina`] = (nuevoGrid[`${fecha}_gasolina`] || 0) + mitad;
+          if (esUltimoDia) nuevoGrid[`${fecha}_gasolina`] = (nuevoGrid[`${fecha}_gasolina`] || 0) + mitad;
         }
-        // Peaje: igual, dividido 50/50 entre primer y último día
+        // RUTA DE CAMPO — +$300 por día a partir del día 2 hasta el penúltimo
+        if (formData.tipo_ruta === 'CAMPO' && !esPrimerDia && !esUltimoDia) {
+          nuevoGrid[`${fecha}_gasolina`] = (nuevoGrid[`${fecha}_gasolina`] || 0) + 300;
+        }
+        // Caso especial: si solo hay 2 días, el campo aplica en ninguno (solo hay día 1 y último)
+        // PEAJE — ÷2, día 1 (ida) y último día (vuelta), por vehículo
         if (tab.peaje > 0) {
-          const mitadPeaje = (tab.peaje * vehiculos) / 2;
-          if (esPrimerDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitadPeaje;
-          if (esUltimoDia)  nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + mitadPeaje;
+          const mitad = (tab.peaje * vehiculos) / 2;
+          if (esPrimerDia) nuevoGrid[`${fecha}_peaje`] = (nuevoGrid[`${fecha}_peaje`] || 0) + mitad;
+          if (esUltimoDia) nuevoGrid[`${fecha}_peaje`] = (nuevoGrid[`${fecha}_peaje`] || 0) + mitad;
         }
-      } else {
-        // Bus/Avión: tarifa por persona, solo primer día (ida+vuelta ya incluido)
-        if (esPrimerDia && tab.bus > 0) {
-          nuevoGrid[`${fecha}_terrestre`] = tab.bus * personas;
-        }
+        // URBAN y BUS/TAXI — no aplican con vehículo propio
       }
 
-      // Urban/taxi: cada día por persona
-      if (tab.urban > 0) {
-        nuevoGrid[`${fecha}_terrestre`] = (nuevoGrid[`${fecha}_terrestre`] || 0) + tab.urban * personas;
+      if (usaPublico) {
+        // URBAN — transporte local en destino, cada día, por persona
+        if (tab.urban > 0)
+          nuevoGrid[`${fecha}_urban`] = tab.urban * personas;
+        // BUS/TAXI — solo primer día (ida+vuelta incluido), por persona
+        if (esPrimerDia && tab.bus > 0)
+          nuevoGrid[`${fecha}_bus`] = tab.bus * personas;
+        // GASOLINA y PEAJE — no aplican con transporte público
       }
     });
 
     setDesgloseGrid(nuevoGrid);
-  }, [formData.destino, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, acompanantes, fechasDesglose]);
+  }, [formData.destino, formData.medio_transporte, formData.num_acompanantes, formData.sexo_solicitante, formData.tipo_ruta, acompanantes, fechasDesglose]);
 
   useEffect(() => {
     const total = ['monto_alimentos', 'monto_hospedaje', 'monto_pasajes', 'monto_taxis', 'monto_gasolina', 'monto_otros']
@@ -450,19 +455,20 @@ function Viaticos() {
     const sumar = (cats) => cats.reduce((s, cat) =>
       s + fechasDesglose.reduce((s2, f) => s2 + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0), 0);
 
-    const totalAlimentos  = sumar(['almuerzo']);    const totalHospedaje  = sumar(['hospedaje']);
-    const totalTransporte = sumar(['aereo', 'terrestre']);
-    const totalVehiculo   = sumar(['vehiculo']);
-    const totalOtros      = sumar(['otros', 'especifique', 'comunicacion']);
+    const totalAlimentos  = sumar(['almuerzo']);
+    const totalHospedaje  = sumar(['hospedaje']);
+    const totalTransporte = sumar(['bus', 'urban']);
+    const totalGasolina   = sumar(['gasolina']);
+    const totalOtros      = sumar(['peaje']);
 
     setFormData(prev => {
       const next = { ...prev };
       if (totalAlimentos  > 0) next.monto_alimentos = totalAlimentos;
       if (totalHospedaje  > 0) next.monto_hospedaje = totalHospedaje;
       if (totalTransporte > 0) next.monto_pasajes   = totalTransporte;
-      if (totalVehiculo   > 0) next.monto_gasolina  = totalVehiculo;
+      if (totalGasolina   > 0) next.monto_gasolina  = totalGasolina;
       if (totalOtros      > 0) next.monto_otros     = totalOtros;
-      next.total_solicitado = Object.values(desgloseGrid).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+      next.total_solicitado = sumar(['hospedaje','almuerzo','urban','bus','peaje','gasolina']);
       return next;
     });
   }, [desgloseGrid]);
@@ -758,6 +764,23 @@ function Viaticos() {
                   </select>
                 </div>
               </div>
+
+              {/* Tipo de ruta — solo si usa vehículo */}
+              {(formData.medio_transporte === 'Auto Empresa' || formData.medio_transporte === 'Auto Propio') && (
+                <div className="mt-16">
+                  <div className="form-field">
+                    <label>Tipo de Ruta</label>
+                    <select name="tipo_ruta" required value={formData.tipo_ruta} onChange={handleChange}>
+                      <option value="" disabled>SELECCIONAR</option>
+                      <option value="FIJA">Ruta Fija</option>
+                      <option value="CAMPO">Ruta de Campo (+$300/día a partir del día 2)</option>
+                    </select>
+                  </div>
+                  <div style={{ marginTop: '10px', padding: '10px 14px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', fontSize: '13px', color: '#92400e', fontWeight: '600' }}>
+                    Recuerda mandar tu Bitácora de Vehículo Sucursales
+                  </div>
+                </div>
+              )}
               {parseInt(formData.num_acompanantes) > 0 && (
                 <div className="form-field mt-16" style={{ animation: 'fadeIn 0.3s' }}>
                   <label>Datos de los acompañantes</label>
@@ -891,13 +914,20 @@ function Viaticos() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[['hospedaje','Hospedaje'],['terrestre','Transporte'],['almuerzo','Alimentos'],['comunicacion','Comunicación'],['otros','Otros'],['especifique','Especifique']].map(([cat, label]) => {
+                      {[
+                        ['hospedaje',  'Hospedaje'],
+                        ['almuerzo',   'Alimentos'],
+                        ['urban',      'Urban'],
+                        ['bus',        'Bus/Taxi'],
+                        ['peaje',      'Peaje'],
+                        ['gasolina',   'Gasolina'],
+                      ].map(([cat, label]) => {
                         const totalCat = fechasDesglose.reduce((s, f) => s + (parseFloat(desgloseGrid[`${f}_${cat}`]) || 0), 0);
                         return (
                           <tr key={cat} style={{ background: totalCat > 0 ? '#f0fdf4' : 'white' }}>
                             <td style={{ padding: '6px 8px', border: '1px solid #e2e8f0', fontWeight: '600' }}>{label}</td>
                             {fechasDesglose.map(f => {
-                              const editable = cat === 'otros' || cat === 'especifique';
+                              const editable = false;
                               const val = desgloseGrid[`${f}_${cat}`] || '';
                               return (
                                 <td key={f} style={{ padding: '4px', border: '1px solid #e2e8f0' }}>
@@ -931,7 +961,7 @@ function Viaticos() {
                       <tr style={{ background: '#f0fdf4', fontWeight: '800' }}>
                         <td style={{ padding: '8px', border: '2px solid #10d440' }}>TOTAL</td>
                         {fechasDesglose.map(f => {
-                          const totalDia = [['hospedaje'],['terrestre'],['almuerzo'],['comunicacion'],['otros'],['especifique']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
+                          const totalDia = [['hospedaje'],['almuerzo'],['urban'],['bus'],['peaje'],['gasolina']].reduce((s, [c]) => s + (parseFloat(desgloseGrid[`${f}_${c}`]) || 0), 0);
                           return <td key={f} style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>{totalDia > 0 ? `$${totalDia.toLocaleString('es-MX', {minimumFractionDigits: 2})}` : '-'}</td>;
                         })}
                         <td style={{ padding: '8px', border: '2px solid #10d440', textAlign: 'right', color: '#15803d' }}>
@@ -941,7 +971,7 @@ function Viaticos() {
                     </tbody>
                   </table>
                   <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>
-                    Los importes se calculan automáticamente con base en el tabulador autorizado para el destino. Solo <strong>Otros</strong> y <strong>Especifique</strong> son editables para gastos adicionales.
+                    Los importes se calculan automáticamente con base en el tabulador autorizado para el destino y el tipo de transporte seleccionado.
                   </p>
                 </div>
               )}
