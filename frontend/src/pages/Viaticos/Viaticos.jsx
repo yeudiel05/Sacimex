@@ -19,7 +19,7 @@ const AUTORIZADORES = [
 ];
 
 
-const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
+const RUBROS = ['Transporte', 'Alimentos', 'Hospedaje', 'Reparación', 'Otros gastos'];
 
 const partidasVacias = () => Array.from({ length: 8 }, () => ({
   fecha: '', importe: '', folio_fiscal: '', rfc_proveedor: '',
@@ -154,7 +154,7 @@ function Viaticos() {
   const agregarPartida = (solId) => {
     setComprobaciones(prev => {
       const actual = prev[solId] || {};
-      return { ...prev, [solId]: { ...actual, partidas: [...(actual.partidas || []), { fecha: '', importe: '', folio_fiscal: '', rfc_proveedor: '', nombre_proveedor: '', rubro: 'Otros gastos', descripcion: '' }] } };
+      return { ...prev, [solId]: { ...actual, partidas: [...(actual.partidas || []), { fecha: '', importe: '', folio_fiscal: '', rfc_proveedor: '', nombre_proveedor: '', rubro: 'Otros gastos', descripcion: '', tipo_cambio: 1 }] } };
     });
   };
 
@@ -1306,6 +1306,7 @@ function Viaticos() {
                                   { label: 'Fecha Inicial', name: 'fecha_inicial', type: 'date' },
                                   { label: 'Fecha Final', name: 'fecha_final', type: 'date' },
                                   { label: 'Fondo Fijo', name: 'fondo_fijo', placeholder: 'Fondo fijo' },
+                                  { label: 'Total Días', name: 'total_dias', type: 'number', placeholder: '0' },
                                   { label: 'Personas Adicionales', name: 'personas_adicionales', type: 'number', placeholder: '0' },
                                 ].map(({ label, name, type = 'text', placeholder }) => (
                                   <div key={name}>
@@ -1341,10 +1342,10 @@ function Viaticos() {
                                 <button type="button" onClick={() => agregarPartida(sol.id)} style={{ padding: '5px 12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}>+ Agregar fila</button>
                               </div>
                               <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '860px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '960px' }}>
                                   <thead>
                                     <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
-                                      {['Fecha', 'Importe $', 'Factura / Folio', 'RFC', 'Nombre Proveedor', 'Rubro', 'Descripción', ''].map(h => (
+                                      {['Fecha', 'Importe $', 'Factura / Folio', 'RFC', 'Nombre Proveedor', 'Rubro', 'Descripción', 'T.C.', ''].map(h => (
                                         <th key={h} style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 'bold', color: '#334155', whiteSpace: 'nowrap' }}>{h}</th>
                                       ))}
                                     </tr>
@@ -1356,13 +1357,14 @@ function Viaticos() {
                                         <td style={{ padding: '5px 4px' }}><input type="number" value={p.importe} onChange={e => handlePartidaChange(sol.id, i, 'importe', e.target.value)} min="0" step="0.01" placeholder="0.00" style={{ width: '80px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px', textAlign: 'right' }} /></td>
                                         <td style={{ padding: '5px 4px' }}><input type="text" value={p.folio_fiscal} onChange={e => handlePartidaChange(sol.id, i, 'folio_fiscal', e.target.value)} placeholder="UUID / folio" style={{ width: '120px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
                                         <td style={{ padding: '5px 4px' }}><input type="text" value={p.rfc_proveedor} onChange={e => handlePartidaChange(sol.id, i, 'rfc_proveedor', e.target.value)} placeholder="RFC" style={{ width: '95px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px', textTransform: 'uppercase' }} /></td>
-                                        <td style={{ padding: '5px 4px' }}><input type="text" value={p.nombre_proveedor} onChange={e => handlePartidaChange(sol.id, i, 'nombre_proveedor', e.target.value)} placeholder="Proveedor" style={{ width: '140px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
+                                        <td style={{ padding: '5px 4px' }}><input type="text" value={p.nombre_proveedor} onChange={e => handlePartidaChange(sol.id, i, 'nombre_proveedor', e.target.value)} placeholder="Proveedor" style={{ width: '130px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
                                         <td style={{ padding: '5px 4px' }}>
                                           <select value={p.rubro} onChange={e => handlePartidaChange(sol.id, i, 'rubro', e.target.value)} style={{ width: '110px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }}>
                                             {RUBROS.map(r => <option key={r} value={r}>{r}</option>)}
                                           </select>
                                         </td>
-                                        <td style={{ padding: '5px 4px' }}><input type="text" value={p.descripcion} onChange={e => handlePartidaChange(sol.id, i, 'descripcion', e.target.value)} placeholder="Descripción" style={{ width: '160px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
+                                        <td style={{ padding: '5px 4px' }}><input type="text" value={p.descripcion} onChange={e => handlePartidaChange(sol.id, i, 'descripcion', e.target.value)} placeholder="Descripción" style={{ width: '140px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
+                                        <td style={{ padding: '5px 4px' }}><input type="number" value={p.tipo_cambio ?? 1} onChange={e => handlePartidaChange(sol.id, i, 'tipo_cambio', e.target.value)} min="0.01" step="0.01" style={{ width: '50px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px', textAlign: 'center', background: '#f8fafc' }} /></td>
                                         <td style={{ padding: '5px 4px' }}>
                                           {(comp.partidas || []).length > 1 && (
                                             <button type="button" onClick={() => eliminarPartida(sol.id, i)} style={{ padding: '3px 7px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✕</button>
@@ -1373,14 +1375,14 @@ function Viaticos() {
                                   </tbody>
                                   <tfoot>
                                     <tr style={{ borderTop: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                                      <td colSpan={6} style={{ padding: '8px 6px', fontWeight: 'bold', fontSize: '12px', color: '#334155', textAlign: 'right' }}>TOTAL:</td>
+                                      <td colSpan={7} style={{ padding: '8px 6px', fontWeight: 'bold', fontSize: '12px', color: '#334155', textAlign: 'right' }}>TOTAL:</td>
                                       <td style={{ padding: '8px 6px', fontWeight: '900', fontSize: '13px', color: '#10b981' }}>{formatMoney(totalComp)}</td>
                                       <td></td>
                                     </tr>
                                   </tfoot>
                                 </table>
                               </div>
-                              <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                              <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
                                 {RUBROS.map(rubro => (
                                   <div key={rubro} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px' }}>
                                     <p style={{ margin: '0 0 2px 0', fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>{rubro}</p>
@@ -1388,6 +1390,26 @@ function Viaticos() {
                                   </div>
                                 ))}
                               </div>
+                              {parseFloat(comp.recursos_otorgados || 0) > 0 && (
+                                <div style={{ marginTop: '12px', padding: '12px 16px', borderRadius: '8px',
+                                  background: (parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) > 0 ? '#fee2e2' : (parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) < 0 ? '#fef3c7' : '#dcfce7',
+                                  border: `1px solid ${(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) > 0 ? '#fca5a5' : (parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) < 0 ? '#fde68a' : '#86efac'}` }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', flexWrap: 'wrap', gap: '8px' }}>
+                                    <span>Recursos otorgados: <strong>{formatMoney(parseFloat(comp.recursos_otorgados||0))}</strong></span>
+                                    <span>Comprobado: <strong>{formatMoney(getTotalComprobado(comp))}</strong></span>
+                                    {(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) !== 0 && (
+                                      <span style={{ fontWeight: '900', color: (parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) > 0 ? '#dc2626' : '#d97706' }}>
+                                        {(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) > 0
+                                          ? `Faltante: ${formatMoney(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp))} — Se descontará de nómina`
+                                          : `Sobrante: ${formatMoney(Math.abs(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)))} — Debe devolverse a Tesorería`}
+                                      </span>
+                                    )}
+                                    {(parseFloat(comp.recursos_otorgados||0) - getTotalComprobado(comp)) === 0 && (
+                                      <span style={{ fontWeight: '900', color: '#16a34a' }}>Comprobación completa</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Botones Guardar + Descargar */}

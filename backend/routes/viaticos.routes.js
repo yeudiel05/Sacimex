@@ -454,86 +454,61 @@ router.post('/:id/comprobante-gastos', verificarToken, upload.single('comprobant
 // ==============================================================================
 router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
-    const {
-        responsable, nombre_proveedor_header, fecha_inicial, fecha_final,
-        lugar, recursos_otorgados, fondo_fijo, unidad_negocio,
-        objeto, personas_adicionales, partidas
-    } = req.body;
+    const { responsable, nombre_proveedor_header, fecha_inicial, fecha_final,
+            lugar, recursos_otorgados, fondo_fijo, unidad_negocio,
+            objeto, personas_adicionales, total_dias, partidas } = req.body;
 
-    db.query(
-        'SELECT id, estatus FROM solicitudes_viaticos WHERE id = ? AND id_usuario = ?',
-        [idSolicitud, req.usuario.id],
-        (err, rows) => {
+    db.query('SELECT id, estatus FROM solicitudes_viaticos WHERE id = ? AND id_usuario = ?',
+        [idSolicitud, req.usuario.id], (err, rows) => {
             if (err) return res.status(500).json({ success: false, message: 'Error BD.' });
-            if (rows.length === 0) return res.status(403).json({ success: false, message: 'No tienes acceso a esta solicitud.' });
-            if (!['AUTORIZADO_DHO', 'PAGADO', 'RECIBIDO', 'COMPROBADO'].includes(rows[0].estatus)) {
-                return res.status(400).json({ success: false, message: 'Solo puedes guardar comprobación en solicitudes autorizadas o con pago en proceso.' });
-            }
+            if (!rows.length) return res.status(403).json({ success: false, message: 'Sin acceso.' });
+            if (!['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(rows[0].estatus))
+                return res.status(400).json({ success: false, message: 'Estado no válido para comprobación.' });
 
-            const totalComprobado = (partidas || []).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
-            const pendiente = (parseFloat(recursos_otorgados) || 0) - totalComprobado;
+            const totalComprobado = (partidas||[]).reduce((s,p) => s + (parseFloat(p.importe)||0), 0);
+            const pendiente = (parseFloat(recursos_otorgados)||0) - totalComprobado;
 
             db.query(
-                `INSERT INTO comprobacion_gastos 
-                    (id_solicitud, responsable, nombre_proveedor, fecha_inicial, fecha_final, lugar, recursos_otorgados, fondo_fijo, unidad_negocio, objeto, personas_adicionales, total_comprobado, pendiente)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `INSERT INTO comprobacion_gastos
+                    (id_solicitud,responsable,nombre_proveedor,fecha_inicial,fecha_final,lugar,
+                     recursos_otorgados,fondo_fijo,unidad_negocio,objeto,personas_adicionales,total_dias,total_comprobado,pendiente)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON DUPLICATE KEY UPDATE
-                    responsable = VALUES(responsable),
-                    nombre_proveedor = VALUES(nombre_proveedor),
-                    fecha_inicial = VALUES(fecha_inicial),
-                    fecha_final = VALUES(fecha_final),
-                    lugar = VALUES(lugar),
-                    recursos_otorgados = VALUES(recursos_otorgados),
-                    fondo_fijo = VALUES(fondo_fijo),
-                    unidad_negocio = VALUES(unidad_negocio),
-                    objeto = VALUES(objeto),
-                    personas_adicionales = VALUES(personas_adicionales),
-                    total_comprobado = VALUES(total_comprobado),
-                    pendiente = VALUES(pendiente)`,
-                [
-                    idSolicitud, responsable, nombre_proveedor_header,
-                    fecha_inicial || null, fecha_final || null,
-                    lugar, parseFloat(recursos_otorgados) || 0, fondo_fijo,
-                    unidad_negocio, objeto, parseInt(personas_adicionales) || 0,
-                    totalComprobado, pendiente
-                ],
-                (errUpsert) => {
-                    if (errUpsert) return res.status(500).json({ success: false, message: 'Error al guardar comprobacion: ' + errUpsert.sqlMessage });
-
-                    db.query('SELECT id FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (errSelect, compRows) => {
-                        if (errSelect || compRows.length === 0) return res.status(500).json({ success: false });
-                        const idComprobacion = compRows[0].id;
-
-                        db.query('DELETE FROM comprobacion_partidas WHERE id_comprobacion = ?', [idComprobacion], (errDel) => {
-                            if (errDel) return res.status(500).json({ success: false });
-
-                            const partidasValidas = (partidas || []).filter(p => p.importe || p.descripcion || p.nombre_proveedor);
-
-                            if (partidasValidas.length === 0) {
-                                registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada (sin partidas)`, req);
-                                return res.json({ success: true, message: 'Comprobacion guardada.' });
+                    responsable=VALUES(responsable), nombre_proveedor=VALUES(nombre_proveedor),
+                    fecha_inicial=VALUES(fecha_inicial), fecha_final=VALUES(fecha_final),
+                    lugar=VALUES(lugar), recursos_otorgados=VALUES(recursos_otorgados),
+                    fondo_fijo=VALUES(fondo_fijo), unidad_negocio=VALUES(unidad_negocio),
+                    objeto=VALUES(objeto), personas_adicionales=VALUES(personas_adicionales),
+                    total_dias=VALUES(total_dias),
+                    total_comprobado=VALUES(total_comprobado), pendiente=VALUES(pendiente)`,
+                [idSolicitud, responsable, nombre_proveedor_header,
+                 fecha_inicial||null, fecha_final||null, lugar,
+                 parseFloat(recursos_otorgados)||0, fondo_fijo, unidad_negocio, objeto,
+                 parseInt(personas_adicionales)||0, parseInt(total_dias)||0,
+                 totalComprobado, pendiente],
+                (errU) => {
+                    if (errU) return res.status(500).json({ success: false, message: errU.sqlMessage });
+                    db.query('SELECT id FROM comprobacion_gastos WHERE id_solicitud=?', [idSolicitud], (errS, compRows) => {
+                        if (errS || !compRows.length) return res.status(500).json({ success: false });
+                        const idComp = compRows[0].id;
+                        db.query('DELETE FROM comprobacion_partidas WHERE id_comprobacion=?', [idComp], (errD) => {
+                            if (errD) return res.status(500).json({ success: false });
+                            const validas = (partidas||[]).filter(p => p.importe || p.descripcion || p.nombre_proveedor);
+                            if (!validas.length) {
+                                registrarBitacora(req.usuario.id,'COMPROBACION_GUARDADA',`Viático #${idSolicitud} sin partidas`,req);
+                                return res.json({ success: true, message: 'Comprobación guardada.' });
                             }
-
-                            const valores = partidasValidas.map(p => [
-                                idComprobacion,
-                                p.fecha || null,
-                                parseFloat(p.importe) || 0,
-                                p.folio_fiscal || '',
-                                (p.rfc_proveedor || '').toUpperCase(),
-                                p.nombre_proveedor || '',
-                                p.rubro || 'Otros gastos',
-                                p.descripcion || ''
-                            ]);
-
-                            db.query(
-                                'INSERT INTO comprobacion_partidas (id_comprobacion, fecha, importe, folio_fiscal, rfc_proveedor, nombre_proveedor, rubro, descripcion) VALUES ?',
-                                [valores],
-                                (errIns) => {
-                                    if (errIns) return res.status(500).json({ success: false, message: 'Error al guardar partidas.' });
-                                    registrarBitacora(req.usuario.id, 'COMPROBACION_GUARDADA', `Comprobacion de viatico #${idSolicitud} guardada con ${partidasValidas.length} partidas`, req);
-                                    res.json({ success: true, message: 'Comprobacion guardada correctamente.' });
-                                }
-                            );
+                            const vals = validas.map(p => [idComp, p.fecha||null, parseFloat(p.importe)||0,
+                                p.folio_fiscal||'', (p.rfc_proveedor||'').toUpperCase(),
+                                p.nombre_proveedor||'', p.rubro||'Otros gastos', p.descripcion||'',
+                                parseFloat(p.tipo_cambio)||1.00]);
+                            db.query('INSERT INTO comprobacion_partidas (id_comprobacion,fecha,importe,folio_fiscal,rfc_proveedor,nombre_proveedor,rubro,descripcion,tipo_cambio) VALUES ?',
+                                [vals], (errI) => {
+                                    if (errI) return res.status(500).json({ success: false, message: errI.sqlMessage });
+                                    db.query(`UPDATE solicitudes_viaticos SET estatus=IF(estatus='RECIBIDO','COMPROBADO',estatus) WHERE id=?`, [idSolicitud], ()=>{});
+                                    registrarBitacora(req.usuario.id,'COMPROBACION_GUARDADA',`Viático #${idSolicitud} — ${vals.length} partidas`,req);
+                                    res.json({ success: true, message: 'Comprobación guardada correctamente.' });
+                                });
                         });
                     });
                 }
@@ -542,9 +517,6 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
     );
 });
 
-// ==============================================================================
-// COMPROBACION UNIVERSAL DE GASTOS — OBTENER (empleado y D.H.O.)
-// ==============================================================================
 router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
     db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
@@ -559,13 +531,14 @@ router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
 });
 
 // ==============================================================================
-// B. PDF DE LA COMPROBACION UNIVERSAL DE GASTOS (D.H.O.)
+// B. PDF DE LA COMPROBACION UNIVERSAL DE GASTOS (SAC-TRS-GST)
 // ==============================================================================
 router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
 
     const querySolicitud = `
-        SELECT sv.id, sv.destino,
+        SELECT sv.id, sv.destino, sv.total_solicitado, sv.dias_comision,
+               sv.fecha_salida, sv.fecha_regreso,
                p.nombre_razon_social AS solicitante_nombre,
                e.puesto AS solicitante_puesto,
                e.unidad_negocio AS solicitante_unidad,
@@ -575,8 +548,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
         LEFT JOIN usuarios u ON sv.id_usuario = u.id
         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
         LEFT JOIN personas p ON e.id_persona = p.id
-        WHERE sv.id = ?
-    `;
+        WHERE sv.id = ?`;
 
     db.query(querySolicitud, [idSolicitud], (errSol, solRows) => {
         if (errSol) return res.status(500).json({ success: false, message: 'Error servidor' });
@@ -584,196 +556,260 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
         const sol = solRows[0];
 
         db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
-            if (err) return res.status(500).json({ success: false, message: 'Error servidor' });
-            if (compRows.length === 0) return res.status(404).json({ success: false, message: 'Este viatico aun no tiene comprobacion de gastos registrada.' });
+            if (err) return res.status(500).json({ success: false });
+            if (compRows.length === 0) return res.status(404).json({ success: false, message: 'Este viático aún no tiene comprobación registrada.' });
             const comp = compRows[0];
 
-            db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY id ASC', [comp.id], (errP, partidas) => {
-                if (errP) return res.status(500).json({ success: false, message: 'Error servidor' });
+            db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY fecha ASC, id ASC', [comp.id], (errP, partidas) => {
+                if (errP) return res.status(500).json({ success: false });
 
-                const doc = new PDFDocument({ size: 'LETTER', margin: 30, autoFirstPage: true });
+                const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
                 res.setHeader('Content-Type', 'application/pdf');
                 res.setHeader('Content-Disposition', `inline; filename=Comprobacion_${sol.id}.pdf`);
                 doc.pipe(res);
+                registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `PDF comprobación viático #${sol.id}`, req);
 
-                // REGISTRO EN BITACORA - EXPORTAR PDF COMPROBACION
-                registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `Descargo reporte PDF de Comprobacion Universal del viatico #${sol.id}`, req);
-
-                const COLOR_TEXTO_AZUL = '#0000FF';
-                const COLOR_VERDE_TITULO = '#008000';
-                const BG_VERDE_CLARO = '#eaffea';
-                const BG_GRIS = '#f1f5f9';
                 const anio = new Date().getFullYear();
+                const AZUL    = '#0000FF';
+                const VERDE   = '#008000';
+                const BG_VERDE = '#eaffea';
+                const BG_GRIS  = '#f1f5f9';
+                const BG_DARK  = '#1e293b';
+                const L = 25, W = 562;
 
                 const fmtFecha = (f) => f ? new Date(f).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '';
+                const fmtMoney = (n) => `$${parseFloat(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-                const drawCell = (x, cy, w, h, text, fill, textColor = '#000', font = 'Helvetica', size = 8, align = 'left', noBorder = false) => {
+                const cell = (x, cy, w, h, text, fill, color='#000', font='Helvetica', size=7.5, align='left', noBorder=false) => {
                     if (fill) doc.rect(x, cy, w, h).fill(fill);
-                    if (!noBorder) doc.rect(x, cy, w, h).stroke('#000');
+                    if (!noBorder) doc.rect(x, cy, w, h).stroke('#aaa');
                     if (text !== undefined && text !== null && text !== '') {
-                        doc.fillColor(textColor).font(font).fontSize(size);
-                        const textHeight = doc.heightOfString(String(text), { width: w });
-                        const textY = cy + (h - textHeight) / 2;
-                        const isCentered = align === 'center' || align === 'right';
-                        doc.text(String(text), isCentered ? x : x + 5, textY, { width: w - (isCentered ? 0 : 5), align: align });
+                        doc.fillColor(color).font(font).fontSize(size);
+                        const th = doc.heightOfString(String(text), { width: w - 4 });
+                        const ty = cy + Math.max(0, (h - th) / 2);
+                        doc.text(String(text), align === 'left' ? x+3 : x, ty, { width: w - (align==='left'?3:0), align });
                     }
                 };
 
-                // --- ENCABEZADO CON LOGOS OFICIALES ---
+                // ── LOGO ─────────────────────────────────────────────────────
+                let y = 25;
                 const logoPath = path.join(__dirname, '../../frontend/src/assets/Logo.png');
-                if (fs.existsSync(logoPath)) {
-                    try { doc.image(logoPath, 30, 25, { width: 50 }); } catch (e) {}
-                }
+                if (fs.existsSync(logoPath)) { try { doc.image(logoPath, L, y, { width: 45 }); } catch(e) {} }
 
-                doc.font('Helvetica-Bold').fontSize(13).fillColor(COLOR_VERDE_TITULO)
-                    .text('COMPROBACION UNIVERSAL DE GASTOS', 90, 28, { width: 380 });
-                doc.font('Helvetica').fontSize(9).fillColor('#000')
-                    .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 90, 44, { width: 380 });
-                if (sol.solicitante_empresa) {
-                    doc.font('Helvetica-Oblique').fontSize(8).fillColor('#475569')
-                        .text(sol.solicitante_empresa, 90, 56, { width: 380 });
-                }
-
+                // ── TÍTULO ───────────────────────────────────────────────────
+                doc.font('Helvetica-Bold').fontSize(13).fillColor(VERDE)
+                   .text('COMPROBACION UNIVERSAL DE GASTOS ' + anio, 75, y + 2, { width: 380 });
                 doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
-                    .text(`SAC-TRS-GST-${anio}`, 0, 30, { align: 'right', width: 552 });
-
-                let y = 80;
-                doc.moveTo(30, y).lineTo(552, y).strokeColor('#cbd5e1').stroke();
-                y += 12;
-
-                // --- DATOS GENERALES ---
-                const tX = 30, colA = 110, colB = 156, colC = 110, colD = 156, rowH = 16;
-
-                drawCell(tX, y, colA, rowH, 'Responsable:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, sol.solicitante_nombre || comp.responsable || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Nombre proveedor:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.nombre_proveedor || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                y += rowH;
-
-                drawCell(tX, y, colA, rowH, 'Fecha inicial:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, fmtFecha(comp.fecha_inicial), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Fecha final:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, fmtFecha(comp.fecha_final), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                y += rowH;
-
-                drawCell(tX, y, colA, rowH, 'Lugar:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, comp.lugar || sol.destino || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Fondo fijo:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.fondo_fijo || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                y += rowH;
-
-                drawCell(tX, y, colA, rowH, 'Recursos otorgados $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, formatMoney(comp.recursos_otorgados), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Unidad de negocio:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.unidad_negocio || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                y += rowH;
-
-                drawCell(tX, y, colA, rowH, 'Objeto:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, comp.objeto || '', BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Personas adicionales:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, comp.personas_adicionales ?? 0, BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                y += rowH;
-
-                drawCell(tX, y, colA, rowH, 'Comprobado $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA, y, colB, rowH, formatMoney(comp.total_comprobado), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB, y, colC, rowH, 'Pendiente $:', BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                drawCell(tX + colA + colB + colC, y, colD, rowH, formatMoney(comp.pendiente), comp.pendiente > 0 ? '#fee2e2' : '#dcfce7', comp.pendiente > 0 ? '#ef4444' : '#16a34a', 'Helvetica-Bold', 8, 'left');
-                y += rowH + 14;
-
-                // --- TABLA DE PARTIDAS ---
-                doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_VERDE_TITULO).text('DETALLE DE GASTOS COMPROBADOS', 30, y);
-                y += 16;
-
-                const colsPartidas = [
-                    { label: 'Fecha', w: 55 },
-                    { label: 'Importe', w: 60 },
-                    { label: 'Folio Fiscal', w: 90 },
-                    { label: 'RFC Proveedor', w: 70 },
-                    { label: 'Nombre Proveedor', w: 100 },
-                    { label: 'Rubro', w: 60 },
-                    { label: 'Descripcion', w: 87 },
-                ];
-                const headerH = 16;
-                let cx = 30;
-                colsPartidas.forEach(c => {
-                    drawCell(cx, y, c.w, headerH, c.label, '#1e293b', '#fff', 'Helvetica-Bold', 7.5, 'center');
-                    cx += c.w;
-                });
-                y += headerH;
-
-                const PAGE_BOTTOM = 740;
-                const rowHP = 15;
-
-                partidas.forEach((p, idx) => {
-                    if (y + rowHP > PAGE_BOTTOM) {
-                        doc.addPage();
-                        y = 40;
-                        cx = 30;
-                        colsPartidas.forEach(c => {
-                            drawCell(cx, y, c.w, headerH, c.label, '#1e293b', '#fff', 'Helvetica-Bold', 7.5, 'center');
-                            cx += c.w;
-                        });
-                        y += headerH;
-                    }
-                    const fill = idx % 2 === 0 ? '#fff' : '#f8fafc';
-                    cx = 30;
-                    drawCell(cx, y, 55, rowHP, fmtFecha(p.fecha), fill, '#000', 'Helvetica', 7.5, 'center'); cx += 55;
-                    drawCell(cx, y, 60, rowHP, formatMoney(p.importe), fill, '#000', 'Helvetica', 7.5, 'right'); cx += 60;
-                    drawCell(cx, y, 90, rowHP, p.folio_fiscal || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 90;
-                    drawCell(cx, y, 70, rowHP, p.rfc_proveedor || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 70;
-                    drawCell(cx, y, 100, rowHP, p.nombre_proveedor || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 100;
-                    drawCell(cx, y, 60, rowHP, p.rubro || '', fill, '#000', 'Helvetica', 7, 'left'); cx += 60;
-                    drawCell(cx, y, 87, rowHP, p.descripcion || '', fill, '#000', 'Helvetica', 7, 'left');
-                    y += rowHP;
-                });
-
-                drawCell(30, y, 285, rowHP, '', null, '#000', 'Helvetica', 7, 'left', true);
-                drawCell(315, y, 60, rowHP, 'TOTAL', '#1e293b', '#fff', 'Helvetica-Bold', 8, 'center');
-                drawCell(375, y, 177, rowHP, formatMoney(comp.total_comprobado), '#dcfce7', '#16a34a', 'Helvetica-Bold', 9, 'left');
-                y += rowHP + 14;
-
-                // --- TOTALES POR RUBRO ---
-                if (y + 90 > PAGE_BOTTOM) { doc.addPage(); y = 40; }
-                doc.font('Helvetica-Bold').fontSize(10).fillColor(COLOR_VERDE_TITULO).text('TOTALES POR RUBRO', 30, y);
-                y += 16;
-
-                const RUBROS = ['Hospedaje', 'Alimentos', 'Transporte', 'Otros gastos'];
-                const totalPorRubro = (rubro) => partidas.filter(p => p.rubro === rubro).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
-                const wRub = 130, hRub = 16;
-                let xRub = 30;
-                RUBROS.forEach(r => {
-                    drawCell(xRub, y, wRub, hRub, r, BG_GRIS, '#000', 'Helvetica-Bold', 8, 'left');
-                    drawCell(xRub, y + hRub, wRub, hRub, formatMoney(totalPorRubro(r)), BG_VERDE_CLARO, COLOR_TEXTO_AZUL, 'Helvetica', 8, 'left');
-                    xRub += wRub;
-                });
-                y += hRub * 2 + 25;
-
-                // --- PIE / FIRMA ---
-                if (y + 90 > PAGE_BOTTOM) { doc.addPage(); y = 40; }
-                const wSign = 220;
-                const xSign = (doc.page.width - wSign) / 2;
-                doc.font('Helvetica').fontSize(9).fillColor('#000').text('Presentado por:', xSign, y, { width: wSign, align: 'center' });
+                   .text(`SAC-TRS-GST-${anio}`, 0, y + 2, { align: 'right', width: W + L });
+                doc.font('Helvetica').fontSize(8).fillColor('#000')
+                   .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 75, y + 18);
+                y += 40;
+                doc.moveTo(L, y).lineTo(L + W, y).strokeColor('#ccc').stroke();
                 y += 8;
 
-                if (sol.solicitante_firma) {
-                    const pathFirmaSol = path.join(__dirname, '../', sol.solicitante_firma);
-                    if (fs.existsSync(pathFirmaSol)) {
-                        try { doc.image(pathFirmaSol, xSign + 60, y, { width: 100, height: 30 }); } catch (e) {}
+                // ── DATOS GENERALES ──────────────────────────────────────────
+                const cA = 100, cB = 140, cC = 110, cD = 140, rH = 15;
+
+                const fila = (label1, val1, label2, val2) => {
+                    cell(L,         y, cA, rH, label1, BG_GRIS, '#000', 'Helvetica-Bold', 7.5, 'left');
+                    cell(L+cA,      y, cB, rH, val1,   BG_VERDE, AZUL,  'Helvetica',      7.5, 'left');
+                    cell(L+cA+cB,   y, cC, rH, label2, BG_GRIS, '#000', 'Helvetica-Bold', 7.5, 'left');
+                    cell(L+cA+cB+cC,y, cD, rH, val2,   BG_VERDE, AZUL,  'Helvetica',      7.5, 'left');
+                    y += rH;
+                };
+
+                fila('Responsable:',        sol.solicitante_nombre || comp.responsable || '',
+                     'Nombres adicionales:', comp.personas_adicionales > 0 ? String(comp.personas_adicionales) : '0');
+                fila('Fecha (dd/mm/aa) Ini:',fmtFecha(comp.fecha_inicial),
+                     'Final:',               fmtFecha(comp.fecha_final));
+                fila('Lugar:',              comp.lugar || sol.destino || '',
+                     'Fondo fijo:',          comp.fondo_fijo || 'N/A');
+                fila('Recursos otorgados $:',fmtMoney(comp.recursos_otorgados),
+                     'Objeto:',              comp.objeto || sol.destino || '');
+                fila('Unidad de negocio:',  comp.unidad_negocio || sol.solicitante_unidad || '',
+                     'Comprobado $:',        fmtMoney(comp.total_comprobado));
+
+                // Fila especial: Pendiente (color según si sobró o faltó)
+                const pendiente = parseFloat(comp.pendiente || 0);
+                const pendienteBg = pendiente > 0 ? '#fee2e2' : '#dcfce7';
+                const pendienteColor = pendiente > 0 ? '#dc2626' : '#16a34a';
+                const pendienteLabel = pendiente > 0 ? 'Pendiente $ (faltó):' : pendiente < 0 ? 'Sobrante $ (devolver):' : 'Pendiente $:';
+                cell(L,          y, cA,     rH, 'Total días:',   BG_GRIS, '#000', 'Helvetica-Bold', 7.5, 'left');
+                cell(L+cA,       y, cB,     rH, String(comp.total_dias || sol.dias_comision || ''), BG_VERDE, AZUL, 'Helvetica', 7.5, 'left');
+                cell(L+cA+cB,    y, cC,     rH, pendienteLabel,  BG_GRIS, '#000', 'Helvetica-Bold', 7.5, 'left');
+                cell(L+cA+cB+cC, y, cD,     rH, fmtMoney(Math.abs(pendiente)), pendienteBg, pendienteColor, 'Helvetica-Bold', 7.5, 'left');
+                y += rH + 10;
+
+                // ── TABLA DE PARTIDAS ────────────────────────────────────────
+                doc.font('Helvetica-Bold').fontSize(9).fillColor(VERDE)
+                   .text('DETALLE DE GASTOS COMPROBADOS', L, y);
+                y += 12;
+
+                const COLS = [
+                    { label: 'Día\n(dd/mm/aa)', w: 52 },
+                    { label: 'Importe', w: 52 },
+                    { label: 'Factura o\nFolio Fiscal', w: 80 },
+                    { label: 'RFC\nProveedor', w: 68 },
+                    { label: 'Nombre Proveedor', w: 100 },
+                    { label: 'Rubro', w: 58 },
+                    { label: 'Descripción', w: 96 },
+                    { label: 'Tipo\nCambio', w: 38 },
+                    { label: 'Total', w: 52 },
+                ];
+                const HEAD_H = 22;
+                let cx = L;
+                COLS.forEach(c => {
+                    cell(cx, y, c.w, HEAD_H, c.label, BG_DARK, '#fff', 'Helvetica-Bold', 7, 'center');
+                    cx += c.w;
+                });
+                y += HEAD_H;
+
+                const PAGE_BOTTOM = 680;
+                const ROW_H = 14;
+
+                const dibujarFila = (p, idx) => {
+                    if (y + ROW_H > PAGE_BOTTOM) {
+                        // Pie de página antes de saltar
+                        doc.font('Helvetica').fontSize(7).fillColor('#94a3b8')
+                           .text('Continúa en la siguiente página...', L, y + 4);
+                        doc.addPage();
+                        y = 40;
+                        cx = L;
+                        COLS.forEach(c => {
+                            cell(cx, y, c.w, HEAD_H, c.label, BG_DARK, '#fff', 'Helvetica-Bold', 7, 'center');
+                            cx += c.w;
+                        });
+                        y += HEAD_H;
                     }
-                }
+                    const bg = idx % 2 === 0 ? '#fff' : '#f8fafc';
+                    const imp = parseFloat(p.importe) || 0;
+                    const tc  = parseFloat(p.tipo_cambio || 1);
+                    cx = L;
+                    cell(cx, y, 52,  ROW_H, fmtFecha(p.fecha),         bg, '#000', 'Helvetica', 7, 'center'); cx+=52;
+                    cell(cx, y, 52,  ROW_H, fmtMoney(imp),              bg, '#000', 'Helvetica', 7, 'right');  cx+=52;
+                    cell(cx, y, 80,  ROW_H, p.folio_fiscal || '',       bg, '#000', 'Helvetica', 6.5, 'left'); cx+=80;
+                    cell(cx, y, 68,  ROW_H, p.rfc_proveedor || '',      bg, '#000', 'Helvetica', 6.5, 'left'); cx+=68;
+                    cell(cx, y, 100, ROW_H, p.nombre_proveedor || '',   bg, '#000', 'Helvetica', 6.5, 'left'); cx+=100;
+                    cell(cx, y, 58,  ROW_H, p.rubro || 'Otros gastos',  bg, '#475569', 'Helvetica', 6.5, 'left'); cx+=58;
+                    cell(cx, y, 96,  ROW_H, p.descripcion || '',        bg, '#000', 'Helvetica', 6.5, 'left'); cx+=96;
+                    cell(cx, y, 38,  ROW_H, tc.toFixed(2),              bg, '#64748b', 'Helvetica', 7, 'center'); cx+=38;
+                    cell(cx, y, 52,  ROW_H, fmtMoney(imp * tc),         bg, '#000', 'Helvetica', 7, 'right');
+                    y += ROW_H;
+                };
+
+                partidas.forEach((p, i) => dibujarFila(p, i));
+
+                // ── FILA TOTAL ────────────────────────────────────────────────
+                const totalComp = parseFloat(comp.total_comprobado || 0);
+                cell(L,   y, 510, ROW_H, 'TOTAL COMPROBADO:', BG_DARK, '#fff', 'Helvetica-Bold', 8, 'right');
+                cell(L+510, y, 52, ROW_H, fmtMoney(totalComp), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'right');
+                y += ROW_H + 10;
+
+                // ── RESUMEN POR RUBRO ─────────────────────────────────────────
+                const RUBROS_PDF = ['Transporte','Alimentos','Hospedaje','Reparación','Otros gastos'];
+                const totalPorRubro = {};
+                RUBROS_PDF.forEach(r => {
+                    totalPorRubro[r] = partidas.filter(p => p.rubro === r).reduce((s, p) => s + (parseFloat(p.importe) || 0), 0);
+                });
+
+                doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text('Totales por rubro:', L, y);
+                y += 10;
+                const rW = Math.floor(W / RUBROS_PDF.length);
+                cx = L;
+                RUBROS_PDF.forEach(r => {
+                    cell(cx, y, rW, 13, r, BG_DARK, '#fff', 'Helvetica-Bold', 6.5, 'center');
+                    cx += rW;
+                });
+                y += 13;
+                cx = L;
+                RUBROS_PDF.forEach(r => {
+                    const v = totalPorRubro[r];
+                    cell(cx, y, rW, 13, fmtMoney(v), v > 0 ? BG_VERDE : '#fff', v > 0 ? AZUL : '#94a3b8', 'Helvetica-Bold', 7, 'center');
+                    cx += rW;
+                });
+                y += 13;
+
+                // Promedio por persona
+                const numPersonas = Math.max(1, 1 + parseInt(comp.personas_adicionales || 0));
+                const totalDias2  = parseInt(comp.total_dias || sol.dias_comision || 1);
+                y += 8;
+                doc.font('Helvetica').fontSize(7).fillColor('#475569')
+                   .text(`Promedio por persona: ${numPersonas} persona(s) se ${numPersonas === 1 ? 'fue' : 'fueron'} ${totalDias2} día(s)`, L, y);
+                y += 10;
+
+                // Promedio por rubro y día
+                cx = L;
+                doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#000');
+                ['Por evento','Por día'].forEach(etiq => {
+                    const divisor = etiq === 'Por día' ? totalDias2 : 1;
+                    cx = L;
+                    doc.text(etiq + ':', L, y, { continued: false });
+                    RUBROS_PDF.forEach(r => {
+                        const v = totalPorRubro[r] / divisor;
+                        doc.text(`${r}: ${fmtMoney(v)}`, cx + 5, y + 8);
+                        cx += rW;
+                    });
+                    y += 18;
+                });
+
+                y += 10;
+                doc.moveTo(L, y).lineTo(L + W, y).strokeColor('#e2e8f0').stroke();
+                y += 10;
+
+                // ── NOTAS ─────────────────────────────────────────────────────
+                doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text('NOTAS:', L, y);
+                y += 10;
+                const notaMsg = '*Describe notas adicionales. Este descuento a nómina. Tiene 3 días hábiles (del 01 - mayo - 2021) para egresar. Comprobante Contabilidad SAC-Gastos 2017 MX.13 TCM JAIRO';
+                doc.rect(L, y, W, 28).stroke('#aaa');
+                doc.font('Helvetica').fontSize(6.5).fillColor('#64748b').text(notaMsg, L + 3, y + 4, { width: W - 6 });
                 y += 36;
 
-                doc.moveTo(xSign, y).lineTo(xSign + wSign, y).strokeColor('#000').stroke();
-                y += 4;
-                doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL)
-                    .text((sol.solicitante_nombre || comp.responsable || '').toUpperCase(), xSign, y, { width: wSign, align: 'center' });
-                y += 10;
-                doc.font('Helvetica').fontSize(8).fillColor('#475569')
-                    .text(sol.solicitante_puesto || '', xSign, y, { width: wSign, align: 'center' });
-                y += 20;
+                // Aviso pendiente
+                if (Math.abs(pendiente) > 0) {
+                    const avisoBg = pendiente > 0 ? '#fee2e2' : '#dcfce7';
+                    const avisoTxt = pendiente > 0
+                        ? `FALTANTE: ${fmtMoney(Math.abs(pendiente))} — Se descontará de nómina`
+                        : `SOBRANTE: ${fmtMoney(Math.abs(pendiente))} — Debe reintegrarse a Tesorería`;
+                    doc.rect(L, y, W, 16).fill(avisoBg);
+                    doc.font('Helvetica-Bold').fontSize(9).fillColor(pendiente > 0 ? '#dc2626' : '#16a34a')
+                       .text(avisoTxt, L, y + 4, { width: W, align: 'center' });
+                    y += 24;
+                }
 
-                doc.font('Helvetica-Oblique').fontSize(7).fillColor('#94a3b8')
-                    .text('Documento generado por D.H.O. — Opciones Sacimex SA de CV SOFOM ENR', 30, y, { width: 522, align: 'center' });
+                // ── FIRMAS ────────────────────────────────────────────────────
+                y += 8;
+                const wFirma = 170, gapF = 14;
+                const xF1 = L, xF2 = L + wFirma + gapF, xF3 = L + (wFirma + gapF) * 2;
+
+                // Intentar cargar firma del solicitante
+                const cargarF = (ruta, x, yPos) => {
+                    if (!ruta) return;
+                    const paths2 = [path.join(__dirname, '../', ruta), path.join(__dirname, '../../', ruta)];
+                    const found = paths2.find(p2 => fs.existsSync(p2));
+                    if (found) { try { doc.image(found, x + 35, yPos, { width: 100, height: 28 }); } catch(e) {} }
+                };
+
+                cargarF(sol.solicitante_firma, xF1, y);
+
+                const yLine = y + 35;
+                [xF1, xF2, xF3].forEach(x => doc.moveTo(x, yLine).lineTo(x + wFirma, yLine).stroke());
+
+                const yNom = yLine + 4;
+                doc.font('Helvetica').fontSize(7).fillColor(AZUL)
+                   .text('ENTREGO (iniciales y firmas del responsable y personas adicionales)', xF1, yNom, { width: wFirma * 2 + gapF, align: 'center' })
+                   .text('REVISO\n(Contabilidad)', xF3, yNom, { width: wFirma, align: 'center' });
+
+                const yNom2 = yNom + 16;
+                doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000')
+                   .text((sol.solicitante_nombre || '').toUpperCase(), xF1, yNom2, { width: wFirma, align: 'center' })
+                   .text(sol.solicitante_puesto || '', xF1, yNom2 + 10, { width: wFirma, align: 'center' });
+
+                doc.font('Helvetica').fontSize(7).fillColor('#475569')
+                   .text('Firmas y fecha', xF1, yNom2 + 22, { width: W, align: 'center' });
+
+                // Powered by
+                doc.font('Helvetica').fontSize(6).fillColor('#94a3b8')
+                   .text('Powered by: Sistema SAC-GTSR-GST', L, doc.page.height - 30, { align: 'right', width: W });
 
                 doc.end();
             });
