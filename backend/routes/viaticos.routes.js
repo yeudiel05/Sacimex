@@ -909,13 +909,15 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             doc.fontSize(10).text(`SAC-TSR-CMS-${anio}`, 0, y, { align: 'right', underline: true });
             
             y += 20;
-            doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL).text(sol.solicitante_nombre?.toUpperCase() || 'NOMBRE DEL COLABORADOR', 30, y);
+            doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR_TEXTO_AZUL)
+               .text((sol.jefe_nombre || sol.jefe_inmediato || 'JEFE INMEDIATO').toUpperCase(), 30, y);
             y += 10;
-            doc.font('Helvetica-Bold').fillColor('#000').text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, 30, y);
+            doc.font('Helvetica-Bold').fillColor('#000')
+               .text(sol.jefe_puesto || 'Jefe Inmediato', 30, y);
             y += 10;
             doc.font('Helvetica-Oblique').fillColor(COLOR_TEXTO_AZUL).text('OPCIONES SACIMEX SA DE CV SOFOM ENR', 30, y);
             y += 10;
-            doc.text(sol.solicitante_empresa || 'Integracion Activa Especializada Ragar SA de CV', 30, y);
+            doc.text(sol.jefe_empresa || sol.solicitante_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', 30, y);
 
             const f = new Date(sol.fecha_solicitud || Date.now());
             const diasSemana = ['dom','lun','mar','mie','jue','vie','sab'];
@@ -969,9 +971,10 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             doc.moveTo(x2B, y).lineTo(x2B + wF2, y).stroke();
             y += 4;
 
+            // Encabezado: solicitante a la izquierda, jefe a la derecha
             doc.font('Helvetica').fontSize(8).fillColor(COLOR_TEXTO_AZUL)
                .text(sol.solicitante_nombre?.toUpperCase() || '---', x2A, y, { width: wF2, align: 'center' })
-               .text(sol.jefe_nombre?.toUpperCase() || sol.jefe_inmediato?.toUpperCase() || 'PENDIENTE', x2B, y, { width: wF2, align: 'center' });
+               .text((sol.jefe_nombre || sol.jefe_inmediato || 'PENDIENTE').toUpperCase(), x2B, y, { width: wF2, align: 'center' });
             y += 10;
             doc.font('Helvetica-BoldOblique').fillColor('#000')
                .text(sol.solicitante_puesto || '', x2A, y, { width: wF2, align: 'center' })
@@ -1119,54 +1122,54 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             gy += rowH + 10;
 
             // ── FIRMAS INFERIORES: D.H.O. | Tesorería | Recibió ──────────────
-            const wF3 = 150, gapF3 = 18;
+            const wF3 = 165, gapF3 = 13;
             const totalW3 = wF3*3 + gapF3*2;
-            const xF3A = (doc.page.width - totalW3) / 2; // DHO
-            const xF3B = xF3A + wF3 + gapF3;              // Tesorería  
-            const xF3C = xF3B + wF3 + gapF3;              // Recibió
+            const xF3A = (doc.page.width - totalW3) / 2;
+            const xF3B = xF3A + wF3 + gapF3;
+            const xF3C = xF3B + wF3 + gapF3;
 
             doc.font('Helvetica').fontSize(9).fillColor('#000')
                .text('Otorgó (D.H.O.)', xF3A, gy, { width: wF3, align: 'center' })
                .text('Quien Paga (Tesorería)', xF3B, gy, { width: wF3, align: 'center' })
                .text('Recibió', xF3C, gy, { width: wF3, align: 'center' });
 
-            cargarFirmaViatic(sol.dho_firma, xF3A + 25, gy + 12, 100, 28);
+            cargarFirmaViatic(sol.dho_firma, xF3A + 32, gy + 12, 100, 28);
 
-            // Firma de tesorería: usa id_tesorero (campo dedicado, no pisa a D.H.O.)
             if (['PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
-                cargarFirmaViatic(sol.tesorero_firma, xF3B + 25, gy + 12, 100, 28);
+                cargarFirmaViatic(sol.tesorero_firma, xF3B + 32, gy + 12, 100, 28);
             }
-
-            // Firma de recepción del empleado
             if (['RECIBIDO','COMPROBADO'].includes(sol.estatus)) {
-                cargarFirmaViatic(sol.solicitante_firma, xF3C + 25, gy + 12, 100, 28);
+                cargarFirmaViatic(sol.solicitante_firma, xF3C + 32, gy + 12, 100, 28);
             }
 
             const yLineaFirma = gy + 50;
             [xF3A, xF3B, xF3C].forEach(x => doc.moveTo(x, yLineaFirma).lineTo(x + wF3, yLineaFirma).stroke());
 
-            const yTexto = yLineaFirma + 4;
-            const textoRecibio = ['RECIBIDO','COMPROBADO'].includes(sol.estatus)
+            const yTexto = yLineaFirma + 5;
+            const textoRecibio  = ['RECIBIDO','COMPROBADO'].includes(sol.estatus)
                 ? (sol.solicitante_nombre?.toUpperCase() || '') : 'PENDIENTE DE RECEPCIÓN';
             const textoTesorero = ['PAGADO','RECIBIDO','COMPROBADO'].includes(sol.estatus)
                 ? (sol.tesorero_nombre?.toUpperCase() || '---') : 'PENDIENTE TESORERÍA';
 
+            // Nombre
             doc.font('Helvetica').fontSize(7).fillColor(COLOR_TEXTO_AZUL)
                .text(sol.dho_nombre?.toUpperCase() || 'PENDIENTE D.H.O.', xF3A, yTexto, { width: wF3, align: 'center' })
                .text(textoTesorero, xF3B, yTexto, { width: wF3, align: 'center' })
-               .text(textoRecibio, xF3C, yTexto, { width: wF3, align: 'center' });
+               .text(textoRecibio,  xF3C, yTexto, { width: wF3, align: 'center' });
 
-            const yPuesto = yTexto + 9;
+            // Puesto
+            const yPuesto = yTexto + 11;
             doc.font('Helvetica-BoldOblique').fillColor('#000').fontSize(7)
                .text(sol.dho_puesto || 'D.H.O / FINANZAS', xF3A, yPuesto, { width: wF3, align: 'center' })
-               .text(sol.tesorero_puesto || 'Tesorería', xF3B, yPuesto, { width: wF3, align: 'center' })
-               .text(`${sol.solicitante_unidad || ''} - ${sol.solicitante_puesto || ''}`, xF3C, yPuesto, { width: wF3, align: 'center' });
+               .text(sol.tesorero_puesto || 'Tesorería',    xF3B, yPuesto, { width: wF3, align: 'center' })
+               .text(sol.solicitante_puesto || '',           xF3C, yPuesto, { width: wF3, align: 'center' });
 
-            const yEmpresa = yPuesto + 9;
+            // Empresa
+            const yEmpresa = yPuesto + 11;
             doc.font('Helvetica').fontSize(7)
-               .text(sol.dho_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3A, yEmpresa, { width: wF3, align: 'center' })
+               .text(sol.dho_empresa || 'Opciones Sacimex SA de CV SOFOM ENR',      xF3A, yEmpresa, { width: wF3, align: 'center' })
                .text(sol.tesorero_empresa || 'Opciones Sacimex SA de CV SOFOM ENR', xF3B, yEmpresa, { width: wF3, align: 'center' })
-               .text(sol.solicitante_empresa || '', xF3C, yEmpresa, { width: wF3, align: 'center' });
+               .text(sol.solicitante_empresa || '',                                  xF3C, yEmpresa, { width: wF3, align: 'center' });
 
             doc.end();
         }); // cierre desglose_dias

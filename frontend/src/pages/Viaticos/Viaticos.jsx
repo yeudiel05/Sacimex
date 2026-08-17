@@ -706,15 +706,19 @@ function Viaticos() {
                 </div>
               </div>
               <div className="form-field mt-16">
-                <label>Seleccione quien autorizó su comisión</label>
-                <select name="jefe_inmediato" required value={formData.jefe_inmediato} onChange={handleChange}>
-                  <option value="" disabled>Seleccione Autorizador</option>
-                  {listaEmpleados.map((emp, i) => (
-                    <option key={i} value={emp.nombre_completo}>
-                      {emp.nombre_completo}{emp.puesto ? ` — ${emp.puesto}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <label>Quien autorizó su comisión (Jefe Inmediato)</label>
+                <input
+                  type="text"
+                  value={formData.jefe_inmediato}
+                  readOnly
+                  style={{ background: '#f1f5f9', color: '#374151', fontWeight: '600', cursor: 'not-allowed' }}
+                  placeholder="Se asigna automáticamente desde tu perfil"
+                />
+                {!formData.jefe_inmediato && (
+                  <span style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', display: 'block' }}>
+                    No tienes jefe inmediato asignado. Contacta a Recursos Humanos.
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1023,7 +1027,7 @@ function Viaticos() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', background: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
                 <div><span style={{color:'#64748b'}}>Destino:</span> <strong>{sol.destino}</strong></div>
-                <div><span style={{color:'#64748b'}}>Fechas:</span> <strong>{sol.fecha_salida} → {sol.fecha_regreso}</strong></div>
+                <div><span style={{color:'#64748b'}}>Fechas:</span> <strong>{new Date(sol.fecha_salida).toLocaleDateString('es-MX',{timeZone:'UTC'})} → {new Date(sol.fecha_regreso).toLocaleDateString('es-MX',{timeZone:'UTC'})}</strong></div>
                 <div><span style={{color:'#64748b'}}>Total:</span> <strong style={{color:'#10d440'}}>${parseFloat(sol.total_solicitado).toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></div>
                 <div><span style={{color:'#64748b'}}>Motivo:</span> <strong>{sol.motivo}</strong></div>
                 <div><span style={{color:'#64748b'}}>Días:</span> <strong>{sol.dias_comision}</strong></div>
@@ -1031,7 +1035,7 @@ function Viaticos() {
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button onClick={() => handleVerPDF(sol.id)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #dc2626', background: 'white', color: '#dc2626', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
-                  📄 Ver Oficio
+                  Ver Oficio
                 </button>
                 <button onClick={() => handleAutorizar(sol.id, 'RECHAZAR')} style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
                   Rechazar
@@ -1100,7 +1104,7 @@ function Viaticos() {
                       <span style={{ fontSize: '20px', fontWeight: '900', color: '#10b981' }}>{formatMoney(sol.total_solicitado)}</span>
                       <button onClick={() => handleVerPDF(sol.id)}
                         style={{ padding: '6px 14px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                        📄 Ver Oficio
+                        Ver Oficio
                       </button>
                     </div>
                   </div>
@@ -1140,7 +1144,7 @@ function Viaticos() {
                 <span style={{ fontSize: '22px', fontWeight: '900', color: '#10b981' }}>{formatMoney(sol.total_solicitado)}</span>
                 <button onClick={() => handleVerPDF(sol.id)}
                   style={{ padding: '6px 14px', border: '1px solid #dc2626', color: '#dc2626', background: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                  📄 Ver Oficio
+                  Ver Oficio
                 </button>
               </div>
             </div>
