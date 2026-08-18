@@ -133,7 +133,10 @@ router.get('/mis-solicitudes', verificarToken, (req, res) => {
                 COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre_completo,
                 e.puesto AS solicitante_puesto_real,
                 e.unidad_negocio AS unidad_negocio_real,
-                hrc.motivo AS motivo_rechazo
+                hrc.motivo AS motivo_rechazo,
+                (SELECT hrc2.accion FROM historial_revision_comprobacion hrc2
+                 WHERE hrc2.id_solicitud = sv.id
+                 ORDER BY hrc2.fecha_revision DESC LIMIT 1) AS ultima_revision_contabilidad
          FROM solicitudes_viaticos sv
          JOIN usuarios u ON sv.id_usuario = u.id
          LEFT JOIN empleados e ON u.id_empleado = e.id_persona
@@ -223,6 +226,195 @@ router.get('/pendientes', verificarToken, async (req, res) => {
         }
     });
 });
+
+// GET /resumen-mensual — tabla de gasto por mes para el frontend
+router.get('/resumen-mensual', verificarToken, (req, res) => {
+    if (parseInt(req.usuario.id_departamento) !== 4 && req.usuario.rol !== 'ADMIN'
+        && req.usuario.rol !== 'AUTORIZADOR_1' && req.usuario.rol !== 'REVISOR') {
+        return res.status(403).json({ success: false, message: 'Sin acceso.' });
+    }
+    db.query(
+        `SELECT
+            DATE_FORMAT(sv.fecha_solicitud, '%Y-%m') AS mes,
+            DATE_FORMAT(MIN(sv.fecha_solicitud), '%M %Y') AS mes_label,
+            COUNT(sv.id) AS total_solicitudes,
+            SUM(sv.total_solicitado) AS total_solicitado,
+            SUM(COALESCE(cg.total_comprobado, 0)) AS total_comprobado,
+            SUM(CASE WHEN sv.estatus = 'COMPROBADO' THEN 1 ELSE 0 END) AS solicitudes_comprobadas,
+            SUM(CASE WHEN sv.estatus IN ('PENDIENTE','AUTORIZADO_N0','AUTORIZADO_N1','PAGADO','RECIBIDO','COMPROBACION_RECHAZADA') THEN 1 ELSE 0 END) AS solicitudes_en_proceso
+         FROM solicitudes_viaticos sv
+         LEFT JOIN comprobacion_gastos cg ON cg.id_solicitud = sv.id
+         WHERE sv.estatus != 'RECHAZADO'
+         GROUP BY DATE_FORMAT(sv.fecha_solicitud, '%Y-%m')
+         ORDER BY mes DESC LIMIT 24`,
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+// GET /resumen-mensual/pdf?mes=2026-08 — PDF del reporte mensual
+router.get('/resumen-mensual/pdf', verificarToken, (req, res) => {
+    if (parseInt(req.usuario.id_departamento) !== 4 && req.usuario.rol !== 'ADMIN'
+        && req.usuario.rol !== 'AUTORIZADOR_1' && req.usuario.rol !== 'REVISOR') {
+        return res.status(403).json({ success: false, message: 'Sin acceso.' });
+    }
+    const mes = req.query.mes; // formato YYYY-MM, si no se manda trae todos
+
+    const whereExtra = mes ? `AND DATE_FORMAT(sv.fecha_solicitud, '%Y-%m') = ?` : '';
+    const params = mes ? [mes] : [];
+
+    // Resumen del mes
+    db.query(
+        `SELECT
+            DATE_FORMAT(MIN(sv.fecha_solicitud), '%M %Y') AS mes_label,
+            COUNT(sv.id) AS total_solicitudes,
+            SUM(sv.total_solicitado) AS total_solicitado,
+            SUM(COALESCE(cg.total_comprobado, 0)) AS total_comprobado,
+            SUM(CASE WHEN sv.estatus = 'COMPROBADO' THEN 1 ELSE 0 END) AS comprobadas,
+            SUM(CASE WHEN sv.estatus IN ('PENDIENTE','AUTORIZADO_N0','AUTORIZADO_N1','PAGADO','RECIBIDO','COMPROBACION_RECHAZADA') THEN 1 ELSE 0 END) AS en_proceso,
+            SUM(CASE WHEN sv.estatus = 'RECHAZADO' THEN 1 ELSE 0 END) AS rechazadas
+         FROM solicitudes_viaticos sv
+         LEFT JOIN comprobacion_gastos cg ON cg.id_solicitud = sv.id
+         WHERE sv.estatus != 'RECHAZADO' ${whereExtra}`,
+        params,
+        (err, resumen) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+
+            // Detalle de solicitudes del mes
+            db.query(
+                `SELECT sv.id, sv.estatus, sv.destino, sv.motivo,
+                        sv.fecha_salida, sv.fecha_regreso, sv.dias_comision,
+                        sv.total_solicitado, sv.medio_transporte,
+                        COALESCE(p.nombre_razon_social, u.username) AS solicitante,
+                        e.departamento, cg.total_comprobado, cg.pendiente
+                 FROM solicitudes_viaticos sv
+                 JOIN usuarios u ON sv.id_usuario = u.id
+                 LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+                 LEFT JOIN personas p ON e.id_persona = p.id
+                 LEFT JOIN comprobacion_gastos cg ON cg.id_solicitud = sv.id
+                 WHERE sv.estatus != 'RECHAZADO' ${whereExtra}
+                 ORDER BY sv.fecha_solicitud DESC`,
+                params,
+                (err2, solicitudes) => {
+                    if (err2) return res.status(500).json({ success: false, message: err2.message });
+
+                    const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 25 });
+                    res.setHeader('Content-Type', 'application/pdf');
+                    res.setHeader('Content-Disposition', `inline; filename=Reporte_Viaticos_${mes || 'total'}.pdf`);
+                    doc.pipe(res);
+
+                    const L = 25, W = 742;
+                    const fmtM = (n) => `$${parseFloat(n||0).toLocaleString('es-MX',{minimumFractionDigits:2})}`;
+                    const fmtF = (f) => f ? new Date(f).toLocaleDateString('es-MX',{timeZone:'UTC'}) : '-';
+                    const r = resumen[0] || {};
+                    const anio = new Date().getFullYear();
+                    const mesLabel = r.mes_label || (mes ? mes : `Todos los meses ${anio}`);
+
+                    // ── ENCABEZADO ─────────────────────────────────────────
+                    doc.font('Helvetica-Bold').fontSize(14).fillColor('#008000')
+                       .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', L, 25, { width: W, align: 'center' });
+                    doc.font('Helvetica-Bold').fontSize(11).fillColor('#000')
+                       .text(`Reporte de Viáticos — ${mesLabel}`, L, 42, { width: W, align: 'center' });
+                    doc.font('Helvetica').fontSize(8).fillColor('#64748b')
+                       .text(`Generado: ${new Date().toLocaleString('es-MX')}`, L, 56, { width: W, align: 'center' });
+                    doc.moveTo(L, 68).lineTo(L+W, 68).strokeColor('#e2e8f0').stroke();
+
+                    // ── TARJETAS DE RESUMEN ────────────────────────────────
+                    let y = 76;
+                    const cards = [
+                        { label: 'Total Solicitudes',    val: r.total_solicitudes || 0,                              color: '#0f172a', bg: '#f1f5f9' },
+                        { label: 'En Proceso',           val: r.en_proceso || 0,                                     color: '#d97706', bg: '#fef3c7' },
+                        { label: 'Comprobadas',          val: r.comprobadas || 0,                                    color: '#16a34a', bg: '#dcfce7' },
+                        { label: 'Total Solicitado',     val: fmtM(r.total_solicitado),                              color: '#0f172a', bg: '#f8fafc' },
+                        { label: 'Total Comprobado',     val: fmtM(r.total_comprobado),                              color: '#10b981', bg: '#f0fdf4' },
+                        { label: 'Solicitado c/IVA 16%', val: fmtM(parseFloat(r.total_solicitado||0)*1.16),          color: '#7c3aed', bg: '#ede9fe' },
+                        { label: 'Comprobado c/IVA 16%', val: fmtM(parseFloat(r.total_comprobado||0)*1.16),          color: '#7c3aed', bg: '#ede9fe' },
+                    ];
+                    const cW = Math.floor(W / cards.length);
+                    cards.forEach((c, i) => {
+                        doc.rect(L + i*cW, y, cW-4, 40).fill(c.bg);
+                        doc.font('Helvetica').fontSize(7).fillColor('#64748b')
+                           .text(c.label, L + i*cW + 4, y + 6, { width: cW-8, align: 'center' });
+                        doc.font('Helvetica-Bold').fontSize(12).fillColor(c.color)
+                           .text(String(c.val), L + i*cW + 4, y + 18, { width: cW-8, align: 'center' });
+                    });
+                    y += 50;
+
+                    doc.moveTo(L, y).lineTo(L+W, y).strokeColor('#e2e8f0').stroke();
+                    y += 10;
+
+                    // ── TABLA DE SOLICITUDES ───────────────────────────────
+                    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000')
+                       .text('Detalle de Solicitudes', L, y); y += 12;
+
+                    const COLS2 = [
+                        { h: '#',            w: 28 },
+                        { h: 'Solicitante',  w: 120 },
+                        { h: 'Departamento', w: 90 },
+                        { h: 'Destino',      w: 80 },
+                        { h: 'Motivo',       w: 90 },
+                        { h: 'Salida',       w: 58 },
+                        { h: 'Regreso',      w: 58 },
+                        { h: 'Días',         w: 30 },
+                        { h: 'Transporte',   w: 70 },
+                        { h: 'Solicitado',   w: 60 },
+                        { h: 'Comprobado',   w: 60 },
+                        { h: 'Estatus',      w: 70 },
+                    ]; // total ~814 — ajustar proporcional si excede W
+                    const totalCW = COLS2.reduce((s,c) => s+c.w, 0);
+                    const scale = W / totalCW;
+                    COLS2.forEach(c => { c.w = Math.floor(c.w * scale); });
+
+                    const ROW = 13;
+                    let cx = L;
+                    COLS2.forEach(c => {
+                        doc.rect(cx, y, c.w, ROW).fill('#1e293b');
+                        doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#fff')
+                           .text(c.h, cx+2, y+3, { width: c.w-4, align: 'center' });
+                        cx += c.w;
+                    });
+                    y += ROW;
+
+                    const ESTATUSBADGE = {
+                        COMPROBADO: '#16a34a', PAGADO: '#3b82f6', RECIBIDO: '#0d9488',
+                        PENDIENTE: '#d97706', AUTORIZADO_N0: '#6366f1', AUTORIZADO_N1: '#8b5cf6',
+                        COMPROBACION_RECHAZADA: '#ef4444'
+                    };
+
+                    solicitudes.forEach((s, i) => {
+                        if (y + ROW > 560) { doc.addPage(); y = 40; }
+                        const bg = i % 2 === 0 ? '#fff' : '#f8fafc';
+                        cx = L;
+                        const vals = [
+                            s.id, s.solicitante, s.departamento || '-', s.destino,
+                            s.motivo || '-', fmtF(s.fecha_salida), fmtF(s.fecha_regreso),
+                            s.dias_comision, s.medio_transporte || '-',
+                            fmtM(s.total_solicitado), fmtM(s.total_comprobado),
+                            s.estatus
+                        ];
+                        vals.forEach((v, j) => {
+                            doc.rect(cx, y, COLS2[j].w, ROW).fill(bg).stroke('#e2e8f0');
+                            const isEstatus = j === 11;
+                            doc.font('Helvetica').fontSize(6).fillColor(isEstatus ? (ESTATUSBADGE[v] || '#64748b') : '#0f172a')
+                               .text(String(v), cx+2, y+3, { width: COLS2[j].w-4, align: j > 4 ? 'center' : 'left' });
+                            cx += COLS2[j].w;
+                        });
+                        y += ROW;
+                    });
+
+                    // ── PIE ────────────────────────────────────────────────
+                    doc.font('Helvetica').fontSize(6).fillColor('#94a3b8')
+                       .text('Opciones Sacimex SA de CV SOFOM ENR — Reporte confidencial', L, 590, { width: W, align: 'center' });
+
+                    doc.end();
+                }
+            );
+        }
+    );
+});
+
 
 // ── GET /todas — historial completo (solo ADMIN) ───────────────────────────────
 router.get('/todas', verificarToken, (req, res) => {
@@ -534,9 +726,6 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
     );
 });
 
-// ==============================================================================
-// REVISIÓN DE COMPROBACIONES — CONTABILIDAD (id_departamento = 4)
-// ==============================================================================
 router.get('/comprobaciones-pendientes', verificarToken, (req, res) => {
     if (parseInt(req.usuario.id_departamento) !== 4 && req.usuario.rol !== "ADMIN" && req.usuario.rol !== "AUTORIZADOR_1" && req.usuario.rol !== "REVISOR") {
         return res.status(403).json({ success: false, message: 'Solo Contabilidad puede revisar comprobaciones.' });
@@ -671,20 +860,20 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
             db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY fecha ASC, id ASC', [comp.id], (errP, partidas) => {
                 if (errP) return res.status(500).json({ success: false });
 
-                const doc = new PDFDocument({ size: 'LETTER', margin: 25, autoFirstPage: true });
+                const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 20, autoFirstPage: true });
                 res.setHeader('Content-Type', 'application/pdf');
                 res.setHeader('Content-Disposition', `inline; filename=Comprobacion_${sol.id}.pdf`);
                 doc.pipe(res);
                 registrarBitacora(req.usuario.id, 'EXPORTAR_PDF_COMPROBACION', `PDF comprobación viático #${sol.id}`, req);
 
-                const anio = new Date().getFullYear();
+                const anio   = new Date().getFullYear();
                 const AZUL    = '#0000FF';
                 const VERDE   = '#008000';
                 const BG_VERDE = '#eaffea';
                 const BG_GRIS  = '#f1f5f9';
                 const BG_DARK  = '#1e293b';
-                const L = 25, W = 562;
-
+                // LETTER landscape: 792 x 612 pt
+                const L = 20, W = 752; // 792 - 2*20
                 const fmtFecha = (f) => f ? new Date(f).toLocaleDateString('es-MX', { timeZone: 'UTC' }) : '';
                 const fmtMoney = (n) => `$${parseFloat(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
@@ -754,16 +943,16 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 y += 12;
 
                 const COLS = [
-                    { label: 'Día\n(dd/mm/aa)', w: 50 },
-                    { label: 'Importe',         w: 55 },
-                    { label: 'Factura o\nFolio Fiscal', w: 75 },
-                    { label: 'RFC\nProveedor',  w: 62 },
-                    { label: 'Nombre Proveedor', w: 95 },
-                    { label: 'Rubro',           w: 60 },
-                    { label: 'Descripción',     w: 90 },
-                    { label: 'T.C.',            w: 30 },
-                    { label: 'Total',           w: 45 },
-                ]; // total = 562 ✓
+                    { label: 'Día\n(dd/mm/aa)', w: 55 },
+                    { label: 'Importe',          w: 62 },
+                    { label: 'Factura o\nFolio Fiscal', w: 100 },
+                    { label: 'RFC\nProveedor',   w: 75 },
+                    { label: 'Nombre Proveedor', w: 130 },
+                    { label: 'Rubro',            w: 70 },
+                    { label: 'Descripción',      w: 120 },
+                    { label: 'T.C.',             w: 35 },
+                    { label: 'Total',            w: 55 },
+                ]; // total = 702 < 752 ✓
                 const HEAD_H = 22;
                 let cx = L;
                 COLS.forEach(c => {
@@ -772,7 +961,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 });
                 y += HEAD_H;
 
-                const PAGE_BOTTOM = 680;
+                const PAGE_BOTTOM = 540; // landscape: 612 - márgenes - firmas
                 const ROW_H = 14;
 
                 const dibujarFila = (p, idx) => {
@@ -809,8 +998,8 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 
                 // ── FILA TOTAL ────────────────────────────────────────────────
                 const totalComp = parseFloat(comp.total_comprobado || 0);
-                cell(L,   y, 510, ROW_H, 'TOTAL COMPROBADO:', BG_DARK, '#fff', 'Helvetica-Bold', 8, 'right');
-                cell(L+510, y, 52, ROW_H, fmtMoney(totalComp), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'right');
+                cell(L,   y, 697, ROW_H, 'TOTAL COMPROBADO:', BG_DARK, '#fff', 'Helvetica-Bold', 8, 'right');
+                cell(L+697, y, 55, ROW_H, fmtMoney(totalComp), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'right');
                 y += ROW_H + 10;
 
                 // ── RESUMEN POR RUBRO ─────────────────────────────────────────
@@ -882,35 +1071,37 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 }
 
                 // ── FIRMAS ────────────────────────────────────────────────────
-                y += 8;
-                const wFirma = 170, gapF = 14;
-                const xF1 = L, xF2 = L + wFirma + gapF, xF3 = L + (wFirma + gapF) * 2;
+                // Calcular posición Y fija para las firmas al fondo de la página
+                // landscape: 612pt alto - 20 margen - 80 espacio firmas = 512
+                const yFirmas = Math.max(y + 10, 470);
+                const wFirma  = 200;
+                const totalFirmas = wFirma * 2 + 80;
+                const xF1 = (doc.page.width - totalFirmas) / 2;
+                const xF3 = xF1 + wFirma + 80;
 
-                // Intentar cargar firma del solicitante
                 const cargarF = (ruta, x, yPos) => {
                     if (!ruta) return;
                     const paths2 = [path.join(__dirname, '../', ruta), path.join(__dirname, '../../', ruta)];
                     const found = paths2.find(p2 => fs.existsSync(p2));
-                    if (found) { try { doc.image(found, x + 35, yPos, { width: 100, height: 28 }); } catch(e) {} }
+                    if (found) { try { doc.image(found, x + 50, yPos, { width: 100, height: 28 }); } catch(e) {} }
                 };
 
-                cargarF(sol.solicitante_firma, xF1, y);
-                cargarF(sol.revisor_firma, xF3, y);
+                cargarF(sol.solicitante_firma, xF1, yFirmas);
+                cargarF(sol.revisor_firma, xF3, yFirmas);
 
-                const yLine = y + 35;
+                const yLine = yFirmas + 35;
                 [xF1, xF3].forEach(x => doc.moveTo(x, yLine).lineTo(x + wFirma, yLine).stroke());
 
                 const yNom = yLine + 4;
                 doc.font('Helvetica').fontSize(7).fillColor(AZUL)
-                   .text('ENTREGO (iniciales y firmas del responsable y personas adicionales)', xF1, yNom, { width: wFirma * 2 + gapF, align: 'center' })
-                   .text('REVISO\n(Contabilidad)', xF3, yNom, { width: wFirma, align: 'center' });
+                   .text('ENTREGO (iniciales y firmas del responsable y personas adicionales)', xF1, yNom, { width: wFirma, align: 'center' })
+                   .text('REVISO (Contabilidad)', xF3, yNom, { width: wFirma, align: 'center' });
 
-                const yNom2 = yNom + 16;
+                const yNom2 = yNom + 14;
                 doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000')
                    .text((sol.solicitante_nombre || '').toUpperCase(), xF1, yNom2, { width: wFirma, align: 'center' })
                    .text(sol.solicitante_puesto || '', xF1, yNom2 + 10, { width: wFirma, align: 'center' });
 
-                // Nombre y puesto del revisor de contabilidad
                 if (sol.revisor_nombre) {
                     doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000')
                        .text(sol.revisor_nombre.toUpperCase(), xF3, yNom2, { width: wFirma, align: 'center' })
@@ -918,11 +1109,7 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 }
 
                 doc.font('Helvetica').fontSize(7).fillColor('#475569')
-                   .text('Firmas y fecha', xF1, yNom2 + 22, { width: W, align: 'center' });
-
-                // Powered by
-                doc.font('Helvetica').fontSize(6).fillColor('#94a3b8')
-                   .text('Powered by: Sistema SAC-GTSR-GST', L, doc.page.height - 30, { align: 'right', width: W });
+                   .text('Firmas y fecha', 0, yNom2 + 22, { width: doc.page.width, align: 'center' });
 
                 doc.end();
             });

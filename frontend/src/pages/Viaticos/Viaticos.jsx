@@ -33,31 +33,36 @@ const PASOS_CICLO = [
   { key: 'PAGADO',                 label: 'Recibido' },
   { key: 'RECIBIDO',               label: 'Comprobar' },
   { key: 'COMPROBADO',             label: 'Contabilidad' },
-  { key: 'COMPROBACION_RECHAZADA', label: 'Completo' },
+  { key: 'COMPLETO',               label: 'Completo' },
 ];
 
-const BarraProgreso = ({ estatus }) => {
-  const idx = PASOS_CICLO.findIndex(p => p.key === estatus);
+const BarraProgreso = ({ estatus, aprobadoContabilidad }) => {
+  const esRechazada = estatus === 'COMPROBACION_RECHAZADA';
+  // Si está COMPROBADO y aprobado por contabilidad → mostrar como COMPLETO
+  const estatusEfectivo = (estatus === 'COMPROBADO' && aprobadoContabilidad) ? 'COMPLETO' : estatus;
+  const estatusBase = esRechazada ? 'COMPROBADO' : estatusEfectivo;
+  const idx = PASOS_CICLO.findIndex(p => p.key === estatusBase);
+  // Si es COMPLETO, todos los pasos deben estar verdes
+  const todosCompletos = estatusEfectivo === 'COMPLETO';
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', marginTop: '14px', marginBottom: '4px' }}>
       {PASOS_CICLO.map((paso, i) => {
-        const done   = i < idx;
-        const active = i === idx;
-        const ultimo = i === PASOS_CICLO.length - 1;
+        const done    = todosCompletos || i < idx;
+        const active  = !todosCompletos && i === idx;
+        const rechazado = esRechazada && i === idx;
+        const ultimo  = i === PASOS_CICLO.length - 1;
+        const bg      = rechazado ? '#ef4444' : done ? '#10b981' : active ? '#3b82f6' : '#e2e8f0';
+        const border  = rechazado ? '#ef4444' : done ? '#10b981' : active ? '#3b82f6' : '#cbd5e1';
+        const color   = done || active || rechazado ? 'white' : '#94a3b8';
+        const textColor = rechazado ? '#ef4444' : done ? '#10b981' : active ? '#3b82f6' : '#94a3b8';
         return (
           <div key={paso.key} style={{ display: 'flex', alignItems: 'center', flex: ultimo ? 'none' : 1 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <div style={{
-                width: '26px', height: '26px', borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: done ? '#10b981' : active ? '#3b82f6' : '#e2e8f0',
-                border: `2px solid ${done ? '#10b981' : active ? '#3b82f6' : '#cbd5e1'}`,
-                color: done || active ? 'white' : '#94a3b8',
-                fontSize: '11px', fontWeight: '700', flexShrink: 0
-              }}>
-                {done ? '✓' : i + 1}
+              <div style={{ width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: bg, border: `2px solid ${border}`, color, fontSize: '11px', fontWeight: '700', flexShrink: 0 }}>
+                {rechazado ? '✕' : done ? '✓' : i + 1}
               </div>
-              <span style={{ fontSize: '9px', fontWeight: active ? '700' : '500', color: done ? '#10b981' : active ? '#3b82f6' : '#94a3b8', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: '9px', fontWeight: active || rechazado ? '700' : '500', color: textColor, whiteSpace: 'nowrap' }}>
                 {paso.label}
               </span>
             </div>
@@ -86,8 +91,10 @@ function Viaticos() {
 
   const [comprobacionesPend, setComprobacionesPend] = useState([]);
   const [cargandoComp2, setCargandoComp2]           = useState(false);
-  const [motivoRechazo, setMotivoRechazo]           = useState({});   // { [id]: texto }
+  const [motivoRechazo, setMotivoRechazo]           = useState({});
   const [rechazandoId, setRechazandoId]             = useState(null);
+  const [resumenMensual, setResumenMensual]         = useState([]);
+  const [conIVA, setConIVA]                         = useState(false);
   const [desgloseGrid, setDesgloseGrid] = useState({});
   const [fechasDesglose, setFechasDesglose] = useState([]);
   const [acompanantes, setAcompanantes] = useState([]); // [{ nombre, sexo }]
@@ -572,6 +579,16 @@ function Viaticos() {
     finally { setCargandoComp2(false); }
   };
 
+  const fetchResumenMensual = async () => {
+    try {
+      const res = await fetch('/api/viaticos/resumen-mensual', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setResumenMensual(data.data);
+    } catch (e) { console.error(e); }
+  };
+
   const revisarComprobacion = async (id, accion) => {
     const motivo = motivoRechazo[id] || '';
     if (accion === 'RECHAZADA' && !motivo.trim()) {
@@ -607,7 +624,7 @@ function Viaticos() {
     if (tabActiva === 'JEFE') fetchSolicitudesPendientes();
     if (tabActiva === 'MIS_FIRMAS') fetchHistorialFirmas();
     if (tabActiva === 'ADMIN') fetchTodasSolicitudes();
-    if (tabActiva === 'COMPROBACIONES') fetchComprobacionesPendientes();
+    if (tabActiva === 'COMPROBACIONES') { fetchComprobacionesPendientes(); fetchResumenMensual(); }
   }, [tabActiva]);
   useAutoRefresh(fetchMisSolicitudes, 20000, tabActiva === 'MIS_SOLICITUDES');
   useAutoRefresh(fetchSolicitudesPendientes, 20000, tabActiva === 'JEFE');
@@ -617,7 +634,19 @@ function Viaticos() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formData.total_solicitado <= 0) return alert("El monto total debe ser mayor a cero.");
+
+    // Validaciones de fecha
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const salida  = formData.fecha_salida  ? new Date(formData.fecha_salida  + 'T00:00:00') : null;
+    const regreso = formData.fecha_regreso ? new Date(formData.fecha_regreso + 'T00:00:00') : null;
+
+    if (!salida)  return alert('Debes seleccionar la fecha de salida.');
+    if (!regreso) return alert('Debes seleccionar la fecha de regreso.');
+    if (salida < hoy)    return alert('La fecha de salida no puede ser en el pasado.');
+    if (regreso < salida) return alert('La fecha de regreso no puede ser anterior a la fecha de salida.');
+    if (!formData.destino) return alert('Debes seleccionar un destino.');
+    if (!formData.medio_transporte) return alert('Debes seleccionar un medio de transporte.');
+    if (formData.total_solicitado <= 0) return alert('El monto total debe ser mayor a cero.');
     const desglose_dias = Object.entries(desgloseGrid)
       .filter(([, monto]) => parseFloat(monto) > 0)
       .map(([key, monto]) => {
@@ -839,8 +868,27 @@ function Viaticos() {
                 </div>
               )}
               <div className="input-row-2 mt-16">
-                <div className="form-field"><label>Fecha Salida</label><input type="date" name="fecha_salida" required value={formData.fecha_salida} onChange={handleChange} /></div>
-                <div className="form-field"><label>Fecha Regreso</label><input type="date" name="fecha_regreso" required value={formData.fecha_regreso} onChange={handleChange} /></div>
+                <div className="form-field"><label>Fecha Salida</label><input type="date" name="fecha_salida" required value={formData.fecha_salida}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setFormData(prev => {
+                      const next = { ...prev, fecha_salida: val };
+                      // Si la fecha de regreso es anterior a la nueva salida, limpiarla
+                      if (next.fecha_regreso && next.fecha_regreso < val) next.fecha_regreso = '';
+                      return next;
+                    });
+                  }} /></div>
+                <div className="form-field"><label>Fecha Regreso</label><input type="date" name="fecha_regreso" required value={formData.fecha_regreso}
+                  min={formData.fecha_salida || new Date().toISOString().split('T')[0]}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (formData.fecha_salida && val < formData.fecha_salida) {
+                      alert('La fecha de regreso no puede ser anterior a la fecha de salida.');
+                      return;
+                    }
+                    setFormData(prev => ({ ...prev, fecha_regreso: val }));
+                  }} /></div>
               </div>
               <div className="input-row-2 mt-16">
                 <div className="form-field">
@@ -1139,7 +1187,92 @@ function Viaticos() {
           ))}
         </div>
       ) : tabActiva === 'COMPROBACIONES' ? (
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{ display: 'grid', gap: '20px' }}>
+
+          {/* RESUMEN MENSUAL */}
+          {resumenMensual.length > 0 && (
+            <div className="premium-card" style={{ padding: '20px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>Gasto en Viáticos por Mes</h3>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button onClick={() => setConIVA(p => !p)} style={{
+                    padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '13px',
+                    background: conIVA ? '#7c3aed' : '#f1f5f9', color: conIVA ? 'white' : '#475569', transition: 'all 0.2s'
+                  }}>
+                    {conIVA ? 'Con IVA (16%) ✓' : '+ Agregar IVA (16%)'}
+                  </button>
+                  <input type="month" id="mesPdf" defaultValue={new Date().toISOString().slice(0,7)}
+                    style={{ padding: '7px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#475569' }} />
+                  <button onClick={async () => {
+                    const mes = document.getElementById('mesPdf')?.value || '';
+                    try {
+                      const url = `/api/viaticos/resumen-mensual/pdf${mes ? `?mes=${mes}` : ''}`;
+                      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                      if (!res.ok) { alert('Error al generar el PDF.'); return; }
+                      const blob = await res.blob();
+                      const objUrl = window.URL.createObjectURL(blob);
+                      window.open(objUrl, '_blank');
+                      setTimeout(() => window.URL.revokeObjectURL(objUrl), 10000);
+                    } catch { alert('Error de conexión.'); }
+                  }} style={{
+                    padding: '8px 18px', borderRadius: '8px', border: '1px solid #dc2626', cursor: 'pointer',
+                    fontWeight: '700', fontSize: '13px', background: 'white', color: '#dc2626'
+                  }}>
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #e2e8f0' }}>
+                      {['Mes', 'Solicitudes', 'En proceso', 'Comprobadas', 'Total Solicitado', 'Total Comprobado', conIVA ? 'Solicitado c/IVA' : '', conIVA ? 'Comprobado c/IVA' : ''].filter(Boolean).map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Mes' ? 'left' : 'right', fontWeight: '700', color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenMensual.map((row, i) => {
+                      const solicitado  = parseFloat(row.total_solicitado || 0);
+                      const comprobado  = parseFloat(row.total_comprobado || 0);
+                      const conIvaAmt   = solicitado * 1.16;
+                      return (
+                        <tr key={row.mes} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                          <td style={{ padding: '10px 12px', fontWeight: '600', color: '#0f172a' }}>{row.mes_label}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b' }}>{row.total_solicitudes}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#d97706' }}>{row.solicitudes_en_proceso}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#16a34a' }}>{row.solicitudes_comprobadas}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#0f172a' }}>{formatMoney(solicitado)}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: comprobado > 0 ? '#10b981' : '#94a3b8' }}>{comprobado > 0 ? formatMoney(comprobado) : '-'}</td>
+                          {conIVA && <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#7c3aed' }}>{formatMoney(solicitado * 1.16)}</td>}
+                          {conIVA && <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#7c3aed' }}>{comprobado > 0 ? formatMoney(comprobado * 1.16) : '-'}</td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                      <td colSpan={4} style={{ padding: '10px 12px', fontWeight: '700', color: '#334155' }}>TOTAL ACUMULADO</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>
+                        {formatMoney(resumenMensual.reduce((s, r) => s + parseFloat(r.total_solicitado || 0), 0))}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#10b981' }}>
+                        {formatMoney(resumenMensual.reduce((s, r) => s + parseFloat(r.total_comprobado || 0), 0))}
+                      </td>
+                      {conIVA && <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#7c3aed' }}>
+                        {formatMoney(resumenMensual.reduce((s, r) => s + parseFloat(r.total_solicitado || 0), 0) * 1.16)}
+                      </td>}
+                      {conIVA && <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '900', color: '#7c3aed' }}>
+                        {formatMoney(resumenMensual.reduce((s, r) => s + parseFloat(r.total_comprobado || 0), 0) * 1.16)}
+                      </td>}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* COMPROBACIONES PENDIENTES */}
           <div style={{ padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', fontSize: '13px', color: '#92400e' }}>
             <strong>Revisión de Comprobaciones — Contabilidad.</strong> Aquí aparecen las solicitudes que los empleados ya comprobaron y esperan tu validación.
           </div>
@@ -1204,9 +1337,11 @@ function Viaticos() {
                     <button onClick={() => revisarComprobacion(sol.id, 'APROBADA')} style={{ padding: '6px 14px', border: 'none', background: '#10b981', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                       Aprobar
                     </button>
+                    {sol.ultima_accion !== 'APROBADA' && (
                     <button onClick={() => setRechazandoId(rechazandoId === sol.id ? null : sol.id)} style={{ padding: '6px 14px', border: 'none', background: '#ef4444', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                       Rechazar
                     </button>
+                    )}
                   </div>
                   {rechazandoId === sol.id && (
                     <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
@@ -1373,7 +1508,7 @@ function Viaticos() {
                        sol.estatus === 'COMPROBADO'      ? 'Comprobado' :
                        sol.estatus === 'RECHAZADO'       ? 'Rechazado' : sol.estatus}
                       </span>
-                      {sol.estatus !== 'RECHAZADO' && <BarraProgreso estatus={sol.estatus} />}
+                      {sol.estatus !== 'RECHAZADO' && <BarraProgreso estatus={sol.estatus} aprobadoContabilidad={sol.ultima_revision_contabilidad === 'APROBADA'} />}
                       <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
                       <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
 
@@ -1463,7 +1598,7 @@ function Viaticos() {
                   )}
 
                   {/* COMPROBACIÓN UNIVERSAL DE GASTOS */}
-                  {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'COMPROBACION_RECHAZADA') && (() => {
+                  {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'COMPROBACION_RECHAZADA') && sol.ultima_revision_contabilidad !== 'APROBADA' && (() => {
                     const comp = comprobaciones[sol.id];
                     const totalComp = getTotalComprobado(comp);
                     const pendienteSol = (parseFloat(comp?.recursos_otorgados) || 0) - totalComp;
@@ -1575,7 +1710,11 @@ function Viaticos() {
                                   <tbody>
                                     {(comp.partidas || []).map((p, i) => (
                                       <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                                        <td style={{ padding: '5px 4px' }}><input type="date" value={p.fecha} onChange={e => handlePartidaChange(sol.id, i, 'fecha', e.target.value)} style={{ width: '115px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
+                                        <td style={{ padding: '5px 4px' }}><input type="date" value={p.fecha}
+                                          min={comp.fecha_inicial || ''}
+                                          max={comp.fecha_final || ''}
+                                          onChange={e => handlePartidaChange(sol.id, i, 'fecha', e.target.value)}
+                                          style={{ width: '115px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
                                         <td style={{ padding: '5px 4px' }}><input type="number" value={p.importe} onChange={e => handlePartidaChange(sol.id, i, 'importe', e.target.value)} min="0" step="0.01" placeholder="0.00" style={{ width: '80px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px', textAlign: 'right' }} /></td>
                                         <td style={{ padding: '5px 4px' }}><input type="text" value={p.folio_fiscal} onChange={e => handlePartidaChange(sol.id, i, 'folio_fiscal', e.target.value)} placeholder="UUID / folio" style={{ width: '120px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px' }} /></td>
                                         <td style={{ padding: '5px 4px' }}><input type="text" value={p.rfc_proveedor} onChange={e => handlePartidaChange(sol.id, i, 'rfc_proveedor', e.target.value)} placeholder="RFC" style={{ width: '95px', padding: '4px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '11px', textTransform: 'uppercase' }} /></td>

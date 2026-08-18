@@ -130,7 +130,7 @@ function Login() {
 
           <h1>Opciones <br /><span className="brand-name">Sacimex</span></h1>
           <h2 className="welcome-text">Bienvenido</h2>
-          <p className="subtitle-text">Inicia Sesión para continuar</p>
+          <p className="subtitle-text">Inicia sesión para continuar</p>
         </div>
         <form onSubmit={handleSubmit} className="login-form" noValidate>
           {error && (<div className="error-message shake-animation" role="alert"><ErrorIcon /><span>{error}</span></div>)}
