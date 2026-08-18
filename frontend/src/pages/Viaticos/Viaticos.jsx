@@ -26,6 +26,49 @@ const partidasVacias = () => Array.from({ length: 8 }, () => ({
   nombre_proveedor: '', rubro: 'Otros gastos', descripcion: ''
 }));
 
+const PASOS_CICLO = [
+  { key: 'PENDIENTE',              label: 'Jefe' },
+  { key: 'AUTORIZADO_N0',          label: 'D.H.O.' },
+  { key: 'AUTORIZADO_N1',          label: 'Tesorería' },
+  { key: 'PAGADO',                 label: 'Recibido' },
+  { key: 'RECIBIDO',               label: 'Comprobar' },
+  { key: 'COMPROBADO',             label: 'Contabilidad' },
+  { key: 'COMPROBACION_RECHAZADA', label: 'Completo' },
+];
+
+const BarraProgreso = ({ estatus }) => {
+  const idx = PASOS_CICLO.findIndex(p => p.key === estatus);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', marginTop: '14px', marginBottom: '4px' }}>
+      {PASOS_CICLO.map((paso, i) => {
+        const done   = i < idx;
+        const active = i === idx;
+        const ultimo = i === PASOS_CICLO.length - 1;
+        return (
+          <div key={paso.key} style={{ display: 'flex', alignItems: 'center', flex: ultimo ? 'none' : 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                width: '26px', height: '26px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: done ? '#10b981' : active ? '#3b82f6' : '#e2e8f0',
+                border: `2px solid ${done ? '#10b981' : active ? '#3b82f6' : '#cbd5e1'}`,
+                color: done || active ? 'white' : '#94a3b8',
+                fontSize: '11px', fontWeight: '700', flexShrink: 0
+              }}>
+                {done ? '✓' : i + 1}
+              </div>
+              <span style={{ fontSize: '9px', fontWeight: active ? '700' : '500', color: done ? '#10b981' : active ? '#3b82f6' : '#94a3b8', whiteSpace: 'nowrap' }}>
+                {paso.label}
+              </span>
+            </div>
+            {!ultimo && <div style={{ flex: 1, height: '2px', background: done ? '#10b981' : '#e2e8f0', margin: '0 2px', marginBottom: '14px' }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 function Viaticos() {
   const [tabActiva, setTabActiva] = useState('NUEVA');
   const [solicitudesPendientesJefe, setSolicitudesPendientesJefe] = useState([]);
@@ -37,7 +80,14 @@ function Viaticos() {
   const [filtroEstatus, setFiltroEstatus] = useState('TODAS');
   const [tabuladorDinamico, setTabuladorDinamico] = useState({});
   const [listaEmpleados, setListaEmpleados] = useState([]); // para select de acompañantes
-  const rolUsuario = (localStorage.getItem('rol') || '').toUpperCase();
+  const rolUsuario   = (localStorage.getItem('rol') || '').toUpperCase();
+  const deptUsuario  = (localStorage.getItem('departamento') || '').toUpperCase();
+  const esContabilidad = deptUsuario === 'CONTABILIDAD' || rolUsuario === 'ADMIN';
+
+  const [comprobacionesPend, setComprobacionesPend] = useState([]);
+  const [cargandoComp2, setCargandoComp2]           = useState(false);
+  const [motivoRechazo, setMotivoRechazo]           = useState({});   // { [id]: texto }
+  const [rechazandoId, setRechazandoId]             = useState(null);
   const [desgloseGrid, setDesgloseGrid] = useState({});
   const [fechasDesglose, setFechasDesglose] = useState([]);
   const [acompanantes, setAcompanantes] = useState([]); // [{ nombre, sexo }]
@@ -69,16 +119,17 @@ function Viaticos() {
   const [guardandoComp, setGuardandoComp] = useState({});
 
   const compVacia = (sol) => ({
-    responsable: sol.puesto || '',
+    responsable:        sol.solicitante_nombre_completo || sol.nombre_solicitante || '',
     nombre_proveedor_header: '',
-    fecha_inicial: sol.fecha_salida ? sol.fecha_salida.split('T')[0] : '',
-    fecha_final: sol.fecha_regreso ? sol.fecha_regreso.split('T')[0] : '',
-    lugar: sol.destino || '',
-    recursos_otorgados: sol.total_solicitado || '',
-    fondo_fijo: '',
-    unidad_negocio: sol.ubicacion || '',
-    objeto: sol.motivo || '',
+    fecha_inicial:      sol.fecha_salida  ? sol.fecha_salida.split('T')[0]  : '',
+    fecha_final:        sol.fecha_regreso ? sol.fecha_regreso.split('T')[0] : '',
+    lugar:              sol.destino            || '',
+    recursos_otorgados: sol.total_solicitado   || '',
+    fondo_fijo:         '',
+    unidad_negocio:     sol.unidad_negocio_real || sol.unidad_negocio || sol.ubicacion || '',
+    objeto:             sol.motivo             || '',
     personas_adicionales: sol.num_acompanantes || '0',
+    total_dias:         sol.dias_comision      || '0',
     partidas: partidasVacias(),
     cargada: false
   });
@@ -121,8 +172,11 @@ function Viaticos() {
               rfc_proveedor: p.rfc_proveedor || '',
               nombre_proveedor: p.nombre_proveedor || '',
               rubro: p.rubro || 'Otros gastos',
-              descripcion: p.descripcion || ''
+              descripcion: p.descripcion || '',
+              tipo_cambio: p.tipo_cambio || 1
             })) : partidasVacias(),
+            total_dias: d.total_dias || '',
+            historial: d.historial || [],
             cargada: true
           }
         }));
@@ -506,6 +560,36 @@ function Viaticos() {
     finally { setCargandoTodas(false); }
   };
 
+  const fetchComprobacionesPendientes = async () => {
+    setCargandoComp2(true);
+    try {
+      const res = await fetch('/api/viaticos/comprobaciones-pendientes', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.success) setComprobacionesPend(data.data);
+    } catch (e) { console.error(e); }
+    finally { setCargandoComp2(false); }
+  };
+
+  const revisarComprobacion = async (id, accion) => {
+    const motivo = motivoRechazo[id] || '';
+    if (accion === 'RECHAZADA' && !motivo.trim()) {
+      alert('Debes escribir el motivo del rechazo.');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/viaticos/${id}/revisar-comprobacion`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion, motivo })
+      });
+      const data = await res.json();
+      if (data.success) { alert(data.message); fetchComprobacionesPendientes(); setRechazandoId(null); }
+      else alert(data.message);
+    } catch (e) { alert('Error de conexión'); }
+  };
+
   const fetchHistorialFirmas = async () => {
     setCargandoHistorial(true);
     try {
@@ -523,6 +607,7 @@ function Viaticos() {
     if (tabActiva === 'JEFE') fetchSolicitudesPendientes();
     if (tabActiva === 'MIS_FIRMAS') fetchHistorialFirmas();
     if (tabActiva === 'ADMIN') fetchTodasSolicitudes();
+    if (tabActiva === 'COMPROBACIONES') fetchComprobacionesPendientes();
   }, [tabActiva]);
   useAutoRefresh(fetchMisSolicitudes, 20000, tabActiva === 'MIS_SOLICITUDES');
   useAutoRefresh(fetchSolicitudesPendientes, 20000, tabActiva === 'JEFE');
@@ -654,6 +739,12 @@ function Viaticos() {
         {rolUsuario === 'ADMIN' && (
           <button onClick={() => setTabActiva('ADMIN')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'ADMIN' ? '#ef4444' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'ADMIN' ? '3px solid #ef4444' : '3px solid transparent', paddingBottom: '8px' }}>
             Todas las Solicitudes {todasSolicitudes.length > 0 && <span style={{background:'#ef4444',color:'white',borderRadius:'12px',padding:'1px 7px',fontSize:'11px',marginLeft:'4px'}}>{todasSolicitudes.length}</span>}
+          </button>
+        )}
+        {esContabilidad && (
+          <button onClick={() => setTabActiva('COMPROBACIONES')} style={{ background: 'none', border: 'none', fontSize: '15px', fontWeight: 'bold', color: tabActiva === 'COMPROBACIONES' ? '#d97706' : '#64748b', cursor: 'pointer', borderBottom: tabActiva === 'COMPROBACIONES' ? '3px solid #d97706' : '3px solid transparent', paddingBottom: '8px' }}>
+            Comprobaciones
+            {comprobacionesPend.length > 0 && <span style={{background:'#d97706',color:'white',borderRadius:'12px',padding:'1px 7px',fontSize:'11px',marginLeft:'4px'}}>{comprobacionesPend.length}</span>}
           </button>
         )}
       </div>
@@ -1047,6 +1138,95 @@ function Viaticos() {
             </div>
           ))}
         </div>
+      ) : tabActiva === 'COMPROBACIONES' ? (
+        <div style={{ display: 'grid', gap: '16px' }}>
+          <div style={{ padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', fontSize: '13px', color: '#92400e' }}>
+            <strong>Revisión de Comprobaciones — Contabilidad.</strong> Aquí aparecen las solicitudes que los empleados ya comprobaron y esperan tu validación.
+          </div>
+          {cargandoComp2 ? (
+            <p style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>Cargando...</p>
+          ) : comprobacionesPend.length === 0 ? (
+            <div className="premium-card" style={{ textAlign: 'center', padding: '60px' }}>
+              <p style={{ color: '#94a3b8', fontSize: '16px' }}>No hay comprobaciones pendientes de revisión.</p>
+            </div>
+          ) : comprobacionesPend.map(sol => (
+            <div key={sol.id} className="premium-card" style={{ padding: '20px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '20px',
+                      background: sol.ultima_accion === 'APROBADA' ? '#dcfce7' : sol.estatus === 'COMPROBACION_RECHAZADA' ? '#fee2e2' : '#fef3c7',
+                      color: sol.ultima_accion === 'APROBADA' ? '#16a34a' : sol.estatus === 'COMPROBACION_RECHAZADA' ? '#dc2626' : '#d97706' }}>
+                      {sol.ultima_accion === 'APROBADA' ? 'Aprobada por Contabilidad' : sol.estatus === 'COMPROBACION_RECHAZADA' ? 'Recomprobación enviada' : 'Pendiente de revisión'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>#{sol.id}</span>
+                  </div>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '16px' }}>{sol.solicitante_nombre}</h3>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                    {sol.destino} · {sol.dias_comision} días · {new Date(sol.fecha_salida).toLocaleDateString('es-MX',{timeZone:'UTC'})} – {new Date(sol.fecha_regreso).toLocaleDateString('es-MX',{timeZone:'UTC'})}
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                    Comprobado: {new Date(sol.fecha_comprobacion).toLocaleString('es-MX')}
+                  </p>
+                  {sol.ultimo_motivo && (
+                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#dc2626', background: '#fee2e2', padding: '6px 10px', borderRadius: '6px' }}>
+                      Último rechazo: {sol.ultimo_motivo}
+                    </p>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#64748b' }}>Total solicitado</p>
+                  <p style={{ margin: '0 0 2px', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>{formatMoney(sol.total_solicitado)}</p>
+                  <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#10b981' }}>Comprobado: {formatMoney(sol.total_comprobado)}</p>
+                  {parseFloat(sol.pendiente) !== 0 && (
+                    <p style={{ margin: '0 0 12px', fontSize: '12px', fontWeight: '700', color: parseFloat(sol.pendiente) > 0 ? '#dc2626' : '#d97706' }}>
+                      {parseFloat(sol.pendiente) > 0 ? `Faltante: ${formatMoney(sol.pendiente)}` : `Sobrante: ${formatMoney(Math.abs(sol.pendiente))}`}
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button onClick={() => handleVerPDF(sol.id)} style={{ padding: '6px 12px', border: '1px solid #6366f1', color: '#6366f1', background: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                      Ver Oficio
+                    </button>
+                    <button onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/viaticos/${sol.id}/comprobacion-universal/pdf`, {
+                          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                        });
+                        if (!res.ok) throw new Error();
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        window.open(url, '_blank');
+                        setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+                      } catch { alert('Error al abrir la comprobación.'); }
+                    }} style={{ padding: '6px 12px', border: '1px solid #0d9488', color: '#0d9488', background: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                      Ver Comprobación
+                    </button>
+                    <button onClick={() => revisarComprobacion(sol.id, 'APROBADA')} style={{ padding: '6px 14px', border: 'none', background: '#10b981', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                      Aprobar
+                    </button>
+                    <button onClick={() => setRechazandoId(rechazandoId === sol.id ? null : sol.id)} style={{ padding: '6px 14px', border: 'none', background: '#ef4444', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                      Rechazar
+                    </button>
+                  </div>
+                  {rechazandoId === sol.id && (
+                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                      <textarea
+                        value={motivoRechazo[sol.id] || ''}
+                        onChange={e => setMotivoRechazo(prev => ({ ...prev, [sol.id]: e.target.value }))}
+                        placeholder="Escribe el motivo del rechazo..."
+                        rows={2}
+                        style={{ flex: 1, padding: '8px', border: '1px solid #fca5a5', borderRadius: '6px', fontSize: '12px', resize: 'vertical' }}
+                      />
+                      <button onClick={() => revisarComprobacion(sol.id, 'RECHAZADA')} style={{ padding: '8px 12px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                        Confirmar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : tabActiva === 'ADMIN' ? (
         <div style={{ display: 'grid', gap: '16px' }}>
           {/* Filtro por estatus */}
@@ -1185,14 +1365,24 @@ function Viaticos() {
                         sol.estatus === 'COMPROBADO'     ? '#16a34a' :
                         sol.estatus === 'RECHAZADO'      ? '#ef4444' : '#4f46e5'
                       }}>
-                        {sol.estatus === 'PENDIENTE'       ? 'PENDIENTE (En revisión jefe)' :
-                         sol.estatus === 'AUTORIZADO_JEFE' ? 'AUTORIZADO POR JEFE' :
-                         sol.estatus === 'AUTORIZADO_DHO'  ? 'AUTORIZADO D.H.O.' :
-                         sol.estatus}
+                      {sol.estatus === 'PENDIENTE'       ? 'Pendiente — En revisión jefe' :
+                       sol.estatus === 'AUTORIZADO_N0'   ? 'Autorizado por Jefe' :
+                       sol.estatus === 'AUTORIZADO_N1'   ? 'Autorizado por D.H.O.' :
+                       sol.estatus === 'PAGADO'          ? 'Pagado — Pendiente de recepción' :
+                       sol.estatus === 'RECIBIDO'        ? 'Recibido — Pendiente de comprobación' :
+                       sol.estatus === 'COMPROBADO'      ? 'Comprobado' :
+                       sol.estatus === 'RECHAZADO'       ? 'Rechazado' : sol.estatus}
                       </span>
+                      {sol.estatus !== 'RECHAZADO' && <BarraProgreso estatus={sol.estatus} />}
                       <h3 style={{ margin: '12px 0 4px 0', fontSize: '18px', color: '#0f172a' }}>{sol.destino} - {sol.motivo}</h3>
                       <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>{new Date(sol.fecha_salida).toLocaleDateString()} al {new Date(sol.fecha_regreso).toLocaleDateString()}</p>
 
+                      {sol.estatus === 'COMPROBACION_RECHAZADA' && (
+                        <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '8px', background: '#fee2e2', border: '1px solid #fca5a5', fontSize: '13px', color: '#b91c1c' }}>
+                          <strong>Comprobación rechazada por Contabilidad.</strong> Debes volver a llenar tu comprobación de gastos.
+                          {sol.motivo_rechazo && <p style={{ margin: '4px 0 0' }}>Motivo: {sol.motivo_rechazo}</p>}
+                        </div>
+                      )}
                       {sol.estatus === 'PAGADO' && (
                         <div style={{ marginTop: '12px', color: '#ea580c', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width: '16px'}}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -1200,7 +1390,7 @@ function Viaticos() {
                         </div>
                       )}
 
-                      {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
+                      {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'COMPROBACION_RECHAZADA') && (
                         <div style={{ marginTop: '12px', color: '#10b981', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{width: '16px'}}><polyline points="20 6 9 17 4 12"/></svg>
                           ¡Recurso recibido y firmado digitalmente!
@@ -1234,7 +1424,7 @@ function Viaticos() {
                         {sol.url_comprobante_transferencia && (
                           <a href={`/${sol.url_comprobante_transferencia}`} target="_blank" rel="noreferrer" style={{ padding: '8px 16px', border: '1px solid #cbd5e1', color: '#475569', background: 'white', borderRadius: '8px', fontSize: '13px', textDecoration: 'none', fontWeight: 'bold' }}>Ver Transferencia</a>
                         )}
-                        {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (
+                        {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'COMPROBACION_RECHAZADA') && (
                           <>
                             <input type="file" accept=".pdf,.zip,.jpg,.png" style={{ display: 'none' }} ref={el => fileInputRefs.current[sol.id] = el} onChange={(e) => handleSubirGastos(sol.id, e)} />
                             {sol.url_comprobante_gastos ? (
@@ -1273,7 +1463,7 @@ function Viaticos() {
                   )}
 
                   {/* COMPROBACIÓN UNIVERSAL DE GASTOS */}
-                  {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO') && (() => {
+                  {(sol.estatus === 'RECIBIDO' || sol.estatus === 'COMPROBADO' || sol.estatus === 'COMPROBACION_RECHAZADA') && (() => {
                     const comp = comprobaciones[sol.id];
                     const totalComp = getTotalComprobado(comp);
                     const pendienteSol = (parseFloat(comp?.recursos_otorgados) || 0) - totalComp;
@@ -1293,6 +1483,38 @@ function Viaticos() {
 
                         {abierto && comp && (
                           <div style={{ display: 'grid', gap: '20px', animation: 'fadeIn 0.2s' }}>
+
+                            {/* Historial de revisiones de Contabilidad */}
+                            {comp.historial && comp.historial.length > 0 && (
+                              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
+                                <p style={{ margin: '0 0 10px', fontWeight: 'bold', fontSize: '13px', color: '#334155' }}>Historial de revisiones — Contabilidad</p>
+                                {comp.historial.map((h, i) => (
+                                  <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < comp.historial.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                    <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', flexShrink: 0,
+                                      background: h.accion === 'APROBADA' ? '#dcfce7' : '#fee2e2',
+                                      color: h.accion === 'APROBADA' ? '#16a34a' : '#dc2626' }}>
+                                      {h.accion === 'APROBADA' ? 'Aprobada' : 'Rechazada'}
+                                    </span>
+                                    <div style={{ flex: 1 }}>
+                                      <p style={{ margin: 0, fontSize: '12px', color: '#475569' }}>
+                                        <strong>{h.revisor_nombre}</strong> · {new Date(h.fecha_revision).toLocaleString('es-MX')}
+                                      </p>
+                                      {h.motivo && <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#dc2626' }}>Motivo: {h.motivo}</p>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Bloqueo si ya fue aprobada */}
+                            {sol.estatus === 'COMPROBADO' && comp.historial?.some(h => h.accion === 'APROBADA') ? (
+                              <div style={{ padding: '20px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '8px', textAlign: 'center' }}>
+                                <p style={{ margin: 0, fontWeight: '700', color: '#16a34a', fontSize: '15px' }}>
+                                  Comprobación aprobada por Contabilidad. No se puede modificar.
+                                </p>
+                              </div>
+                            ) : (
+                              <>
 
                             {/* Datos Generales */}
                             <div style={{ background: '#fafafa', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px' }}>
@@ -1417,7 +1639,7 @@ function Viaticos() {
                               <button type="button" onClick={() => guardarComprobacion(sol)} disabled={guardandoComp[sol.id]}
                                 style={{ padding: '10px 24px', background: guardandoComp[sol.id] ? '#94a3b8' : '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px' }}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                                {guardandoComp[sol.id] ? 'Guardando...' : 'Guardar en Sistema'}
+                                {guardandoComp[sol.id] ? 'Guardando...' : sol.estatus === 'COMPROBACION_RECHAZADA' ? 'Reenviar Comprobación' : 'Guardar en Sistema'}
                               </button>
                               <button type="button" onClick={() => descargarComprobacion(sol)} disabled={guardandoComp[sol.id]}
                                 style={{ padding: '10px 24px', background: guardandoComp[sol.id] ? '#94a3b8' : '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1425,6 +1647,9 @@ function Viaticos() {
                                 {guardandoComp[sol.id] ? 'Generando...' : 'Ver PDF'}
                               </button>
                             </div>
+
+                              </>
+                            )}
 
                           </div>
                         )}

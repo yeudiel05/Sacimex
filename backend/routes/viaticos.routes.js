@@ -128,10 +128,27 @@ router.get('/:id/desglose', verificarToken, (req, res) => {
 });
 
 router.get('/mis-solicitudes', verificarToken, (req, res) => {
-    db.query('SELECT * FROM solicitudes_viaticos WHERE id_usuario = ? ORDER BY fecha_solicitud DESC', [req.usuario.id], (err, results) => {
-        if (err) return res.status(500).json({ success: false });
-        res.json({ success: true, data: results });
-    });
+    db.query(
+        `SELECT sv.*,
+                COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre_completo,
+                e.puesto AS solicitante_puesto_real,
+                e.unidad_negocio AS unidad_negocio_real,
+                hrc.motivo AS motivo_rechazo
+         FROM solicitudes_viaticos sv
+         JOIN usuarios u ON sv.id_usuario = u.id
+         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+         LEFT JOIN personas p ON e.id_persona = p.id
+         LEFT JOIN historial_revision_comprobacion hrc ON hrc.id_solicitud = sv.id
+             AND hrc.accion = 'RECHAZADA'
+             AND hrc.id = (SELECT MAX(id) FROM historial_revision_comprobacion WHERE id_solicitud = sv.id AND accion = 'RECHAZADA')
+         WHERE sv.id_usuario = ?
+         ORDER BY sv.fecha_solicitud DESC`,
+        [req.usuario.id],
+        (err, results) => {
+            if (err) return res.status(500).json({ success: false });
+            res.json({ success: true, data: results });
+        }
+    );
 });
 
 // GET /historial-firmadas — solicitudes que YO he firmado (cualquier nivel)
@@ -462,7 +479,7 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
         [idSolicitud, req.usuario.id], (err, rows) => {
             if (err) return res.status(500).json({ success: false, message: 'Error BD.' });
             if (!rows.length) return res.status(403).json({ success: false, message: 'Sin acceso.' });
-            if (!['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO'].includes(rows[0].estatus))
+            if (!['AUTORIZADO_DHO','PAGADO','RECIBIDO','COMPROBADO','COMPROBACION_RECHAZADA'].includes(rows[0].estatus))
                 return res.status(400).json({ success: false, message: 'Estado no válido para comprobación.' });
 
             const totalComprobado = (partidas||[]).reduce((s,p) => s + (parseFloat(p.importe)||0), 0);
@@ -517,6 +534,73 @@ router.post('/:id/comprobacion-universal', verificarToken, (req, res) => {
     );
 });
 
+// ==============================================================================
+// REVISIÓN DE COMPROBACIONES — CONTABILIDAD (id_departamento = 4)
+// ==============================================================================
+router.get('/comprobaciones-pendientes', verificarToken, (req, res) => {
+    if (parseInt(req.usuario.id_departamento) !== 4 && req.usuario.rol !== "ADMIN" && req.usuario.rol !== "AUTORIZADOR_1" && req.usuario.rol !== "REVISOR") {
+        return res.status(403).json({ success: false, message: 'Solo Contabilidad puede revisar comprobaciones.' });
+    }
+    db.query(
+        `SELECT sv.id, sv.estatus, sv.destino, sv.motivo, sv.total_solicitado,
+                sv.fecha_salida, sv.fecha_regreso, sv.dias_comision,
+                cg.id AS id_comprobacion, cg.total_comprobado, cg.pendiente,
+                cg.fecha_registro AS fecha_comprobacion,
+                COALESCE(p.nombre_razon_social, u.username) AS solicitante_nombre,
+                e.puesto AS solicitante_puesto, e.departamento,
+                hrc.accion AS ultima_accion, hrc.motivo AS ultimo_motivo
+         FROM solicitudes_viaticos sv
+         JOIN comprobacion_gastos cg ON cg.id_solicitud = sv.id
+         JOIN usuarios u ON sv.id_usuario = u.id
+         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+         LEFT JOIN personas p ON e.id_persona = p.id
+         LEFT JOIN historial_revision_comprobacion hrc ON hrc.id_solicitud = sv.id
+             AND hrc.id = (SELECT MAX(id) FROM historial_revision_comprobacion WHERE id_solicitud = sv.id)
+         WHERE sv.estatus IN ('COMPROBADO','COMPROBACION_RECHAZADA')
+         ORDER BY cg.fecha_registro DESC`,
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            res.json({ success: true, data: rows });
+        }
+    );
+});
+
+router.post('/:id/revisar-comprobacion', verificarToken, (req, res) => {
+    if (parseInt(req.usuario.id_departamento) !== 4 && req.usuario.rol !== "ADMIN" && req.usuario.rol !== "AUTORIZADOR_1" && req.usuario.rol !== "REVISOR") {
+        return res.status(403).json({ success: false, message: 'Solo Contabilidad puede revisar comprobaciones.' });
+    }
+    const { accion, motivo } = req.body;
+    if (!['APROBADA','RECHAZADA'].includes(accion))
+        return res.status(400).json({ success: false, message: 'Acción inválida.' });
+    if (accion === 'RECHAZADA' && !motivo?.trim())
+        return res.status(400).json({ success: false, message: 'Debes indicar el motivo del rechazo.' });
+
+    db.query('SELECT id, estatus FROM solicitudes_viaticos WHERE id = ?', [req.params.id], (err, rows) => {
+        if (err || !rows.length) return res.status(404).json({ success: false, message: 'No encontrada.' });
+        if (!['COMPROBADO','COMPROBACION_RECHAZADA'].includes(rows[0].estatus))
+            return res.status(400).json({ success: false, message: 'No tiene comprobación pendiente de revisión.' });
+
+        db.query(
+            'INSERT INTO historial_revision_comprobacion (id_solicitud, id_revisor, accion, motivo) VALUES (?,?,?,?)',
+            [req.params.id, req.usuario.id, accion, motivo || null],
+            (errH) => {
+                if (errH) return res.status(500).json({ success: false, message: errH.message });
+                if (accion === 'RECHAZADA') {
+                    db.query(`UPDATE solicitudes_viaticos SET estatus='COMPROBACION_RECHAZADA' WHERE id=?`,
+                        [req.params.id], (errU) => {
+                            if (errU) return res.status(500).json({ success: false });
+                            registrarBitacora(req.usuario.id, 'COMPROBACION_RECHAZADA', `Rechazó comprobación #${req.params.id}: ${motivo}`, req);
+                            res.json({ success: true, message: 'Comprobación rechazada.' });
+                        });
+                } else {
+                    registrarBitacora(req.usuario.id, 'COMPROBACION_APROBADA', `Aprobó comprobación #${req.params.id}`, req);
+                    res.json({ success: true, message: 'Comprobación aprobada.' });
+                }
+            }
+        );
+    });
+});
+
 router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
     const idSolicitud = req.params.id;
     db.query('SELECT * FROM comprobacion_gastos WHERE id_solicitud = ?', [idSolicitud], (err, compRows) => {
@@ -525,7 +609,22 @@ router.get('/:id/comprobacion-universal', verificarToken, (req, res) => {
         const comp = compRows[0];
         db.query('SELECT * FROM comprobacion_partidas WHERE id_comprobacion = ? ORDER BY id ASC', [comp.id], (errP, partidas) => {
             if (errP) return res.status(500).json({ success: false });
-            res.json({ success: true, data: { ...comp, partidas } });
+            // Traer historial de revisiones de contabilidad
+            db.query(
+                `SELECT hrc.accion, hrc.motivo, hrc.fecha_revision,
+                        COALESCE(p.nombre_razon_social, u.username) AS revisor_nombre
+                 FROM historial_revision_comprobacion hrc
+                 JOIN usuarios u ON hrc.id_revisor = u.id
+                 LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+                 LEFT JOIN personas p ON e.id_persona = p.id
+                 WHERE hrc.id_solicitud = ?
+                 ORDER BY hrc.fecha_revision ASC`,
+                [idSolicitud],
+                (errH, historial) => {
+                    if (errH) historial = [];
+                    res.json({ success: true, data: { ...comp, partidas, historial: historial || [] } });
+                }
+            );
         });
     });
 });
@@ -543,11 +642,20 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                e.puesto AS solicitante_puesto,
                e.unidad_negocio AS solicitante_unidad,
                e.empresa_maestra AS solicitante_empresa,
-               u.ruta_firma_png AS solicitante_firma
+               u.ruta_firma_png AS solicitante_firma,
+               -- Firma del revisor de contabilidad (última aprobación o cualquier revisión)
+               u2.ruta_firma_png AS revisor_firma,
+               COALESCE(p2.nombre_razon_social, u2.username) AS revisor_nombre,
+               e2.puesto AS revisor_puesto
         FROM solicitudes_viaticos sv
         LEFT JOIN usuarios u ON sv.id_usuario = u.id
         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
         LEFT JOIN personas p ON e.id_persona = p.id
+        LEFT JOIN historial_revision_comprobacion hrc ON hrc.id_solicitud = sv.id
+            AND hrc.id = (SELECT MAX(id) FROM historial_revision_comprobacion WHERE id_solicitud = sv.id)
+        LEFT JOIN usuarios u2 ON hrc.id_revisor = u2.id
+        LEFT JOIN empleados e2 ON u2.id_empleado = e2.id_persona
+        LEFT JOIN personas p2 ON e2.id_persona = p2.id
         WHERE sv.id = ?`;
 
     db.query(querySolicitud, [idSolicitud], (errSol, solRows) => {
@@ -646,16 +754,16 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 y += 12;
 
                 const COLS = [
-                    { label: 'Día\n(dd/mm/aa)', w: 52 },
-                    { label: 'Importe', w: 52 },
-                    { label: 'Factura o\nFolio Fiscal', w: 80 },
-                    { label: 'RFC\nProveedor', w: 68 },
-                    { label: 'Nombre Proveedor', w: 100 },
-                    { label: 'Rubro', w: 58 },
-                    { label: 'Descripción', w: 96 },
-                    { label: 'Tipo\nCambio', w: 38 },
-                    { label: 'Total', w: 52 },
-                ];
+                    { label: 'Día\n(dd/mm/aa)', w: 50 },
+                    { label: 'Importe',         w: 55 },
+                    { label: 'Factura o\nFolio Fiscal', w: 75 },
+                    { label: 'RFC\nProveedor',  w: 62 },
+                    { label: 'Nombre Proveedor', w: 95 },
+                    { label: 'Rubro',           w: 60 },
+                    { label: 'Descripción',     w: 90 },
+                    { label: 'T.C.',            w: 30 },
+                    { label: 'Total',           w: 45 },
+                ]; // total = 562 ✓
                 const HEAD_H = 22;
                 let cx = L;
                 COLS.forEach(c => {
@@ -731,25 +839,22 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 
                 // Promedio por persona
                 const numPersonas = Math.max(1, 1 + parseInt(comp.personas_adicionales || 0));
-                const totalDias2  = parseInt(comp.total_dias || sol.dias_comision || 1);
+                const totalDias2  = Math.max(1, parseInt(comp.total_dias || sol.dias_comision || 1));
                 y += 8;
                 doc.font('Helvetica').fontSize(7).fillColor('#475569')
-                   .text(`Promedio por persona: ${numPersonas} persona(s) se ${numPersonas === 1 ? 'fue' : 'fueron'} ${totalDias2} día(s)`, L, y);
+                   .text(`Promedio por persona: ${numPersonas} persona(s) — ${totalDias2} día(s)`, L, y);
                 y += 10;
 
-                // Promedio por rubro y día
-                cx = L;
-                doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#000');
+                // Solo mostrar rubros que tienen gasto real
+                const rubrosConGasto = RUBROS_PDF.filter(r => totalPorRubro[r] > 0);
+
                 ['Por evento','Por día'].forEach(etiq => {
                     const divisor = etiq === 'Por día' ? totalDias2 : 1;
-                    cx = L;
-                    doc.text(etiq + ':', L, y, { continued: false });
-                    RUBROS_PDF.forEach(r => {
-                        const v = totalPorRubro[r] / divisor;
-                        doc.text(`${r}: ${fmtMoney(v)}`, cx + 5, y + 8);
-                        cx += rW;
-                    });
-                    y += 18;
+                    if (rubrosConGasto.length === 0) return;
+                    doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#000').text(etiq + ':', L, y);
+                    const partes = rubrosConGasto.map(r => `${r}: ${fmtMoney(totalPorRubro[r] / divisor)}`);
+                    doc.font('Helvetica').text(partes.join('   '), L + 55, y, { width: W - 55 });
+                    y += 12;
                 });
 
                 y += 10;
@@ -790,9 +895,10 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 };
 
                 cargarF(sol.solicitante_firma, xF1, y);
+                cargarF(sol.revisor_firma, xF3, y);
 
                 const yLine = y + 35;
-                [xF1, xF2, xF3].forEach(x => doc.moveTo(x, yLine).lineTo(x + wFirma, yLine).stroke());
+                [xF1, xF3].forEach(x => doc.moveTo(x, yLine).lineTo(x + wFirma, yLine).stroke());
 
                 const yNom = yLine + 4;
                 doc.font('Helvetica').fontSize(7).fillColor(AZUL)
@@ -803,6 +909,13 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                 doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000')
                    .text((sol.solicitante_nombre || '').toUpperCase(), xF1, yNom2, { width: wFirma, align: 'center' })
                    .text(sol.solicitante_puesto || '', xF1, yNom2 + 10, { width: wFirma, align: 'center' });
+
+                // Nombre y puesto del revisor de contabilidad
+                if (sol.revisor_nombre) {
+                    doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000')
+                       .text(sol.revisor_nombre.toUpperCase(), xF3, yNom2, { width: wFirma, align: 'center' })
+                       .text(sol.revisor_puesto || 'Contabilidad', xF3, yNom2 + 10, { width: wFirma, align: 'center' });
+                }
 
                 doc.font('Helvetica').fontSize(7).fillColor('#475569')
                    .text('Firmas y fecha', xF1, yNom2 + 22, { width: W, align: 'center' });
