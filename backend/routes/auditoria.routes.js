@@ -4,6 +4,8 @@ const db = require('../db');
 const { verificarToken, registrarBitacora } = require('../middlewares/auth');
 const { autorizar, autorizarModulo } = require('../middlewares/autorizar');
 const PDFDocument = require('pdfkit');
+const path = require('path');
+const fs   = require('fs');
 
 // --- Consultas a bitacora_auditoria con detalle tecnico opcional -----------
 // Diseño simple-pero-completo: el "detalle" que ve cualquier persona es una
@@ -89,38 +91,216 @@ router.get('/reporte/pdf', verificarToken, autorizarModulo('auditoria', ['ADMIN'
     consultarBitacora(whereYOrden, queryParams, (err, results) => {
         if (err) return res.status(500).json({ success: false, message: 'Error en BD' });
 
-        const doc = new PDFDocument({ margin: 50 });
+        const periodo = (fechaInicio && fechaFin)
+            ? `Del ${fechaInicio} al ${fechaFin}`
+            : 'Histórico Completo';
 
-        res.setHeader('Content-disposition', `attachment; filename=Auditoria_Sacimex_${fechaInicio || 'Completa'}.pdf`);
-        res.setHeader('Content-type', 'application/pdf');
+        const doc = new PDFDocument({ size: 'LETTER', margin: 0, layout: 'portrait', bufferPages: true });
 
+        res.setHeader('Content-Disposition', `attachment; filename=Auditoria_Sacimex_${fechaInicio || 'Completa'}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
         doc.pipe(res);
 
-        // --- DISEÑO DEL PDF ---
-        doc.fontSize(18).font('Helvetica-Bold').text('Reporte Oficial de Auditoría', { align: 'center' });
-        doc.fontSize(12).font('Helvetica').text('Opciones Sacimex (Control de Accesos y Operaciones)', { align: 'center' });
-        doc.moveDown();
+        // ── Paleta institucional ──────────────────────────────────────────
+        const C_VERDE    = '#00B050';
+        const C_VERDE_O  = '#007A35';   // verde oscuro para subtítulos
+        const C_BLANCO   = '#FFFFFF';
+        const C_GRIS_BG  = '#F1F5F9';   // filas pares de la tabla
+        const C_GRIS_LIN = '#CBD5E1';   // líneas divisorias
+        const C_TEXTO    = '#0F172A';   // texto principal
+        const C_TEXTO2   = '#475569';   // texto secundario
 
-        const periodo = (fechaInicio && fechaFin) ? `Del ${fechaInicio} al ${fechaFin}` : 'Histórico Completo';
-        doc.fontSize(10).font('Helvetica-Oblique').text(`Periodo evaluado: ${periodo}`, { align: 'center' });
-        doc.text(`Fecha de emisión del reporte: ${new Date().toLocaleString('es-MX')}`, { align: 'center' });
-        doc.moveDown(2);
+        const PW   = doc.page.width;    // 612
+        const PH   = doc.page.height;   // 792
+        const ML   = 40;                // margen izquierdo
+        const MR   = 40;                // margen derecho
+        const W    = PW - ML - MR;      // 532 ancho útil
+
+        // ── Columnas de la tabla ─────────────────────────────────────────
+        // Fecha | Usuario | Acción | Detalle | IP
+        const COLS = [
+            { label: 'FECHA Y HORA',   w: 90  },
+            { label: 'USUARIO',        w: 70  },
+            { label: 'ACCIÓN',         w: 105 },
+            { label: 'DETALLE',        w: 207 },
+            { label: 'IP / EQUIPO',    w: 60  },
+        ];
+
+        const ROW_H      = 28;   // altura de fila datos (se extiende si hay texto largo)
+        const HEAD_H     = 16;   // altura header tabla
+        const HEADER_Y   = 130;  // donde empieza el contenido (bajo el encabezado institucional)
+        const FOOTER_H   = 30;   // espacio reservado al pie
+
+        // ── Función: trazar encabezado institucional ──────────────────────
+        const logoPath = path.join(__dirname, '../../frontend/src/assets/Logo.png');
+        const hayLogo  = fs.existsSync(logoPath);
+
+        const drawPageHeader = () => {
+            // Fondo blanco (ya es el default, pero lo declaramos explícitamente)
+            doc.rect(0, 0, PW, 130).fill('#FFFFFF');
+
+            // Franja verde delgada en la parte superior (acento institucional)
+            doc.rect(0, 0, PW, 5).fill(C_VERDE);
+
+            // Logo a la izquierda
+            if (hayLogo) {
+                try { doc.image(logoPath, ML, 14, { height: 72, fit: [80, 72] }); } catch (_) {}
+            }
+
+            // Nombre institucional centrado en toda la página
+            doc.fillColor(C_VERDE_O)
+               .font('Helvetica-Bold').fontSize(14)
+               .text('OPCIONES SACIMEX SA DE CV SOFOM ENR', ML, 18, { width: W, align: 'center' });
+            doc.fillColor(C_TEXTO2)
+               .font('Helvetica').fontSize(9)
+               .text('Oaxaca de Juárez, Oaxaca — México', ML, 36, { width: W, align: 'center' });
+            doc.fillColor(C_TEXTO2)
+               .font('Helvetica').fontSize(8)
+               .text('Sistema Administrativo de Control Interno', ML, 49, { width: W, align: 'center' });
+
+            // Línea verde divisora
+            doc.moveTo(ML, 96).lineTo(PW - MR, 96).lineWidth(1.5).strokeColor(C_VERDE).stroke();
+
+            // Título del reporte centrado
+            doc.fillColor(C_VERDE_O).font('Helvetica-Bold').fontSize(13)
+               .text('REPORTE OFICIAL DE AUDITORÍA', ML, 104, { width: W, align: 'center' });
+
+            // Línea gris al pie del header
+            doc.moveTo(ML, 126).lineTo(PW - MR, 126).lineWidth(0.5).strokeColor(C_GRIS_LIN).stroke();
+        };
+
+        // ── Función: pie de página con número ────────────────────────────
+        const drawPageFooter = (pageNum, totalPages) => {
+            const fy = PH - FOOTER_H;
+            doc.moveTo(ML, fy).lineTo(PW - MR, fy).lineWidth(0.5).strokeColor(C_GRIS_LIN).stroke();
+            doc.fillColor(C_TEXTO2).font('Helvetica').fontSize(8)
+               .text('Opciones Sacimex SA de CV SOFOM ENR — Documento generado por el sistema ERP',
+                     ML, fy + 6, { width: W - 80, align: 'left' });
+            doc.fillColor(C_TEXTO2).font('Helvetica-Bold').fontSize(8)
+               .text(`Página ${pageNum} de ${totalPages}`, PW - MR - 80, fy + 6, { width: 80, align: 'right' });
+        };
+
+        // ── Función: encabezado de tabla ──────────────────────────────────
+        const drawTableHeader = (ty) => {
+            let cx = ML;
+            COLS.forEach(col => {
+                doc.rect(cx, ty, col.w, HEAD_H).fill(C_VERDE_O);
+                doc.fillColor(C_BLANCO).font('Helvetica-Bold').fontSize(6.5)
+                   .text(col.label, cx + 3, ty + 4, { width: col.w - 6, align: 'left' });
+                cx += col.w;
+            });
+            return ty + HEAD_H;
+        };
+
+        // ── Primera página ────────────────────────────────────────────────
+        drawPageHeader();
+
+        // Bloque de info del reporte
+        let iy = HEADER_Y + 4;
+        doc.fillColor(C_TEXTO2).font('Helvetica').fontSize(9)
+           .text(`Periodo evaluado:`, ML, iy, { continued: true })
+           .fillColor(C_TEXTO).font('Helvetica-Bold')
+           .text(`  ${periodo}`, { continued: false });
+
+        iy += 14;
+        const ahora = new Date().toLocaleString('es-MX', { dateStyle: 'full', timeStyle: 'short' });
+        doc.fillColor(C_TEXTO2).font('Helvetica').fontSize(9)
+           .text(`Fecha de emisión:`, ML, iy, { continued: true })
+           .fillColor(C_TEXTO).font('Helvetica-Bold')
+           .text(`  ${ahora}`, { continued: false });
+
+        iy += 14;
+        doc.fillColor(C_TEXTO2).font('Helvetica').fontSize(9)
+           .text(`Total de registros:`, ML, iy, { continued: true })
+           .fillColor(C_TEXTO).font('Helvetica-Bold')
+           .text(`  ${results.length}`, { continued: false });
+
+        iy += 16;
 
         if (results.length === 0) {
-            doc.font('Helvetica').fontSize(12).text('No se registraron movimientos en este periodo.', { align: 'center' });
-        } else {
-            results.forEach(log => {
-                doc.fontSize(10).font('Helvetica-Bold').text(`[${new Date(log.fecha).toLocaleString('es-MX')}] Usuario: ${log.usuario}`);
-                doc.font('Helvetica-Bold').text(`Acción: `, { continued: true }).font('Helvetica').text(log.accion.replace(/_/g, ' '));
-                doc.font('Helvetica-Bold').text(`Detalle: `, { continued: true }).font('Helvetica').text(log.detalle);
-                if (log.ip_address) {
-                    doc.font('Helvetica-Bold').text(`Conectado desde: `, { continued: true }).font('Helvetica').text(log.ip_address);
-                }
-                doc.moveDown(0.5);
+            doc.moveDown(2);
+            doc.fillColor(C_TEXTO2).font('Helvetica-Oblique').fontSize(11)
+               .text('No se registraron movimientos en este periodo.', ML, iy, { width: W, align: 'center' });
+            doc.end();
+            return;
+        }
 
-                doc.moveTo(50, doc.y).lineTo(550, doc.y).strokeColor('#e2e8f0').stroke();
-                doc.moveDown(0.5);
+        // ── Tabla de registros ────────────────────────────────────────────
+        let ty = drawTableHeader(iy);
+        let rowIndex = 0;
+
+        const formatFechaPDF = (raw) => {
+            if (!raw) return '—';
+            const d = new Date(raw);
+            if (isNaN(d)) return String(raw).substring(0, 16);
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            const hh = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            return `${dd}/${mm}/${yyyy}\n${hh}:${min}`;
+        };
+
+        results.forEach(log => {
+            // Calcular altura dinámica de la fila según el texto más largo
+            const detalle   = (log.detalle || '').substring(0, 180);
+            const accion    = (log.accion  || '').replace(/_/g, ' ');
+            const usuario   = (log.usuario || 'SISTEMA');
+            const ip        = (log.ip_address || '—');
+            const fecha     = formatFechaPDF(log.fecha);
+
+            // Estimar cuántas líneas ocupa cada celda
+            const estimarLineas = (txt, colW, fz = 7) => {
+                const charsPerLine = Math.floor((colW - 6) / (fz * 0.55));
+                return Math.max(1, Math.ceil(txt.length / charsPerLine));
+            };
+            const lineasDetalle  = estimarLineas(detalle, COLS[3].w);
+            const lineasAccion   = estimarLineas(accion,  COLS[2].w);
+            const lineHeight     = 9.5;
+            const rh             = Math.max(ROW_H, Math.max(lineasDetalle, lineasAccion) * lineHeight + 8);
+
+            // ¿Cabe la fila en esta página?
+            if (ty + rh > PH - FOOTER_H - 10) {
+                doc.addPage({ size: 'LETTER', margin: 0 });
+                drawPageHeader();
+                ty = drawTableHeader(HEADER_Y + 4);
+                rowIndex = 0;
+            }
+
+            // Fondo alternado
+            const bgColor = (rowIndex % 2 === 0) ? C_BLANCO : C_GRIS_BG;
+            doc.rect(ML, ty, W, rh).fill(bgColor);
+
+            // Línea inferior de fila
+            doc.moveTo(ML, ty + rh).lineTo(ML + W, ty + rh)
+               .lineWidth(0.3).strokeColor(C_GRIS_LIN).stroke();
+
+            // Contenido de cada celda
+            const vals = [fecha, usuario, accion, detalle, ip];
+            let cx = ML;
+            COLS.forEach((col, ci) => {
+                doc.fillColor(C_TEXTO).font('Helvetica').fontSize(7)
+                   .text(vals[ci], cx + 3, ty + 5, {
+                       width: col.w - 6,
+                       height: rh - 6,
+                       ellipsis: ci === 3 ? false : true,
+                       lineBreak: true
+                   });
+                // separador vertical
+                doc.moveTo(cx + col.w, ty).lineTo(cx + col.w, ty + rh)
+                   .lineWidth(0.3).strokeColor(C_GRIS_LIN).stroke();
+                cx += col.w;
             });
+
+            ty += rh;
+            rowIndex++;
+        });
+
+        // ── Añadir pies de página a todas las páginas ─────────────────────
+        const totalPages = doc.bufferedPageRange().count;
+        for (let i = 0; i < totalPages; i++) {
+            doc.switchToPage(i);
+            drawPageFooter(i + 1, totalPages);
         }
 
         doc.end();

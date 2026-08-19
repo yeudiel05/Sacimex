@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useNavigate } from 'react-router-dom';
 import './Solicitud.css';
+import { formatFecha } from '../../utils/fecha';
 
 // ─── Pasos del flujo ──────────────────────────────────────────────────
 const FLUJO_PASOS = [
@@ -105,6 +106,8 @@ const Solicitud = () => {
         numero_cheque: '',
         nombre_proveedor: '',
     });
+    const [chequeError, setChequeError]     = useState('');   // msg de duplicado
+    const [chequeChecking, setChequeChecking] = useState(false); // spinner mientras verifica
 
     const [formData, setFormData] = useState({
         concepto_id: '',
@@ -252,6 +255,31 @@ const Solicitud = () => {
     const proveedorSeleccionado = proveedoresDB.find((p) => String(p.id_persona || p.id) === String(formData.id_proveedor));
 
     const esCheque = formData.forma_pago === 'CHEQUE';
+
+    // --- Verificar que el número de cheque no esté ya usado (se llama onBlur) ---
+    const verificarNumeroCheque = async (numero) => {
+        const num = (numero || '').trim();
+        if (!num) { setChequeError(''); return; }
+        setChequeChecking(true);
+        setChequeError('');
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/solicitudes/verificar-cheque/${encodeURIComponent(num)}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success && !data.disponible) {
+                const c = data.conflicto;
+                setChequeError(`El cheque ${num} ya fue usado en la solicitud ${c.folio} (${c.unidad}) por ${c.solicitante}.`);
+            } else {
+                setChequeError('');
+            }
+        } catch {
+            setChequeError('');
+        } finally {
+            setChequeChecking(false);
+        }
+    };
 
     // Convertir número a letras (pesos mexicanos)
     const numeroALetras = (num) => {
@@ -514,18 +542,32 @@ const Solicitud = () => {
 
                         {/* BLOQUE CHEQUE — solo visible cuando forma_pago = CHEQUE */}
                         {esCheque && (
-                            <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'12px', padding:'20px', marginBottom:'16px' }}>
+                            <div style={{ background:'#fffbeb', border: chequeError ? '1px solid #fca5a5' : '1px solid #fde68a', borderRadius:'12px', padding:'20px', marginBottom:'16px' }}>
                                 <h4 style={{ margin:'0 0 16px', fontSize:'14px', fontWeight:'800', color:'#92400e' }}>
                                     Datos de la Póliza de Cheque
                                 </h4>
                                 <div className="form-group">
                                     <label className="form-label">Número de Cheque</label>
-                                    <input type="text" className="form-input"
+                                    <input type="text"
+                                        className="form-input"
                                         value={datosCheque.numero_cheque}
-                                        onChange={e => setDatosCheque(prev => ({ ...prev, numero_cheque: e.target.value }))}
+                                        onChange={e => {
+                                            setDatosCheque(prev => ({ ...prev, numero_cheque: e.target.value }));
+                                            setChequeError(''); // limpiar error al volver a escribir
+                                        }}
+                                        onBlur={e => verificarNumeroCheque(e.target.value)}
                                         placeholder="Ej. 001234"
                                         maxLength={20}
+                                        style={ chequeError ? { borderColor: '#ef4444', backgroundColor: '#fef2f2' } : {} }
                                     />
+                                    {chequeChecking && (
+                                        <p style={{ margin:'6px 0 0', fontSize:'12px', color:'#92400e' }}>⏳ Verificando...</p>
+                                    )}
+                                    {chequeError && (
+                                        <p style={{ margin:'6px 0 0', fontSize:'12px', color:'#dc2626', fontWeight:'600', lineHeight:'1.4' }}>
+                                            ⛔ {chequeError}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -603,7 +645,7 @@ const Solicitud = () => {
                             <button type="button" className="btn-cancelar" onClick={() => navigate('/solicitudes/historial')}>
                                 Cancelar
                             </button>
-                            <button type="submit" className="btn-enviar" disabled={loading || submitted}>
+                            <button type="submit" className="btn-enviar" disabled={loading || submitted || !!chequeError || chequeChecking}>
                                 {loading ? <><IconSpinner /> Procesando...</> : <><IconSend /> Enviar Solicitud</>}
                             </button>
                         </div>
@@ -678,7 +720,7 @@ const Solicitud = () => {
                             <div className="resumen-row-label">Vencimiento</div>
                             {formData.fecha_limite_pago
                                 ? <div className="resumen-row-value" style={{color: '#dc2626', fontWeight: 'bold'}}>
-                                    {new Date(formData.fecha_limite_pago).toLocaleDateString('es-MX', {timeZone: 'UTC'})}
+                                    {formatFecha(formData.fecha_limite_pago)}
                                   </div>
                                 : <div className="resumen-row-empty">Sin seleccionar</div>
                             }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Inversores.css';
+import { formatFecha } from '../../utils/fecha';
 
 // --- UTILERIAS GLOBALES Y MATEMATICAS ---
 const formatMoney = (amount) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount || 0);
@@ -243,6 +244,7 @@ function Inversores() {
     const [pagosIrregulares, setPagosIrregulares] = useState([]); 
     const [tablaInteractivaRender, setTablaInteractivaRender] = useState([]);
     const [totalesInteractivos, setTotalesInteractivos] = useState({ interes: 0, total: 0 });
+    const [abonoExcedido, setAbonoExcedido] = useState({}); // { [indexUI]: true } cuando el abono supera el cap
 
     // --- ESTADOS PROYECCION GLOBAL ---
     const [showProyeccionGlobal, setShowProyeccionGlobal] = useState(false);
@@ -325,7 +327,10 @@ function Inversores() {
     }, [formMovimiento.id_contrato, showNuevoMovimiento, contratos, movimientos]);
 
     // --- MOTOR CORE DE AMORTIZACION CON RECALCULO AUTOMATICO ---
-    const motorCalculoAmortizacion = (contratoObj, inyecciones = [], edicionesCustom = {}) => {
+    // movimientosContrato: pagos ya registrados (PAGO_INTERES = rendimientos, DEPOSITO = inyeccion a capital)
+    // que se van aplicando en orden cronologico (FIFO) contra cada fila para marcarla como pagada
+    // y calcular cuanto sigue pendiente.
+    const motorCalculoAmortizacion = (contratoObj, inyecciones = [], edicionesCustom = {}, movimientosContrato = []) => {
         // Unico sistema soportado: Plan Personalizado (Aleman/Frances/Abono Libre fueron eliminados).
         const m = parseFloat(contratoObj.monto_inicial) || 0;
         const t = parseFloat(contratoObj.tasa_anual_esperada) || 0;
@@ -362,6 +367,13 @@ function Inversores() {
 
         timelineUnificado.sort((a,b) => new Date(`${a.fechaStr}T12:00:00`) - new Date(`${b.fechaStr}T12:00:00`));
 
+        // Bolsa acumulada de pagos ya registrados como movimientos (rendimientos + inyecciones a capital),
+        // se va consumiendo fila por fila en orden cronologico (la mas antigua primero).
+        let bolsaPagos = movimientosContrato
+            .filter(mv => mv.tipo === 'PAGO_INTERES' || mv.tipo === 'DEPOSITO')
+            .reduce((acc, mv) => acc + (parseFloat(mv.monto) || 0), 0);
+        let deudaAcumulada = 0;
+
         timelineUnificado.forEach((row) => {
             let fechaStrEval = edicionesCustom[row.indexUI]?.fecha || row.fechaStr;
             let fechaActual = new Date(`${fechaStrEval}T12:00:00`);
@@ -396,12 +408,28 @@ function Inversores() {
             let totalPago = capital + interes + iva;
             saldo -= capital; if (saldo < 0.01) saldo = 0;
 
+            // --- APLICACION DE PAGOS YA REGISTRADOS (FIFO, con abono parcial) ---
+            // Se toma lo que haya en la bolsa (lo mas antiguo primero) y se aplica a esta fila.
+            // Si no la cubre por completo, la fila queda pendiente y se guarda cuanto falta;
+            // ese faltante se suma al acumulado de deuda que se muestra en "Restante".
+            let pagado = false;
+            let restanteFila = 0;
+            if (totalPago > 0.01) {
+                const aplicado = Math.min(bolsaPagos, totalPago);
+                bolsaPagos -= aplicado;
+                restanteFila = totalPago - aplicado;
+                pagado = restanteFila <= 0.5; // misma tolerancia de 50 centavos que usa el resto del sistema
+                if (pagado) restanteFila = 0;
+                deudaAcumulada += restanteFila;
+            }
+
             tablaRes.push({
-                indexUI: row.indexUI, numero: row.numero, abono: abonoReal, anticipo: anticipoReal, 
-                interes: interes, iva: iva, pagoTotal: totalPago, saldoFinal: saldo, dias: diasParaInteres, 
-                fechaStr: fechaActual.toLocaleDateString('es-MX'),
+                indexUI: row.indexUI, numero: row.numero, abono: abonoReal, anticipo: anticipoReal,
+                interes: interes, iva: iva, pagoTotal: totalPago, saldoFinal: saldo, dias: diasParaInteres,
+                fechaStr: formatFecha(fechaActual),
                 fechaInputStr: fechaStrEval,
-                fechaPura: fechaActual 
+                fechaPura: fechaActual,
+                pagado, restante: deudaAcumulada
             });
             totalInteres += interes; totalGeneral += totalPago;
             fechaAnterior = new Date(fechaActual);
@@ -444,13 +472,38 @@ function Inversores() {
 
     useEffect(() => {
         if (!contratoParaAmortizacion || !showVisorAmortizacion) return;
-        const res = motorCalculoAmortizacion(contratoParaAmortizacion, pagosIrregulares, edicionesInteractiva);
+        const movsDeEsteContrato = movimientos.filter(m => m.id_contrato === contratoParaAmortizacion.id);
+        const res = motorCalculoAmortizacion(contratoParaAmortizacion, pagosIrregulares, edicionesInteractiva, movsDeEsteContrato);
         setTablaInteractivaRender(res.tabla);
         setTotalesInteractivos(res.totales);
-    }, [contratoParaAmortizacion, showVisorAmortizacion, edicionesInteractiva, pagosIrregulares]);
+    }, [contratoParaAmortizacion, showVisorAmortizacion, edicionesInteractiva, pagosIrregulares, movimientos]);
 
     // --- FUNCIONES INTERACTIVAS ---
     const handleEdicionInteractiva = (indexUI, field, valueStr) => {
+        if (field === 'abono') {
+            const newVal = parseFloat(parseInputMonto(valueStr)) || 0;
+
+            // Total pendiente del contrato = deudaAcumulada de la última fila con pago > 0.
+            // Equivale a: (suma de todos los pagoTotal) − (movimientos ya aplicados).
+            // Esto evita que un solo abono exceda lo que todavía se debe (capital + intereses pendientes).
+            const filasConPago = (tablaInteractivaRender || []).filter(r => (parseFloat(r.pagoTotal) || 0) > 0.01);
+            const totalRestante = filasConPago.length > 0
+                ? (parseFloat(filasConPago[filasConPago.length - 1].restante) || 0)
+                : 0;
+
+            const excede = newVal > totalRestante + 0.01; // tolerancia de 1 centavo
+            const valorFinal = excede ? totalRestante : newVal;
+
+            setAbonoExcedido(prev => ({ ...prev, [indexUI]: excede }));
+            if (excede) setTimeout(() => setAbonoExcedido(prev => ({ ...prev, [indexUI]: false })), 2000);
+
+            setEdicionesInteractiva(prev => ({
+                ...prev,
+                [indexUI]: { ...prev[indexUI], abono: String(valorFinal) }
+            }));
+            return;
+        }
+
         setEdicionesInteractiva(prev => ({
             ...prev,
             [indexUI]: {
@@ -587,8 +640,8 @@ function Inversores() {
                         resumenList.push({
                             id: c.id,
                             numero_disposicion: c.numero_disposicion,
-                            f_inicio: new Date(c.fecha_inicio).toLocaleDateString('es-MX'),
-                            f_termino: new Date(c.fecha_fin).toLocaleDateString('es-MX'),
+                            f_inicio: formatFecha(c.fecha_inicio),
+                            f_termino: formatFecha(c.fecha_fin),
                             monto: c.monto_inicial,
                             tasa: c.tasa_anual_esperada,
                             saldo_capital: saldoCapitalPrevio,
@@ -844,11 +897,13 @@ function Inversores() {
         try { 
             const res = await fetch('/api/inversores/movimientos', { method: 'POST', headers, body: formDataUpload }); 
             const data = await res.json(); 
-            if (data.success) { 
-                setShowNuevoMovimiento(false); 
-                fetchMovimientos(inversorActivo.id); 
+            if (data.success) {
+                setShowNuevoMovimiento(false);
+                setFormMovimiento({ id_contrato: '', tipo: 'PAGO_INTERES', monto: '' });
+                setFileComprobante(null);
+                fetchMovimientos(inversorActivo.id);
                 fetchPagosProximos();
-            } 
+            }
         } catch (error) {} finally { setIsLoading(false); } 
     };
 
@@ -889,7 +944,7 @@ function Inversores() {
                                 </div>
                             </div>
                             <div className="c-footer">
-                                <span>Vence: <strong>{new Date(c.fecha_fin).toLocaleDateString()}</strong></span>
+                                <span>Vence: <strong>{formatFecha(c.fecha_fin)}</strong></span>
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button className="btn-cancel" onClick={() => generarPDFContrato(c.id)}>Ver Contrato</button>
                                     <button className="btn-primary" style={{ backgroundColor: '#0f172a', boxShadow: 'none' }} onClick={() => { setContratoParaAmortizacion(c); setShowVisorAmortizacion(true); }}>Ver Amortizacion</button>
@@ -1044,7 +1099,7 @@ function Inversores() {
                                             </div> 
                                             <div className="mov-detalles"> 
                                                 <strong style={{ display: 'block', color: '#0f172a' }}>{labelTipo}</strong> 
-                                                <span style={{ fontSize: '12px', color: '#64748b' }}>Contrato #{mov.id_contrato.toString().padStart(4, '0')} - {new Date(mov.fecha_movimiento).toLocaleDateString()}</span> 
+                                                <span style={{ fontSize: '12px', color: '#64748b' }}>Contrato #{mov.id_contrato.toString().padStart(4, '0')} - {formatFecha(mov.fecha_movimiento)}</span>
                                             </div> 
                                         </div>
                                         <div className="mov-monto-accion" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}> 
@@ -1206,7 +1261,7 @@ function Inversores() {
 
                                         return (
                                             <tr key={p.id_pago} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                <td style={{ padding: '12px', fontWeight: 'bold' }}>{new Date(p.fecha_solicitud).toLocaleDateString('es-MX', {timeZone: 'UTC'})}</td>
+                                                <td style={{ padding: '12px', fontWeight: 'bold' }}>{formatFecha(p.fecha_solicitud)}</td>
                                                 <td style={{ padding: '12px', color: '#1e293b', fontWeight: '600' }}>{p.proveedor}</td>
                                                 <td style={{ padding: '12px', fontSize: '13px', color: '#475569' }}>{p.concepto}</td>
                                                 <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#0f172a' }}>{formatMoney(p.monto_pago)}</td>
@@ -1724,7 +1779,7 @@ function Inversores() {
                                     Monto: <strong style={{ color: '#10d440' }}>{formatMoney(contratoParaAmortizacion.monto_inicial)}</strong> | Tasa: {contratoParaAmortizacion.tasa_anual_esperada}% | Sistema: {contratoParaAmortizacion.tipo_amortizacion ? contratoParaAmortizacion.tipo_amortizacion.toUpperCase() : 'PERSONALIZADO'}
                                 </p>
                             </div>
-                            <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} className="btn-close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><IconClose/></button>
+                            <button onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); setAbonoExcedido({}); }} className="btn-close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><IconClose/></button>
                         </div>
                         
                         <div className="modal-body" style={{ backgroundColor: '#f8fafc', flexGrow: 1, minHeight: 0, padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
@@ -1778,7 +1833,7 @@ function Inversores() {
                             <div className="table-responsive" style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'auto', flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '16px 24px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0' }}>
                                     <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-                                        <strong>Nota interactiva:</strong> Edita la Fecha de Vencimiento y el Abono a Principal directamente en la tabla. El motor recalculará todo al instante.
+                                        <strong>Nota interactiva:</strong> Edita la Fecha de Vencimiento y el Abono a Principal directamente en la tabla. El motor recalculará todo al instante. Las columnas <strong>Pagado</strong> y <strong>Restante</strong> se calculan con base en los movimientos de "Pago de Rendimientos" y "Pago de Inyección a Capital" ya registrados para este contrato, aplicados del mes más antiguo pendiente al más reciente.
                                     </p>
                                 </div>
                                 <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -1791,6 +1846,8 @@ function Inversores() {
                                             <th style={{ padding: '12px', textAlign: 'right' }}>INT. ORD.</th>
                                             <th style={{ padding: '12px', textAlign: 'right' }}>IVA</th>
                                             <th style={{ padding: '12px', textAlign: 'right', color: 'var(--brand-green)' }}>TOTAL PAGO</th>
+                                            <th style={{ padding: '12px', textAlign: 'center' }}>PAGADO</th>
+                                            <th style={{ padding: '12px', textAlign: 'right' }}>RESTANTE</th>
                                             <th style={{ padding: '12px', textAlign: 'right' }}>SALDO INSOLUTO</th>
                                             <th style={{ padding: '12px', textAlign: 'center' }}>DIAS</th>
                                         </tr>
@@ -1822,14 +1879,20 @@ function Inversores() {
                                                         <strong style={{ color: '#64748b' }}>$0.00</strong>
                                                     ) : (
                                                         <div style={{ position: 'relative' }}>
-                                                            <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#15803d', fontSize: '12px' }}>$</span>
-                                                            <input 
-                                                                type="text" 
-                                                                placeholder="0.00" 
-                                                                value={edicionesInteractiva[row.indexUI]?.abono !== undefined ? formatInputMonto(edicionesInteractiva[row.indexUI].abono) : formatInputMonto(row.abono)} 
-                                                                onChange={(e) => handleEdicionInteractiva(row.indexUI, 'abono', e.target.value)} 
-                                                                style={{ width: '100%', height: '32px', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '0 8px 0 20px', textAlign: 'right', fontSize: '13px', color: '#166534', fontWeight: 'bold', outline: 'none', backgroundColor: 'white' }} 
+                                                            <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: abonoExcedido[row.indexUI] ? '#dc2626' : '#15803d', fontSize: '12px' }}>$</span>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="0.00"
+                                                                value={edicionesInteractiva[row.indexUI]?.abono !== undefined ? formatInputMonto(edicionesInteractiva[row.indexUI].abono) : formatInputMonto(row.abono)}
+                                                                onChange={(e) => handleEdicionInteractiva(row.indexUI, 'abono', e.target.value)}
+                                                                title={abonoExcedido[row.indexUI] ? 'El abono supera el saldo pendiente del contrato' : ''}
+                                                                style={{ width: '100%', height: '32px', border: abonoExcedido[row.indexUI] ? '2px solid #dc2626' : '1px solid #bbf7d0', borderRadius: '6px', padding: '0 8px 0 20px', textAlign: 'right', fontSize: '13px', color: abonoExcedido[row.indexUI] ? '#dc2626' : '#166534', fontWeight: 'bold', outline: 'none', backgroundColor: abonoExcedido[row.indexUI] ? '#fef2f2' : 'white', transition: 'border 0.2s, background 0.2s' }}
                                                             />
+                                                            {abonoExcedido[row.indexUI] && (
+                                                                <span style={{ position: 'absolute', right: '4px', bottom: '-16px', fontSize: '10px', color: '#dc2626', whiteSpace: 'nowrap', fontWeight: '600' }}>
+                                                                    Excede el saldo pendiente del contrato
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </td>
@@ -1840,6 +1903,23 @@ function Inversores() {
                                                 <td style={{ padding: '10px', textAlign: 'right' }}>{formatMoney(row.interes)}</td>
                                                 <td style={{ padding: '10px', textAlign: 'right' }}>{formatMoney(row.iva)}</td>
                                                 <td style={{ padding: '10px', textAlign: 'right', color: 'var(--brand-green)', fontWeight: 'bold' }}>{formatMoney(row.pagoTotal)}</td>
+
+                                                {/* COLUMNA PAGADO — segun los movimientos (PAGO_INTERES / DEPOSITO) ya registrados para este contrato */}
+                                                <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                    {row.pagoTotal <= 0.01 ? (
+                                                        <span style={{ color: '#cbd5e1' }}>—</span>
+                                                    ) : row.pagado ? (
+                                                        <span style={{ backgroundColor: '#dcfce3', color: '#166534', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold' }}>✓ Pagado</span>
+                                                    ) : (
+                                                        <span style={{ backgroundColor: '#fef2f2', color: '#dc2626', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold' }}>Pendiente</span>
+                                                    )}
+                                                </td>
+
+                                                {/* COLUMNA RESTANTE — acumulado de todo lo que sigue sin cobrarse hasta esta fila */}
+                                                <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: row.restante > 0 ? '#dc2626' : '#166534' }}>
+                                                    {formatMoney(row.restante)}
+                                                </td>
+
                                                 <td style={{ padding: '10px', textAlign: 'right', color: '#0f172a', fontWeight: '800' }}>{formatMoney(row.saldoFinal)}</td>
                                                 <td style={{ padding: '10px', textAlign: 'center', color: '#64748b' }}>{row.dias}</td>
                                             </tr>
@@ -1860,7 +1940,7 @@ function Inversores() {
                         </div> 
 
                         <div className="modal-footer" style={{ flexShrink: 0, padding: '24px 32px', backgroundColor: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
-                            <button type="button" onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); }} style={{ padding: '10px 20px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: 'white', fontWeight: 'bold', color: '#475569', cursor: 'pointer' }}>Cerrar</button>
+                            <button type="button" onClick={() => { setShowVisorAmortizacion(false); setContratoParaAmortizacion(null); setEdicionesInteractiva({}); setPagosIrregulares([]); setAbonoExcedido({}); }} style={{ padding: '10px 20px', border: '1px solid #cbd5e1', borderRadius: '8px', backgroundColor: 'white', fontWeight: 'bold', color: '#475569', cursor: 'pointer' }}>Cerrar</button>
                             <button type="button" onClick={handleGuardarInyecciones} disabled={isLoading} style={{ padding: '10px 24px', border: 'none', borderRadius: '8px', backgroundColor: '#0f172a', fontWeight: 'bold', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <IconSave/> Guardar Abonos
                             </button>

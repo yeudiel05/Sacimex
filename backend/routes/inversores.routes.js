@@ -773,7 +773,8 @@ router.post('/movimientos', verificarToken, autorizarModulo('inversores', ['ADMI
         
         db.query('SELECT p.nombre_razon_social FROM contratos_inversion c JOIN personas p ON c.id_inversor = p.id WHERE c.id = ?', [id_contrato], (err, results) => {
            const nombreFondeador = (results && results.length > 0) ? results[0].nombre_razon_social : 'Desconocido';
-           registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registro un movimiento de $${monto} (${tipo}) para: ${nombreFondeador}`, req);
+           const montoFmt = Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+           registrarBitacora(req.usuario.id, 'REGISTRAR_MOVIMIENTO', `Registro un movimiento de $${montoFmt} (${tipo}) para: ${nombreFondeador}`, req);
            res.json({ success: true });
         });
     });

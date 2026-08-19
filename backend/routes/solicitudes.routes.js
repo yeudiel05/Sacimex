@@ -111,6 +111,30 @@ const getEmailByDepto = (deptoBuscado) => {
     });
 };
 
+// Busca el email del responsable de un departamento por su ID numérico
+// (id_departamento en tabla usuarios). Usado para notificar VoBo.
+const getEmailByDeptoId = (idDepto) => {
+    return new Promise((resolve) => {
+        if (!idDepto) return resolve(null);
+        const query = `
+            SELECT p.email_contacto
+            FROM usuarios u
+            LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+            LEFT JOIN personas p ON e.id_persona = p.id
+            WHERE u.id_departamento = ? AND u.estatus_activo = 1
+              AND p.email_contacto IS NOT NULL AND p.email_contacto != ''
+            LIMIT 1
+        `;
+        db.query(query, [idDepto], (err, results) => {
+            if (!err && results.length > 0 && results[0].email_contacto) {
+                resolve(results[0].email_contacto);
+            } else {
+                resolve(null);
+            }
+        });
+    });
+};
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
     filename: (req, file, cb) => {
@@ -281,11 +305,45 @@ router.get('/pendientes', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISO
     });
 });
 
+// --- Verificar si un número de cheque ya está en uso (cross-sucursal, cross-empleado) ---
+// Debe estar ANTES de /:id para que Express no lo trate como un ID numérico.
+router.get('/verificar-cheque/:numero', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
+    const numero = (req.params.numero || '').trim();
+    if (!numero) return res.json({ success: true, disponible: true });
+
+    db.query(
+        `SELECT s.id, s.folio, s.unidad_negocio, p.nombre_razon_social AS solicitante
+         FROM solicitudes_recursos s
+         LEFT JOIN usuarios u ON s.solicitante_id = u.id
+         LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+         LEFT JOIN personas p ON e.id_persona = p.id
+         WHERE s.numero_cheque = ? AND s.estatus NOT IN ('RECHAZADO')
+         LIMIT 1`,
+        [numero],
+        (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: 'Error al verificar cheque' });
+            if (rows.length > 0) {
+                const r = rows[0];
+                return res.json({
+                    success: true,
+                    disponible: false,
+                    conflicto: {
+                        folio: r.folio || `#${r.id}`,
+                        unidad: r.unidad_negocio || 'Sin unidad',
+                        solicitante: r.solicitante || 'Desconocido'
+                    }
+                });
+            }
+            return res.json({ success: true, disponible: true });
+        }
+    );
+});
+
 router.get('/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA', 'D.H.O', 'GERENTE', 'DIRECTOR', 'AUXILIAR'), (req, res) => {
     const { id } = req.params;
 
     const querySolicitud = `
-            SELECT s.*, 
+            SELECT s.*,
                    p.nombre_razon_social AS solicitante_nombre,
                    pprov.nombre_razon_social AS proveedor_nombre, 
                    pprov.rfc AS proveedor_rfc,
@@ -389,17 +447,19 @@ router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 
             }
 
             db.query(`
-                SELECT requiere_vobo, area_visto_bueno 
-                FROM conceptos_pago 
+                SELECT requiere_vobo, area_visto_bueno, id_area_visto_bueno
+                FROM conceptos_pago
                 WHERE clave = ? OR id = ? OR descripcion = ? LIMIT 1
             `, [concepto_id, concepto_id, concepto_id], (errConcepto, rowsConcepto) => {
                 
                 let nivelInicial = 0;
                 let estatusInicial = 'PENDIENTE';
                 let requiereVobo = false;
+                let idAreaVistoBueno = null;
 
                 if (!errConcepto && rowsConcepto.length > 0) {
                     requiereVobo = rowsConcepto[0].requiere_vobo === 1;
+                    idAreaVistoBueno = rowsConcepto[0].id_area_visto_bueno || null;
                     if (requiereVobo) {
                         nivelInicial = -1;
                         estatusInicial = 'PENDIENTE_VOBO';
@@ -431,23 +491,62 @@ router.post('/crear', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REVISOR', 
                     db.query('UPDATE solicitudes_recursos SET folio = ? WHERE id = ?', [folio, solicitudId], async () => {
                         // REGISTRO EN BITACORA - CREAR SOLICITUD (Usa folio)
                         registrarBitacora(solicitante_id, 'CREAR_SOLICITUD', `Creo la solicitud de recurso folio ${folio} por ${formatMoney(montoNum)}`, req);
-                        
+
                         res.json({ success: true, id: solicitudId, folio, message: 'Solicitud registrada correctamente' });
-                        
+
+                        const urlSolicitud = `https://sacimex.rtvsys.com.mx/solicitudes/detalle/${solicitudId}`;
+
                         if (!requiereVobo) {
+                            // Flujo normal: notificar al Revisor
                             const emailRevisor = await getEmailByRol('REVISOR');
                             if (emailRevisor) {
-                                const mensaje = `
-                                    <h3 style="color: #0f172a;">Nueva Solicitud por Validar</h3>
-                                    <p>Se ha generado una nueva solicitud de recursos en el sistema y esta pendiente de tu validacion (Revisor).</p>
-                                    <ul>
-                                        <li><strong>Folio:</strong> ${folio}</li>
-                                        <li><strong>Monto:</strong> ${formatMoney(montoNum)}</li>
-                                        <li><strong>Unidad:</strong> ${unidad_negocio_final}</li>
-                                    </ul>
-                                    <p>Por favor, ingresa al sistema para revisarla.</p>
+                                const htmlRevisor = `
+                                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+                                        <div style="background:#10d440;padding:24px;text-align:center;">
+                                            <h1 style="color:white;margin:0;font-size:20px;">Sistema de Recursos Sacimex</h1>
+                                        </div>
+                                        <div style="padding:28px;">
+                                            <h2 style="color:#0f172a;margin-bottom:8px;">📋 Nueva Solicitud por Validar</h2>
+                                            <p style="color:#64748b;">Se ha generado una nueva solicitud de recursos pendiente de tu validación (Revisor).</p>
+                                            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:20px 0;">
+                                                <table style="width:100%;border-collapse:collapse;">
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Folio:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${folio}</td></tr>
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Monto:</td><td style="padding:6px 0;font-weight:700;color:#10d440;">${formatMoney(montoNum)}</td></tr>
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Unidad:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${unidad_negocio_final}</td></tr>
+                                                </table>
+                                            </div>
+                                            <a href="${urlSolicitud}" style="display:inline-block;background:#10d440;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ver Solicitud</a>
+                                        </div>
+                                        <div style="background:#f8fafc;padding:16px;text-align:center;font-size:11px;color:#94a3b8;">Sistema de Recursos — Opciones Sacimex SA de CV SOFOM ENR</div>
+                                    </div>
                                 `;
-                                enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, mensaje);
+                                enviarCorreo(emailRevisor, `Nueva Solicitud Recibida: ${folio}`, htmlRevisor);
+                            }
+                        } else {
+                            // Requiere VoBo: notificar al responsable del área de visto bueno
+                            const emailVobo = await getEmailByDeptoId(idAreaVistoBueno);
+                            if (emailVobo) {
+                                const htmlVobo = `
+                                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+                                        <div style="background:#f59e0b;padding:24px;text-align:center;">
+                                            <h1 style="color:white;margin:0;font-size:20px;">Sistema de Recursos Sacimex</h1>
+                                        </div>
+                                        <div style="padding:28px;">
+                                            <h2 style="color:#0f172a;margin-bottom:8px;">✅ Visto Bueno Requerido</h2>
+                                            <p style="color:#64748b;">Se ha creado una nueva solicitud de recursos que requiere tu <strong>Visto Bueno</strong> antes de continuar el flujo de autorización.</p>
+                                            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:20px 0;">
+                                                <table style="width:100%;border-collapse:collapse;">
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Folio:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${folio}</td></tr>
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Monto:</td><td style="padding:6px 0;font-weight:700;color:#f59e0b;">${formatMoney(montoNum)}</td></tr>
+                                                    <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Unidad:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${unidad_negocio_final}</td></tr>
+                                                </table>
+                                            </div>
+                                            <a href="${urlSolicitud}" style="display:inline-block;background:#f59e0b;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ver Solicitud y Dar Visto Bueno</a>
+                                        </div>
+                                        <div style="background:#f8fafc;padding:16px;text-align:center;font-size:11px;color:#94a3b8;">Sistema de Recursos — Opciones Sacimex SA de CV SOFOM ENR</div>
+                                    </div>
+                                `;
+                                enviarCorreo(emailVobo, `Visto Bueno Requerido — Folio ${folio}`, htmlVobo);
                             }
                         }
                     });
@@ -558,7 +657,7 @@ router.post('/autorizar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'RE
                                                     </table>
                                                 </div>
                                                 <p style="color:#64748b;font-size:13px;">Ingresa al sistema para ${accion}.</p>
-                                                <a href="https://sacimex.rtvsys.com.mx" style="display:inline-block;background:#10d440;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ir al Sistema</a>
+                                                <a href="https://sacimex.rtvsys.com.mx/solicitudes/detalle/${id}" style="display:inline-block;background:#10d440;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ver Solicitud</a>
                                             </div>
                                             <div style="background:#f8fafc;padding:16px;text-align:center;font-size:11px;color:#94a3b8;">
                                                 Sistema de Recursos — Opciones Sacimex SA de CV SOFOM ENR
@@ -585,41 +684,69 @@ router.post('/rechazar/:id', verificarToken, autorizar('ADMIN', 'CONTADOR', 'REV
     const miRol = req.usuario.rol;
     const miUsuarioId = req.usuario.id;
 
-    // Consultamos el folio para usarlo en la bitácora
-    db.query('SELECT folio FROM solicitudes_recursos WHERE id = ?', [id], (errFolio, rowsFolio) => {
-        const folio = (rowsFolio && rowsFolio.length > 0) ? rowsFolio[0].folio : id;
+    // Consultamos el folio, monto y email del solicitante en una sola query
+    db.query(`
+        SELECT s.folio, s.monto, s.nivel_actual, cp.id_area_visto_bueno,
+               p.email_contacto AS solicitante_email
+        FROM solicitudes_recursos s
+        LEFT JOIN conceptos_pago cp ON (
+            s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR
+            s.concepto_id COLLATE utf8mb4_unicode_ci = CAST(cp.id AS CHAR) COLLATE utf8mb4_unicode_ci OR
+            s.concepto_id COLLATE utf8mb4_unicode_ci = cp.descripcion COLLATE utf8mb4_unicode_ci
+        )
+        LEFT JOIN usuarios u ON s.solicitante_id = u.id
+        LEFT JOIN empleados e ON u.id_empleado = e.id_persona
+        LEFT JOIN personas p ON e.id_persona = p.id
+        WHERE s.id = ?
+        LIMIT 1
+    `, [id], (err, rows) => {
+        if (err || rows.length === 0) return res.status(404).json({ success: false });
+        const sol = rows[0];
+        const folio = sol.folio || id;
 
-        db.query(`
-            SELECT s.monto, s.nivel_actual, cp.id_area_visto_bueno 
-            FROM solicitudes_recursos s 
-            LEFT JOIN conceptos_pago cp ON (
-                s.concepto_id COLLATE utf8mb4_unicode_ci = cp.clave COLLATE utf8mb4_unicode_ci OR 
-                s.concepto_id COLLATE utf8mb4_unicode_ci = CAST(cp.id AS CHAR) COLLATE utf8mb4_unicode_ci OR 
-                s.concepto_id COLLATE utf8mb4_unicode_ci = cp.descripcion COLLATE utf8mb4_unicode_ci
-            )
-            WHERE s.id = ?
-        `, [id], (err, rows) => {
-            if (err || rows.length === 0) return res.status(404).json({ success: false });
-            const sol = rows[0];
+        puedeFirmar({
+            usuario: req.usuario,
+            nivel: sol.nivel_actual,
+            idDepartamentoVoBo: sol.id_area_visto_bueno
+        }, (errMotor, resultado) => {
+            if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
+            if (!resultado.puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
 
-            puedeFirmar({
-                usuario: req.usuario,
-                nivel: sol.nivel_actual,
-                idDepartamentoVoBo: sol.id_area_visto_bueno
-            }, (errMotor, resultado) => {
-                if (errMotor) return res.status(500).json({ success: false, message: 'Error validando autorización' });
-                if (!resultado.puede && miRol !== 'ADMIN') return res.status(403).json({ success: false });
+            const etapaFirma = (resultado.etiqueta || '').toUpperCase();
 
-                const etapaFirma = (resultado.etiqueta || '').toUpperCase();
+            db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`,
+            [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
+                db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], async () => {
+                    // REGISTRO EN BITACORA - RECHAZAR SOLICITUD (Usa folio)
+                    registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud folio ${folio}. Motivo: ${motivo || 'No especificado'}`, req);
 
-                db.query(`INSERT INTO historial_firmas_pago (id_solicitud, id_usuario, etapa_firma, estatus_firma, accion, comentarios) VALUES (?, ?, ?, 'RECHAZADO', 'RECHAZADO', ?)`, 
-                [id, miUsuarioId, etapaFirma || 'REVISOR', motivo || 'Rechazado'], () => {
-                    db.query('UPDATE solicitudes_recursos SET estatus = "RECHAZADO" WHERE id = ?', [id], () => {
-                        // REGISTRO EN BITACORA - RECHAZAR SOLICITUD (Usa folio)
-                        registrarBitacora(miUsuarioId, 'RECHAZAR_SOLICITUD', `Rechazo la solicitud folio ${folio}. Motivo: ${motivo || 'No especificado'}`, req);
-                        
-                        res.json({ success: true, message: 'Solicitud rechazada' });
-                    });
+                    res.json({ success: true, message: 'Solicitud rechazada' });
+
+                    // Notificar al solicitante del rechazo
+                    if (sol.solicitante_email) {
+                        const urlSolicitud = `https://sacimex.rtvsys.com.mx/solicitudes/detalle/${id}`;
+                        const htmlRechazo = `
+                            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+                                <div style="background:#ef4444;padding:24px;text-align:center;">
+                                    <h1 style="color:white;margin:0;font-size:20px;">Sistema de Recursos Sacimex</h1>
+                                </div>
+                                <div style="padding:28px;">
+                                    <h2 style="color:#0f172a;margin-bottom:8px;">❌ Solicitud Rechazada</h2>
+                                    <p style="color:#64748b;">Tu solicitud de recursos ha sido <strong>rechazada</strong>. Puedes ingresar al sistema para ver el detalle.</p>
+                                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:20px 0;">
+                                        <table style="width:100%;border-collapse:collapse;">
+                                            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Folio:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${folio}</td></tr>
+                                            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Monto:</td><td style="padding:6px 0;font-weight:700;color:#ef4444;">${formatMoney(parseFloat(sol.monto || 0))}</td></tr>
+                                            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Motivo:</td><td style="padding:6px 0;font-weight:700;color:#0f172a;">${motivo || 'No especificado'}</td></tr>
+                                        </table>
+                                    </div>
+                                    <a href="${urlSolicitud}" style="display:inline-block;background:#ef4444;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px;">Ver Solicitud</a>
+                                </div>
+                                <div style="background:#f8fafc;padding:16px;text-align:center;font-size:11px;color:#94a3b8;">Sistema de Recursos — Opciones Sacimex SA de CV SOFOM ENR</div>
+                            </div>
+                        `;
+                        enviarCorreo(sol.solicitante_email, `Solicitud Rechazada — Folio ${folio}`, htmlRechazo);
+                    }
                 });
             });
         });

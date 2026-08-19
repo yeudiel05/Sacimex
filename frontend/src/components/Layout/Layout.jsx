@@ -64,7 +64,10 @@ function Layout() {
   };
 
   const fetchNotificaciones = async () => {
-    if (userRole !== 'ADMIN' && userRole !== 'D.H.O') return;
+    // Antes solo ADMIN y D.H.O consultaban notificaciones. Ahora el backend
+    // ya filtra por usuario (rol, departamento, o si es el jefe inmediato
+    // correspondiente), así que cualquier rol autorizado puede recibir las
+    // suyas — cada quien ve solo lo que le toca a él.
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
@@ -80,6 +83,15 @@ function Layout() {
     fetchNotificaciones();
     refrescarPermisos();
   }, [location.pathname]);
+
+  // Refresco automático de la campana de notificaciones cada 60s,
+  // para que aparezcan solicitudes nuevas sin necesidad de navegar.
+  useEffect(() => {
+    const intervalo = setInterval(() => {
+      fetchNotificaciones();
+    }, 60000);
+    return () => clearInterval(intervalo);
+  }, []);
 
   const refrescarPermisos = async () => {
     // ADMIN no necesita permisos granulares
@@ -143,6 +155,8 @@ function Layout() {
     else if (notif.id === 'viaticos_pendientes') navigate('/revision-viaticos');
     else if (notif.id.startsWith('cont_')) navigate('/inversores');
     else if (notif.id.startsWith('cli_')) navigate('/clientes');
+    else if (notif.id.startsWith('sol_')) navigate(`/solicitudes/detalle/${notif.id.replace('sol_', '')}`);
+    else if (notif.id.startsWith('via_')) navigate('/revision-viaticos');
   };
 
   const rolesGenerales = ['ADMIN', 'CONTADOR', 'ALMACEN', 'AUXILIAR', 'D.H.O', 'REVISOR', 'AUTORIZADOR_1', 'AUTORIZADOR_2', 'TESORERIA'];
@@ -208,12 +222,6 @@ function Layout() {
       label: 'Configuraciones',
       mostrar: puedeVerModulo('configuracion'),
       icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-    },
-    {
-      path: '/configuracion/matriz-autorizacion',
-      label: 'Matriz de Autorización',
-      mostrar: puedeVerModulo('matriz', ['ADMIN']),
-      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
     },
     {
       path: '/reportes',
@@ -310,7 +318,7 @@ function Layout() {
               <div className="notification-wrapper" ref={notifRef} style={{ position: 'relative' }}>
                 <button className="icon-button notification-bell" onClick={() => setShowNotifMenu(!showNotifMenu)}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-                  {(userRole === 'ADMIN' || userRole === 'D.H.O') && notificaciones.length > 0 && (
+                  {notificaciones.length > 0 && (
                     <span className="badge pulse-animation" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '9px', width: '14px', height: '14px', top: '-4px', right: '-4px' }}>{notificaciones.length}</span>
                   )}
                 </button>

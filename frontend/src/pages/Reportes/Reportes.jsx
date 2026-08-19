@@ -33,9 +33,9 @@ function Reportes() {
       }
 
       const blob = await response.blob();
-      
+
       if (blob.type.includes('json') || blob.type.includes('text')) {
-        alert("El servidor no devolvió un archivo Excel válido.");
+        alert("El servidor no devolvió un archivo PDF válido.");
         setLoading(false);
         return;
       }
@@ -43,9 +43,9 @@ function Reportes() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      
+
       const fecha = new Date().toISOString().split('T')[0];
-      link.download = `Sacimex_${tipo.charAt(0).toUpperCase() + tipo.slice(1)}_${fecha}.xlsx`;
+      link.download = `Sacimex_${tipo.charAt(0).toUpperCase() + tipo.slice(1)}_${fecha}.pdf`;
       
       document.body.appendChild(link);
       link.click();
@@ -69,13 +69,13 @@ function Reportes() {
     },
     {
       id: 'inversores',
-      titulo: 'Padrón de Inversores',
+      titulo: 'Padrón de Fondeadores',
       desc: 'Lista completa de capitalistas, datos bancarios (CLABE) y origen de fondos.',
       icon: <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
     },
     {
       id: 'proveedores',
-      titulo: 'Cuentas por Pagar (Proveedores)',
+      titulo: 'Cuentas para pagar (Proveedores)',
       desc: 'Directorio de proveedores, cuentas receptoras y categorías de servicio contratadas.',
       icon: <rect x="1" y="3" width="15" height="13" rx="2"></rect>
     }
@@ -86,7 +86,7 @@ function Reportes() {
       <div className="page-header stagger-1">
         <div>
           <h1>Centro de Exportaciones</h1>
-          <p>Descarga la información de tu base de datos en formato Excel (.xlsx)</p>
+          <p>Descarga la información de tu base de datos en formato PDF institucional</p>
         </div>
       </div>
 
@@ -118,7 +118,7 @@ function Reportes() {
                 ) : (
                   <>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    Descargar Excel
+                    Descargar PDF
                   </>
                 )}
               </button>
