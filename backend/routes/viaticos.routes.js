@@ -942,17 +942,18 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                    .text('DETALLE DE GASTOS COMPROBADOS', L, y);
                 y += 12;
 
+                // COLS — anchos usados tanto en cabecera como en filas de datos (total = 752 = W)
                 const COLS = [
-                    { label: 'Día\n(dd/mm/aa)', w: 55 },
-                    { label: 'Importe',          w: 62 },
-                    { label: 'Factura o\nFolio Fiscal', w: 100 },
-                    { label: 'RFC\nProveedor',   w: 75 },
-                    { label: 'Nombre Proveedor', w: 130 },
-                    { label: 'Rubro',            w: 70 },
-                    { label: 'Descripción',      w: 120 },
-                    { label: 'T.C.',             w: 35 },
-                    { label: 'Total',            w: 55 },
-                ]; // total = 702 < 752 ✓
+                    { label: 'Día\n(dd/mm/aa)', w: 55,  align: 'center', color: '#000',     font: 7   },
+                    { label: 'Importe',          w: 62,  align: 'right',  color: '#000',     font: 7   },
+                    { label: 'Factura o\nFolio Fiscal', w: 110, align: 'left', color: '#000', font: 6.5 },
+                    { label: 'RFC\nProveedor',   w: 75,  align: 'left',   color: '#000',     font: 6.5 },
+                    { label: 'Nombre Proveedor', w: 150, align: 'left',   color: '#000',     font: 6.5 },
+                    { label: 'Rubro',            w: 70,  align: 'left',   color: '#475569',  font: 6.5 },
+                    { label: 'Descripción',      w: 135, align: 'left',   color: '#000',     font: 6.5 },
+                    { label: 'T.C.',             w: 40,  align: 'center', color: '#64748b',  font: 7   },
+                    { label: 'Total',            w: 55,  align: 'right',  color: '#000',     font: 7   },
+                ]; // 55+62+110+75+150+70+135+40+55 = 752 = W ✓
                 const HEAD_H = 22;
                 let cx = L;
                 COLS.forEach(c => {
@@ -966,7 +967,6 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
 
                 const dibujarFila = (p, idx) => {
                     if (y + ROW_H > PAGE_BOTTOM) {
-                        // Pie de página antes de saltar
                         doc.font('Helvetica').fontSize(7).fillColor('#94a3b8')
                            .text('Continúa en la siguiente página...', L, y + 4);
                         doc.addPage();
@@ -978,28 +978,40 @@ router.get('/:id/comprobacion-universal/pdf', verificarToken, (req, res) => {
                         });
                         y += HEAD_H;
                     }
-                    const bg = idx % 2 === 0 ? '#fff' : '#f8fafc';
+                    const bg  = idx % 2 === 0 ? '#fff' : '#f8fafc';
                     const imp = parseFloat(p.importe) || 0;
                     const tc  = parseFloat(p.tipo_cambio || 1);
+
+                    // Valores en el mismo orden que COLS
+                    const vals = [
+                        fmtFecha(p.fecha),
+                        fmtMoney(imp),
+                        p.folio_fiscal || '',
+                        p.rfc_proveedor || '',
+                        p.nombre_proveedor || '',
+                        p.rubro || 'Otros gastos',
+                        p.descripcion || '',
+                        tc.toFixed(2),
+                        fmtMoney(imp * tc),
+                    ];
+
                     cx = L;
-                    cell(cx, y, 52,  ROW_H, fmtFecha(p.fecha),         bg, '#000', 'Helvetica', 7, 'center'); cx+=52;
-                    cell(cx, y, 52,  ROW_H, fmtMoney(imp),              bg, '#000', 'Helvetica', 7, 'right');  cx+=52;
-                    cell(cx, y, 80,  ROW_H, p.folio_fiscal || '',       bg, '#000', 'Helvetica', 6.5, 'left'); cx+=80;
-                    cell(cx, y, 68,  ROW_H, p.rfc_proveedor || '',      bg, '#000', 'Helvetica', 6.5, 'left'); cx+=68;
-                    cell(cx, y, 100, ROW_H, p.nombre_proveedor || '',   bg, '#000', 'Helvetica', 6.5, 'left'); cx+=100;
-                    cell(cx, y, 58,  ROW_H, p.rubro || 'Otros gastos',  bg, '#475569', 'Helvetica', 6.5, 'left'); cx+=58;
-                    cell(cx, y, 96,  ROW_H, p.descripcion || '',        bg, '#000', 'Helvetica', 6.5, 'left'); cx+=96;
-                    cell(cx, y, 38,  ROW_H, tc.toFixed(2),              bg, '#64748b', 'Helvetica', 7, 'center'); cx+=38;
-                    cell(cx, y, 52,  ROW_H, fmtMoney(imp * tc),         bg, '#000', 'Helvetica', 7, 'right');
+                    COLS.forEach((col, i) => {
+                        cell(cx, y, col.w, ROW_H, vals[i], bg, col.color, 'Helvetica', col.font, col.align);
+                        cx += col.w;
+                    });
                     y += ROW_H;
                 };
 
                 partidas.forEach((p, i) => dibujarFila(p, i));
 
-                // ── FILA TOTAL ────────────────────────────────────────────────
+                // ── FILA TOTAL ─────────────────────────────────────────────────
+                // Ancho texto = suma de cols 0..7 = W - última col (55)
                 const totalComp = parseFloat(comp.total_comprobado || 0);
-                cell(L,   y, 697, ROW_H, 'TOTAL COMPROBADO:', BG_DARK, '#fff', 'Helvetica-Bold', 8, 'right');
-                cell(L+697, y, 55, ROW_H, fmtMoney(totalComp), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'right');
+                const wTextoTotal = COLS.slice(0, -1).reduce((s, c) => s + c.w, 0); // 697
+                const wUltimaCol  = COLS[COLS.length - 1].w;                         // 55
+                cell(L,              y, wTextoTotal, ROW_H, 'TOTAL COMPROBADO:', BG_DARK, '#fff', 'Helvetica-Bold', 8, 'right');
+                cell(L + wTextoTotal, y, wUltimaCol, ROW_H, fmtMoney(totalComp), '#dcfce7', '#16a34a', 'Helvetica-Bold', 8, 'right');
                 y += ROW_H + 10;
 
                 // ── RESUMEN POR RUBRO ─────────────────────────────────────────
@@ -1465,7 +1477,7 @@ router.get('/:id/pdf', verificarToken, (req, res) => {
             const xF3C = xF3B + wF3 + gapF3;
 
             doc.font('Helvetica').fontSize(9).fillColor('#000')
-               .text('Otorgó (D.H.O.)', xF3A, gy, { width: wF3, align: 'center' })
+               .text('Autorizó (D.H.O.)', xF3A, gy, { width: wF3, align: 'center' })
                .text('Quien Paga (Tesorería)', xF3B, gy, { width: wF3, align: 'center' })
                .text('Recibió', xF3C, gy, { width: wF3, align: 'center' });
 

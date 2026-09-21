@@ -36,17 +36,20 @@ function Layout() {
   // Tabla centralizada de módulos por rol — fuente única de verdad
   // que comparte lógica con App.jsx (ProtectedRoute) y Usuarios.jsx (drawer de permisos)
   const PERMISOS_POR_ROL = {
-    ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
-    CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
-    AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-    AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-    REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-    TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
-    'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
-    GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
-    DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
-    AUXILIAR:      ['dashboard','solicitudes','historial','viaticos'],
-    ALMACEN:       ['dashboard','proveedores'],
+    ADMIN:               ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+    CONTADOR:            ['clientes','inversores','proveedores','solicitudes','historial','reportes'],
+    AUTORIZADOR_1:       ['solicitudes','historial','autorizaciones','viaticos'],
+    AUTORIZADOR_2:       ['solicitudes','historial','autorizaciones','viaticos'],
+    REVISOR:             ['solicitudes','historial','autorizaciones','viaticos'],
+    TESORERIA:           ['solicitudes','historial','autorizaciones','viaticos','proveedores'],
+    'D.H.O':             ['viaticos','bandeja_dho','solicitudes','historial'],
+    GERENTE:             ['clientes','reportes','solicitudes','historial'],
+    DIRECTOR:            ['dashboard','clientes','reportes','solicitudes','historial'],
+    AUXILIAR:            ['solicitudes','historial','viaticos'],
+    ALMACEN:             ['proveedores'],
+    // Roles sin acceso al dashboard
+    OPERACIONES:         ['solicitudes','historial','viaticos'],
+    ENCARGADO_SUCURSAL:  ['solicitudes','historial','viaticos'],
   };
 
   const puedeVerModulo = (modulo) => {

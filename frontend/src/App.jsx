@@ -63,18 +63,42 @@ function PermisosProvider({ children }) {
 
 // Tabla centralizada de módulos por rol — fuente única de verdad
 const PERMISOS_POR_ROL = {
-  ADMIN:         ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
-  CONTADOR:      ['dashboard','clientes','inversores','proveedores','solicitudes','historial','reportes'],
-  AUTORIZADOR_1: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-  AUTORIZADOR_2: ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-  REVISOR:       ['dashboard','solicitudes','historial','autorizaciones','viaticos'],
-  TESORERIA:     ['dashboard','solicitudes','historial','autorizaciones','viaticos','proveedores'],
-  'D.H.O':       ['dashboard','viaticos','bandeja_dho','solicitudes','historial'],
-  GERENTE:       ['dashboard','clientes','reportes','solicitudes','historial'],
-  DIRECTOR:      ['dashboard','clientes','reportes','solicitudes','historial'],
-  AUXILIAR:      ['dashboard','solicitudes','historial','viaticos'],
-  ALMACEN:       ['dashboard','proveedores'],
+  ADMIN:               ['dashboard','clientes','inversores','proveedores','solicitudes','historial','viaticos','bandeja_dho','autorizaciones','reportes','auditoria','usuarios','configuracion','matriz'],
+  CONTADOR:            ['clientes','inversores','proveedores','solicitudes','historial','reportes'],
+  AUTORIZADOR_1:       ['solicitudes','historial','autorizaciones','viaticos'],
+  AUTORIZADOR_2:       ['solicitudes','historial','autorizaciones','viaticos'],
+  REVISOR:             ['solicitudes','historial','autorizaciones','viaticos'],
+  TESORERIA:           ['solicitudes','historial','autorizaciones','viaticos','proveedores'],
+  'D.H.O':             ['viaticos','bandeja_dho','solicitudes','historial'],
+  GERENTE:             ['clientes','reportes','solicitudes','historial'],
+  DIRECTOR:            ['dashboard','clientes','reportes','solicitudes','historial'],
+  AUXILIAR:            ['solicitudes','historial','viaticos'],
+  ALMACEN:             ['proveedores'],
+  OPERACIONES:         ['solicitudes','historial','viaticos'],
+  ENCARGADO_SUCURSAL:  ['solicitudes','historial','viaticos'],
 };
+
+// Página de inicio según rol (se usa en Login y en redirect de acceso denegado)
+const RUTA_INICIO_POR_ROL = {
+  ADMIN:               '/dashboard',
+  DIRECTOR:            '/dashboard',
+  CONTADOR:            '/clientes',
+  AUTORIZADOR_1:       '/solicitudes/nueva',
+  AUTORIZADOR_2:       '/solicitudes/nueva',
+  REVISOR:             '/solicitudes/nueva',
+  TESORERIA:           '/solicitudes/nueva',
+  'D.H.O':             '/revision-viaticos',
+  GERENTE:             '/clientes',
+  AUXILIAR:            '/solicitudes/nueva',
+  ALMACEN:             '/proveedores',
+  OPERACIONES:         '/solicitudes/nueva',
+  ENCARGADO_SUCURSAL:  '/solicitudes/nueva',
+};
+
+export function getPaginaInicio(rol) {
+  const r = (rol || '').trim().toUpperCase();
+  return RUTA_INICIO_POR_ROL[r] || '/solicitudes/nueva';
+}
 
 // ProtectedRoute — espera a que los permisos estén listos antes de evaluar
 const ProtectedRoute = ({ children, modulo }) => {
@@ -93,17 +117,19 @@ const ProtectedRoute = ({ children, modulo }) => {
     </div>
   );
 
+  const inicio = getPaginaInicio(rol);
+
   // 1. Permiso granular explícito → manda siempre
   if (modulo && modulo in permisos) {
     const p = permisos[modulo];
     const puedeVer = typeof p === 'object' ? !!p.ver : !!p;
-    return puedeVer ? children : <Navigate to="/dashboard" replace />;
+    return puedeVer ? children : <Navigate to={inicio} replace />;
   }
 
   // 2. Sin granular → usar tabla de rol base
   if (modulo) {
     const modulosRol = PERMISOS_POR_ROL[rol] || [];
-    if (!modulosRol.includes(modulo)) return <Navigate to="/dashboard" replace />;
+    if (!modulosRol.includes(modulo)) return <Navigate to={inicio} replace />;
   }
 
   return children;

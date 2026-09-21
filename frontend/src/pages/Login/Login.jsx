@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getPaginaInicio } from '../../App';
 import './Login.css';
 
 import logoSacimex from '../../assets/Logo.png';
@@ -83,7 +84,7 @@ function Login() {
         // ------------------------------------------------
 
         setTimeout(() => {
-          navigate('/dashboard');
+          navigate(getPaginaInicio(data.rol));
         }, 800);
       } else {
         setError(data.message || 'Credenciales incorrectas');
