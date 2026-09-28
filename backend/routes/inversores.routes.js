@@ -7,7 +7,7 @@ const PDFDocument = require('pdfkit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const nodemailer = require('nodemailer');
+const { transporter: transportadorSMTP } = require('../utils/mailer');
 
 // Asegurar que el directorio uploads existe
 const uploadDir = path.join(__dirname, '../uploads');
@@ -26,22 +26,6 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage: storage });
-
-// ==========================================
-// CONFIGURACION DE CORREO INSTITUCIONAL (SMTP)
-// ==========================================
-const transportadorSMTP = nodemailer.createTransport({
-    host: 'smtp.gmail.com', 
-    port: 465, 
-    secure: true, 
-    auth: {
-        user: 'ordazruudvan@gmail.com', 
-        pass: 'ejci wnas ugjg yans' 
-    },
-    tls: {
-        rejectUnauthorized: false
-    }
-});
 
 // ==========================================
 // UTILERIAS

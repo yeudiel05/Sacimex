@@ -8,35 +8,7 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
-
-// =====================================================================
-// CONFIGURACION DE NODEMAILER
-// =====================================================================
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-        user: 'ordazruudvan@gmail.com',
-        pass: 'ejci wnas ugjg yans'
-    }
-});
-
-const enviarCorreo = async (destinatario, asunto, mensajeHTML) => {
-    if (!destinatario) return;
-    try {
-        await transporter.sendMail({
-            from: '"Sistema de Recursos" <ordazruudvan@gmail.com>',
-            to: destinatario,
-            subject: asunto,
-            html: mensajeHTML
-        });
-        console.log(`Correo enviado a: ${destinatario}`);
-    } catch (error) {
-        console.error('Error al enviar correo:', error);
-    }
-};
+const { enviarCorreo } = require('../utils/mailer');
 
 const getEmailByRol = (rolBuscado) => {
     return new Promise((resolve) => {

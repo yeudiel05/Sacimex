@@ -7,19 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
-const nodemailer = require('nodemailer');
-
-// ── NODEMAILER (reutiliza la misma config que solicitudes) ─────────────────────
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: 465, secure: true,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-});
-const enviarCorreo = async (to, subject, html) => {
-    if (!to) return;
-    try { await transporter.sendMail({ from: `"Sacimex Viáticos" <${process.env.SMTP_USER}>`, to, subject, html }); }
-    catch (e) { console.error('[Viáticos] Error correo:', e.message); }
-};
+const { enviarCorreo } = require('../utils/mailer');
 
 // ── Niveles fijos de la cadena de viáticos ────────────────────────────────────
 //   0 = Jefe Inmediato   1 = D.H.O.   2 = Tesorería (pago)
@@ -199,6 +187,13 @@ router.get('/pendientes', verificarToken, async (req, res) => {
                 // El propio solicitante siempre ve su solicitud
                 if (sol.id_usuario === req.usuario.id) {
                     sol.me_toca_firmar = false;
+                    filtradas.push(sol);
+                    continue;
+                }
+                // D.H.O. tiene supervisión sobre TODAS las solicitudes pendientes.
+                // Solo puede firmar cuando nivel_actual === 1, pero ve todas desde el inicio.
+                if (req.usuario.rol === 'D.H.O') {
+                    sol.me_toca_firmar = (sol.nivel_actual === 1);
                     filtradas.push(sol);
                     continue;
                 }
