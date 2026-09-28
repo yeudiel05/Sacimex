@@ -501,8 +501,8 @@ router.post('/alertas-correo', verificarToken, autorizarModulo('inversores', ['A
         `;
 
         const opcionesCorreo = {
-            from: '"Sistema de Alertas Sacimex" <ordazruudvan@gmail.com>',
-            to: email, 
+            from: process.env.SMTP_FROM || `"Sistema de Alertas Sacimex" <${process.env.SMTP_USER}>`,
+            to: email,
             subject: `Urgente: Calendario de Pagos Pendientes - Fondeador: ${nombreFondeador}`,
             html: cuerpoCorreo
         };
@@ -1214,8 +1214,8 @@ function procesarAlertasVencimientos(req, res) {
             `;
 
             const opcionesCorreo = {
-                from: '"Sistema de Alertas" <ordazruudvan@gmail.com>',
-                to: 'ordazruudvan@gmail.com', 
+                from: process.env.SMTP_FROM || `"Sistema de Alertas" <${process.env.SMTP_USER}>`,
+                to: process.env.SMTP_ALERTAS_DESTINO || process.env.SMTP_USER,
                 subject: `Alertas de Pago - ${pagosAlerta.length} Vencimientos Proximos`,
                 html: cuerpoCorreo
             };
